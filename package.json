@@ -1,6 +1,7 @@
 {
   "name": "tt-workspace",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@8.14.1",
   "engines": {
