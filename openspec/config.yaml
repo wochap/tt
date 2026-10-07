@@ -1,20 +1,29 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Project: tt, a task + time tracker for power users. Three deliverables, each its own change:
+  core-and-daemon (Rust), server (Rust), web (React PWA).
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Architecture decisions (settled, do not re-litigate):
+  - Data is Automerge CRDT documents. One "workspace" doc per user (projects, tasks, tags) and one
+    "entries" doc per calendar year (time entries). A document is the privacy boundary: users never
+    share a document unless an explicit ACL says so. Entries reference tasks by id only, so renaming
+    a task updates every entry's displayed title.
+  - Several time entries can be running at once. There is no "only one running" invariant anywhere.
+  - Rust workspace. crates/automerge_repo is a fork of /home/gean/Sandboxes/sandbox/fi/crates/automerge_repo.
+    NEVER edit anything under /home/gean/Sandboxes/sandbox/fi; copy out of it only.
+  - Local: `tt daemon` owns the Repo and a SQLite blob store (StorageAdapter), listens on a unix socket.
+    `tt` CLI is a thin client. `tt watch` streams NDJSON domain events; hooks are forked by the daemon
+    with the full event payload on stdin. No polling anywhere.
+  - Wire protocol everywhere is the automerge-repo JS protocol (CBOR messages join/peer/sync/request/
+    unavailable/ephemeral, document ids as bs58check of 16 bytes). The Rust server and daemon both speak
+    it so the browser can be a full offline peer using stock @automerge/automerge-repo.
+  - Server: axum, password login, bearer token on the websocket, per-user document ACL, serves the web app.
+  - Web: React + TypeScript + Tailwind + shadcn/ui + dnd-kit, Repo in a SharedWorker with IndexedDB
+    storage, PWA. Design handoff bundle lives in design/ (Catppuccin Mocha + Latte flavors).
+  - Task short id: per-user monotonic `seq`, never reused. Task states: open | done | archived.
+  - Times stored as UTC seconds, displayed in local tz. Rounding export: round each entry duration
+    up to a grid (default 15m), then flatten so entries no longer overlap (ordered by start,
+    start = max(own start, previous end)); modes up|nearest; grouping per-entry|per-task-day.
+  - Shell commands in this repo are prefixed with `rtk` (see RTK.md). Use conventional commits.
+  - Tests: cargo test for Rust; vitest for web. A task is done when its tests pass.
