@@ -1,0 +1,122 @@
+{
+  "cases": [
+    {
+      "args": [
+        "Fix",
+        "login",
+        "+backend",
+        "+urgent",
+        "@web",
+        "ticket:PROJ-123"
+      ],
+      "expected": {
+        "metadata": {
+          "ticket": "PROJ-123"
+        },
+        "project": "web",
+        "tags": [
+          "backend",
+          "urgent"
+        ],
+        "title": "Fix login"
+      },
+      "name": "spec example"
+    },
+    {
+      "args": [
+        "Fix login PROJ-123",
+        "+backend"
+      ],
+      "expected": {
+        "metadata": {},
+        "project": null,
+        "tags": [
+          "backend"
+        ],
+        "title": "Fix login PROJ-123"
+      },
+      "name": "quoted title stays verbatim"
+    },
+    {
+      "args": [
+        "Deploy",
+        "env=prod",
+        "url:https://example.com/x",
+        "note://skip"
+      ],
+      "expected": {
+        "metadata": {
+          "env": "prod",
+          "url": "https://example.com/x"
+        },
+        "project": null,
+        "tags": [],
+        "title": "Deploy note://skip"
+      },
+      "name": "key=value and url values"
+    },
+    {
+      "args": [
+        "+",
+        "@",
+        "a:",
+        "1x:y",
+        "C++"
+      ],
+      "expected": {
+        "metadata": {},
+        "project": null,
+        "tags": [],
+        "title": "+ @ a: 1x:y C++"
+      },
+      "name": "bare markers are title words"
+    },
+    {
+      "args": [
+        "Plan",
+        "@one",
+        "@two",
+        "+a",
+        "+a"
+      ],
+      "expected": {
+        "metadata": {},
+        "project": "two",
+        "tags": [
+          "a",
+          "a"
+        ],
+        "title": "Plan"
+      },
+      "name": "last project wins"
+    },
+    {
+      "args": [
+        "Read",
+        "doc.id:7",
+        "ticket-no:X-1",
+        "_bad:1"
+      ],
+      "expected": {
+        "metadata": {
+          "doc.id": "7",
+          "ticket-no": "X-1"
+        },
+        "project": null,
+        "tags": [],
+        "title": "Read _bad:1"
+      },
+      "name": "dotted and dashed keys"
+    },
+    {
+      "args": [],
+      "expected": {
+        "metadata": {},
+        "project": null,
+        "tags": [],
+        "title": ""
+      },
+      "name": "empty"
+    }
+  ]
+}

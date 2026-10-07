@@ -8,3 +8,9 @@ RTK.md
 .pi
 .agents
 /target
+node_modules
+web/dist
+web/dev-dist
+web/test-results
+web/playwright-report
+.playwright-mcp

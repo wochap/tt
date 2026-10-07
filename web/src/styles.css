@@ -1,0 +1,443 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/inter";
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Tokens: the design's two Catppuccin flavors (frame 13) as complete sets.
+   `data-theme` on <html> selects one; System is resolved in src/lib/theme.ts.
+   Small text uses --c-muted / --c-faint (≥ 4.5:1 on base and mantle in both
+   flavors); colored small text uses --fg-<color>, which equals the palette
+   color in Mocha and a darkened variant in Latte (see src/lib/contrast.test.ts).
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root,
+[data-theme="mocha"] {
+  color-scheme: dark;
+  --ctp-rosewater: #f5e0dc;
+  --ctp-flamingo: #f2cdcd;
+  --ctp-pink: #f5c2e7;
+  --ctp-mauve: #cba6f7;
+  --ctp-red: #f38ba8;
+  --ctp-maroon: #eba0ac;
+  --ctp-peach: #fab387;
+  --ctp-yellow: #f9e2af;
+  --ctp-green: #a6e3a1;
+  --ctp-teal: #94e2d5;
+  --ctp-sky: #89dceb;
+  --ctp-sapphire: #74c7ec;
+  --ctp-blue: #89b4fa;
+  --ctp-lavender: #b4befe;
+  --c-text: #cdd6f4;
+  --c-sub1: #bac2de;
+  --c-sub0: #a6adc8;
+  --c-ov2: #9399b2;
+  --c-ov1: #7f849c;
+  --c-ov0: #6c7086;
+  --c-s2: #585b70;
+  --c-s1: #45475a;
+  --c-s0: #313244;
+  --c-base: #1e1e2e;
+  --c-mantle: #181825;
+  --c-crust: #11111b;
+  --c-muted: #a6adc8;
+  --c-faint: #9399b2;
+  --c-link: #89b4fa;
+  --color-accent: #89b4fa;
+  --color-accent-2: #b4befe;
+  --color-divider: #45475a;
+  --shadow-sm: 0 0 0 1px #313244;
+  --shadow-md: 0 0 0 1px #45475a, 0 6px 18px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 0 0 1px #585b70, 0 16px 40px rgba(0, 0, 0, 0.6);
+  --swatch-mocha: #1e1e2e;
+  --swatch-mocha-edge: #45475a;
+  --swatch-latte: #eff1f5;
+  --swatch-latte-edge: #ccd0da;
+  --fg-rosewater: var(--ctp-rosewater);
+  --fg-flamingo: var(--ctp-flamingo);
+  --fg-pink: var(--ctp-pink);
+  --fg-mauve: var(--ctp-mauve);
+  --fg-red: var(--ctp-red);
+  --fg-maroon: var(--ctp-maroon);
+  --fg-peach: var(--ctp-peach);
+  --fg-yellow: var(--ctp-yellow);
+  --fg-green: var(--ctp-green);
+  --fg-teal: var(--ctp-teal);
+  --fg-sky: var(--ctp-sky);
+  --fg-sapphire: var(--ctp-sapphire);
+  --fg-blue: var(--ctp-blue);
+  --fg-lavender: var(--ctp-lavender);
+  --fg-neutral: var(--c-ov2);
+}
+
+[data-theme="latte"] {
+  color-scheme: light;
+  --ctp-rosewater: #dc8a78;
+  --ctp-flamingo: #dd7878;
+  --ctp-pink: #ea76cb;
+  --ctp-mauve: #8839ef;
+  --ctp-red: #d20f39;
+  --ctp-maroon: #e64553;
+  --ctp-peach: #fe640b;
+  --ctp-yellow: #df8e1d;
+  --ctp-green: #40a02b;
+  --ctp-teal: #179299;
+  --ctp-sky: #04a5e5;
+  --ctp-sapphire: #209fb5;
+  --ctp-blue: #1e66f5;
+  --ctp-lavender: #7287fd;
+  --c-text: #4c4f69;
+  --c-sub1: #5c5f77;
+  --c-sub0: #6c6f85;
+  --c-ov2: #7c7f93;
+  --c-ov1: #8c8fa1;
+  --c-ov0: #9ca0b0;
+  --c-s2: #acb0be;
+  --c-s1: #bcc0cc;
+  --c-s0: #ccd0da;
+  --c-base: #eff1f5;
+  --c-mantle: #e6e9ef;
+  --c-crust: #dce0e8;
+  --c-muted: #5c5f77;
+  /* The design left faint equal to muted; this is a distinct step that still
+     passes 4.5:1 on base (4.99) and mantle (4.64). */
+  --c-faint: #63667c;
+  --c-link: #1a55cc;
+  --color-accent: #1e66f5;
+  --color-accent-2: #7287fd;
+  --color-divider: #ccd0da;
+  --shadow-sm: 0 0 0 1px #ccd0da;
+  --shadow-md: 0 0 0 1px #bcc0cc, 0 6px 18px rgba(76, 79, 105, 0.14);
+  --shadow-lg: 0 0 0 1px #acb0be, 0 16px 40px rgba(76, 79, 105, 0.2);
+  --swatch-mocha: #1e1e2e;
+  --swatch-mocha-edge: #45475a;
+  --swatch-latte: #eff1f5;
+  --swatch-latte-edge: #ccd0da;
+  --fg-rosewater: #865449;
+  --fg-flamingo: #904e4e;
+  --fg-pink: #8f487c;
+  --fg-mauve: #7430cb;
+  --fg-red: #ae0c2f;
+  --fg-maroon: #a6323c;
+  --fg-peach: #a34007;
+  --fg-yellow: #885712;
+  --fg-green: #2c6d1d;
+  --fg-teal: #11696e;
+  --fg-sky: #02668e;
+  --fg-sapphire: #156977;
+  --fg-blue: #1853c6;
+  --fg-lavender: #4c5aaa;
+  --fg-neutral: var(--c-sub1);
+}
+
+@custom-variant latte (&:where([data-theme="latte"], [data-theme="latte"] *));
+@custom-variant mocha (&:where([data-theme="mocha"], [data-theme="mocha"] *));
+
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-black: #000;
+  --color-white: #fff;
+
+  --color-base: var(--c-base);
+  --color-mantle: var(--c-mantle);
+  --color-crust: var(--c-crust);
+  --color-s0: var(--c-s0);
+  --color-s1: var(--c-s1);
+  --color-s2: var(--c-s2);
+  --color-ov0: var(--c-ov0);
+  --color-ov1: var(--c-ov1);
+  --color-ov2: var(--c-ov2);
+  --color-fg: var(--c-text);
+  --color-sub0: var(--c-sub0);
+  --color-sub1: var(--c-sub1);
+  --color-muted: var(--c-muted);
+  --color-faint: var(--c-faint);
+  --color-link: var(--c-link);
+  --color-accent: var(--color-accent);
+  --color-divider: var(--color-divider);
+
+  --color-rosewater: var(--ctp-rosewater);
+  --color-flamingo: var(--ctp-flamingo);
+  --color-pink: var(--ctp-pink);
+  --color-mauve: var(--ctp-mauve);
+  --color-red: var(--ctp-red);
+  --color-maroon: var(--ctp-maroon);
+  --color-peach: var(--ctp-peach);
+  --color-yellow: var(--ctp-yellow);
+  --color-green: var(--ctp-green);
+  --color-teal: var(--ctp-teal);
+  --color-sky: var(--ctp-sky);
+  --color-sapphire: var(--ctp-sapphire);
+  --color-blue: var(--ctp-blue);
+  --color-lavender: var(--ctp-lavender);
+
+  --color-red-fg: var(--fg-red);
+  --color-peach-fg: var(--fg-peach);
+  --color-yellow-fg: var(--fg-yellow);
+  --color-green-fg: var(--fg-green);
+  --color-mauve-fg: var(--fg-mauve);
+  --color-teal-fg: var(--fg-teal);
+  --color-sapphire-fg: var(--fg-sapphire);
+
+  --font-sans: "Inter Variable", "Inter", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-2: 6px;
+  --radius-md: 8px;
+  --radius-frame: 10px;
+  --radius-lg: 14px;
+  --radius-phone: 28px;
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--c-s0);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--c-base);
+    color: var(--c-text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  }
+  kbd {
+    font: inherit;
+    font-family: var(--font-sans);
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--c-s1);
+    color: var(--c-muted);
+    background: var(--c-base);
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+  kbd.kbd-inherit {
+    color: inherit;
+    border-color: currentColor;
+    background: transparent;
+    opacity: 0.7;
+  }
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer components {
+  /* Repeated structural pieces of the design. */
+  .tt-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--c-muted);
+  }
+  .tt-seg {
+    display: inline-flex;
+    border: 1px solid var(--c-s1);
+    border-radius: var(--radius-2);
+    overflow: hidden;
+    width: max-content;
+  }
+  .tt-seg > [data-seg-item] {
+    color: var(--c-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tt-seg > [data-seg-item] + [data-seg-item] {
+    border-left: 1px solid var(--c-s1);
+  }
+  .tt-seg > [data-seg-item]:hover {
+    background: color-mix(in srgb, var(--c-text) 7%, transparent);
+  }
+  .tt-seg > [data-seg-item][data-state="on"],
+  .tt-seg > [data-seg-item][aria-pressed="true"],
+  .tt-seg > [data-seg-item][aria-checked="true"] {
+    color: var(--c-link);
+    box-shadow: inset 0 0 0 1px var(--color-accent);
+  }
+  .tt-seg > [data-seg-item]:focus-visible {
+    outline-offset: -2px;
+  }
+  .tt-chip-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid var(--c-s1);
+    border-radius: var(--radius-2);
+    color: var(--c-muted);
+  }
+  .tt-chip-btn:hover {
+    border-color: var(--c-s2);
+    color: var(--c-text);
+    background: color-mix(in srgb, var(--c-text) 5%, transparent);
+  }
+  .tt-icon-btn {
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-2);
+    color: var(--c-muted);
+    border: 1px solid var(--c-s1);
+  }
+  .tt-icon-btn:hover:not(:disabled) {
+    color: var(--c-text);
+    background: color-mix(in srgb, var(--c-text) 7%, transparent);
+  }
+  .tt-icon-btn:disabled {
+    color: var(--c-faint);
+    opacity: 0.6;
+  }
+  .tt-input {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+    width: 100%;
+    padding: 0 10px;
+    border: 1px solid var(--c-s1);
+    border-radius: var(--radius-md);
+    background: var(--c-mantle);
+    font-size: 14px;
+    caret-color: var(--color-accent);
+  }
+  .tt-input:hover {
+    border-color: var(--c-s2);
+  }
+  .tt-input:focus,
+  .tt-input:focus-within {
+    border-color: var(--color-accent);
+    outline: none;
+  }
+  .tt-input[aria-invalid="true"] {
+    border-color: var(--ctp-red);
+  }
+  .tt-row-hover:hover {
+    background: color-mix(in srgb, var(--c-text) 5%, transparent);
+  }
+  .tt-row-focus {
+    background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+    box-shadow: inset 2px 0 0 var(--color-accent);
+  }
+  .tt-hatch {
+    background: repeating-linear-gradient(
+      135deg,
+      transparent 0 6px,
+      color-mix(in srgb, var(--c-s0) 50%, transparent) 6px 7px
+    );
+  }
+  .tt-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-s1) transparent;
+  }
+}
+
+/* Markdown preview (task descriptions). */
+.tt-markdown > :first-child {
+  margin-top: 0;
+}
+.tt-markdown > :last-child {
+  margin-bottom: 0;
+}
+.tt-markdown p {
+  margin: 0 0 6px;
+}
+.tt-markdown h1,
+.tt-markdown h2,
+.tt-markdown h3 {
+  margin: 8px 0 4px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.tt-markdown ul,
+.tt-markdown ol {
+  margin: 0 0 6px;
+  padding-left: 16px;
+  color: var(--c-sub1);
+}
+.tt-markdown ul {
+  list-style: disc;
+}
+.tt-markdown ol {
+  list-style: decimal;
+}
+.tt-markdown li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -16px;
+}
+.tt-markdown code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--c-s0);
+  padding: 0 4px;
+  border-radius: var(--radius-xs);
+}
+.tt-markdown pre {
+  background: var(--c-base);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+.tt-markdown pre code {
+  background: none;
+  padding: 0;
+}
+.tt-markdown a {
+  color: var(--c-link);
+  text-decoration: underline;
+}
+.tt-markdown blockquote {
+  border-left: 2px solid var(--c-s1);
+  padding-left: 8px;
+  color: var(--c-muted);
+}

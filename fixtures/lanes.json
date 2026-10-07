@@ -1,0 +1,66 @@
+{
+  "cases": [
+    {
+      "name": "disjoint entries keep a full column",
+      "now": "2026-10-08T13:42:00Z",
+      "items": [
+        { "id": "a", "start": "2026-10-08T08:00:00Z", "end": "2026-10-08T09:00:00Z" },
+        { "id": "b", "start": "2026-10-08T09:00:00Z", "end": "2026-10-08T10:00:00Z" }
+      ],
+      "expected": [
+        { "id": "a", "lane": 0, "lanes": 1 },
+        { "id": "b", "lane": 0, "lanes": 1 }
+      ]
+    },
+    {
+      "name": "three-way overlap splits into thirds",
+      "now": "2026-10-08T13:42:00Z",
+      "items": [
+        { "id": "a", "start": "2026-10-08T08:00:00Z", "end": "2026-10-08T10:00:00Z" },
+        { "id": "b", "start": "2026-10-08T08:30:00Z", "end": "2026-10-08T09:30:00Z" },
+        { "id": "c", "start": "2026-10-08T09:00:00Z", "end": "2026-10-08T11:00:00Z" }
+      ],
+      "expected": [
+        { "id": "a", "lane": 0, "lanes": 3 },
+        { "id": "b", "lane": 1, "lanes": 3 },
+        { "id": "c", "lane": 2, "lanes": 3 }
+      ]
+    },
+    {
+      "name": "a freed lane is reused inside the cluster",
+      "now": "2026-10-08T13:42:00Z",
+      "items": [
+        { "id": "long", "start": "2026-10-08T08:00:00Z", "end": "2026-10-08T12:00:00Z" },
+        { "id": "first", "start": "2026-10-08T08:00:00Z", "end": "2026-10-08T09:00:00Z" },
+        { "id": "second", "start": "2026-10-08T09:30:00Z", "end": "2026-10-08T10:00:00Z" }
+      ],
+      "expected": [
+        { "id": "long", "lane": 0, "lanes": 2 },
+        { "id": "first", "lane": 1, "lanes": 2 },
+        { "id": "second", "lane": 1, "lanes": 2 }
+      ]
+    },
+    {
+      "name": "design day: two running entries extend to now",
+      "now": "2026-10-08T13:42:00Z",
+      "items": [
+        { "id": "39", "start": "2026-10-08T06:30:00Z", "end": "2026-10-08T07:15:00Z" },
+        { "id": "42a", "start": "2026-10-08T07:15:00Z", "end": "2026-10-08T09:40:00Z" },
+        { "id": "41", "start": "2026-10-08T08:05:00Z", "end": "2026-10-08T08:35:00Z" },
+        { "id": "37", "start": "2026-10-08T10:30:00Z", "end": "2026-10-08T12:10:00Z" },
+        { "id": "44a", "start": "2026-10-08T11:00:00Z", "end": "2026-10-08T11:25:00Z" },
+        { "id": "42b", "start": "2026-10-08T12:30:00Z", "end": null },
+        { "id": "44b", "start": "2026-10-08T13:10:00Z", "end": null }
+      ],
+      "expected": [
+        { "id": "39", "lane": 0, "lanes": 1 },
+        { "id": "42a", "lane": 0, "lanes": 2 },
+        { "id": "41", "lane": 1, "lanes": 2 },
+        { "id": "37", "lane": 0, "lanes": 2 },
+        { "id": "44a", "lane": 1, "lanes": 2 },
+        { "id": "42b", "lane": 0, "lanes": 2 },
+        { "id": "44b", "lane": 1, "lanes": 2 }
+      ]
+    }
+  ]
+}

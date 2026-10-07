@@ -1,0 +1,458 @@
+{
+  "cases": [
+    {
+      "expected": 5400,
+      "input": "90",
+      "kind": "duration",
+      "name": "duration 90",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": 900,
+      "input": "15m",
+      "kind": "duration",
+      "name": "duration 15m",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": 5400,
+      "input": "1h30m",
+      "kind": "duration",
+      "name": "duration 1h30m",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": 7200,
+      "input": "2h",
+      "kind": "duration",
+      "name": "duration 2h",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": 45,
+      "input": "45s",
+      "kind": "duration",
+      "name": "duration 45s",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": 86400,
+      "input": "1d",
+      "kind": "duration",
+      "name": "duration 1d",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": 3661,
+      "input": "1h1m1s",
+      "kind": "duration",
+      "name": "duration 1h1m1s",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "error",
+      "input": "",
+      "kind": "duration",
+      "name": "duration ",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "error",
+      "input": "h",
+      "kind": "duration",
+      "name": "duration h",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "error",
+      "input": "1x",
+      "kind": "duration",
+      "name": "duration 1x",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "error",
+      "input": "5m3",
+      "kind": "duration",
+      "name": "duration 5m3",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": -300,
+      "input": "-5",
+      "kind": "duration",
+      "name": "duration -5",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T12:00:00Z",
+      "input": "now",
+      "kind": "time",
+      "name": "time now",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T11:30:00Z",
+      "input": "-30m",
+      "kind": "time",
+      "name": "time -30m",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T13:00:00Z",
+      "input": "+1h",
+      "kind": "time",
+      "name": "time +1h",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T11:00:00Z",
+      "input": "13:00",
+      "kind": "time",
+      "name": "time 13:00",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T07:15:00Z",
+      "input": "9:15",
+      "kind": "time",
+      "name": "time 9:15",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-06T11:00:00Z",
+      "input": "yesterday 13:00",
+      "kind": "time",
+      "name": "time yesterday 13:00",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T07:15:00Z",
+      "input": "today 9:15",
+      "kind": "time",
+      "name": "time today 9:15",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-08T06:00:00Z",
+      "input": "tomorrow 8:00",
+      "kind": "time",
+      "name": "time tomorrow 8:00",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-06T22:00:00Z",
+      "input": "2026-10-07",
+      "kind": "time",
+      "name": "time 2026-10-07",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T11:00:00Z",
+      "input": "2026-10-07 13:00",
+      "kind": "time",
+      "name": "time 2026-10-07 13:00",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T11:00:00Z",
+      "input": "2026-10-07T13:00",
+      "kind": "time",
+      "name": "time 2026-10-07T13:00",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T11:00:30Z",
+      "input": "2026-10-07T13:00:30",
+      "kind": "time",
+      "name": "time 2026-10-07T13:00:30",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T08:00:00Z",
+      "input": "2026-10-07T13:00:00+05:00",
+      "kind": "time",
+      "name": "time 2026-10-07T13:00:00+05:00",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-07T11:00:00Z",
+      "input": "2026-10-07T11:00:00Z",
+      "kind": "time",
+      "name": "time 2026-10-07T11:00:00Z",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-03-29T01:30:00Z",
+      "input": "2026-03-29 02:30",
+      "kind": "time",
+      "name": "time 2026-03-29 02:30",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-25T00:30:00Z",
+      "input": "2026-10-25 02:30",
+      "kind": "time",
+      "name": "time 2026-10-25 02:30",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "error",
+      "input": "25:00",
+      "kind": "time",
+      "name": "time 25:00",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "2026-10-05T22:00:00Z",
+      "input": "yesterday",
+      "kind": "time",
+      "name": "time yesterday",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "error",
+      "input": "next week",
+      "kind": "time",
+      "name": "time next week",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": "error",
+      "input": "a b c",
+      "kind": "time",
+      "name": "time a b c",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": {
+        "from": "2026-10-06T22:00:00Z",
+        "to": "2026-10-07T22:00:00Z"
+      },
+      "input": "today",
+      "kind": "range",
+      "name": "range today",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-10-06T22:00:00Z",
+        "to": "2026-10-07T22:00:00Z"
+      },
+      "input": "day",
+      "kind": "range",
+      "name": "range day",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-10-05T22:00:00Z",
+        "to": "2026-10-06T22:00:00Z"
+      },
+      "input": "yesterday",
+      "kind": "range",
+      "name": "range yesterday",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-10-04T22:00:00Z",
+        "to": "2026-10-11T22:00:00Z"
+      },
+      "input": "week",
+      "kind": "range",
+      "name": "range week",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-09-27T22:00:00Z",
+        "to": "2026-10-04T22:00:00Z"
+      },
+      "input": "lastweek",
+      "kind": "range",
+      "name": "range lastweek",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-09-30T22:00:00Z",
+        "to": "2026-10-31T23:00:00Z"
+      },
+      "input": "month",
+      "kind": "range",
+      "name": "range month",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-08-31T22:00:00Z",
+        "to": "2026-09-30T22:00:00Z"
+      },
+      "input": "lastmonth",
+      "kind": "range",
+      "name": "range lastmonth",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2025-12-31T23:00:00Z",
+        "to": "2026-12-31T23:00:00Z"
+      },
+      "input": "year",
+      "kind": "range",
+      "name": "range year",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-09-30T22:00:00Z",
+        "to": "2026-10-01T22:00:00Z"
+      },
+      "input": "2026-10-01",
+      "kind": "range",
+      "name": "range 2026-10-01",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-09-30T22:00:00Z",
+        "to": "2026-10-03T22:00:00Z"
+      },
+      "input": "2026-10-01..2026-10-03",
+      "kind": "range",
+      "name": "range 2026-10-01..2026-10-03",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-10-01T06:00:00Z",
+        "to": "2026-10-03T16:00:00Z"
+      },
+      "input": "2026-10-01 08:00..2026-10-03 18:00",
+      "kind": "range",
+      "name": "range 2026-10-01 08:00..2026-10-03 18:00",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-10-04T22:00:00Z",
+        "to": "2026-10-07T22:00:00Z"
+      },
+      "input": "2026-10-05..today",
+      "kind": "range",
+      "name": "range 2026-10-05..today",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": "error",
+      "input": "2026-10-07..2026-10-01",
+      "kind": "range",
+      "name": "range 2026-10-07..2026-10-01",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": "error",
+      "input": "nonsense",
+      "kind": "range",
+      "name": "range nonsense",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "mon"
+    },
+    {
+      "expected": {
+        "from": "2026-10-03T22:00:00Z",
+        "to": "2026-10-10T22:00:00Z"
+      },
+      "input": "week",
+      "kind": "range",
+      "name": "range week",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "sun"
+    },
+    {
+      "expected": {
+        "from": "2026-09-25T22:00:00Z",
+        "to": "2026-10-02T22:00:00Z"
+      },
+      "input": "lastweek",
+      "kind": "range",
+      "name": "range lastweek",
+      "now": "2026-10-07T12:00:00Z",
+      "tz": "Europe/Berlin",
+      "week_start": "sat"
+    },
+    {
+      "expected": {
+        "from": "2026-02-01T05:00:00Z",
+        "to": "2026-03-01T05:00:00Z"
+      },
+      "input": "month",
+      "kind": "range",
+      "name": "range month",
+      "now": "2026-03-01T03:00:00Z",
+      "tz": "America/New_York",
+      "week_start": "mon"
+    }
+  ]
+}

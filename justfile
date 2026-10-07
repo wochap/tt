@@ -29,4 +29,18 @@ server db="target/dev-server.db":
 e2e: build
     scripts/e2e.sh
 
-ci: fmt-check lint test interop e2e
+# Web app (node >= 20 + pnpm): lint, typecheck, vitest (domain + web), build to web/dist.
+web:
+    rtk pnpm install --frozen-lockfile
+    rtk pnpm run ci
+
+# Playwright against `tt-server serve --web-dir web/dist` (web/e2e/serve.sh builds both).
+web-e2e:
+    rtk pnpm --filter web e2e
+
+# Serve the built web app from a local dev server.
+web-serve db="target/dev-server.db":
+    rtk pnpm build
+    rtk cargo run -p tt-server -- --db {{db}} serve --insecure-http --listen 127.0.0.1:8080 --web-dir web/dist
+
+ci: fmt-check lint test interop e2e web web-e2e

@@ -21,6 +21,22 @@ tt status          # sync: connected
 
 `contrib/tt-server.service` is a hardened systemd unit for the same setup.
 
+### Web app
+
+The browser client lives in `web/` (see `docs/web.md`). Build it once and
+point `serve` at the bundle:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build                       # writes web/dist
+tt-server --db /var/lib/tt-server/server.db serve \
+    --tls-cert … --tls-key … --web-dir web/dist
+```
+
+Users sign in at `https://tt.example.com/` with the same accounts as
+`tt login`. After the first sign-in the app works offline (service worker +
+IndexedDB) and syncs over `/sync` with the ticket flow below.
+
 ## Commands
 
 All commands take `--db <path>` (or `TT_SERVER_DB`; default `./server.db`).

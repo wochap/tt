@@ -1,0 +1,438 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "from": "2026-09-30T22:00:00Z",
+        "group_by": "task",
+        "groups": [
+          {
+            "entries": 1,
+            "key": "018f0000-0000-7000-8000-0000000000c4",
+            "label": "On-call triage",
+            "seq": 44,
+            "summed": 18000,
+            "wall": 18000
+          },
+          {
+            "entries": 2,
+            "key": "018f0000-0000-7000-8000-0000000000c1",
+            "label": "Fix login redirect loop",
+            "seq": 42,
+            "summed": 14100,
+            "wall": 14100
+          },
+          {
+            "entries": 2,
+            "key": "018f0000-0000-7000-8000-0000000000c2",
+            "label": "Invoice PDF rendering",
+            "seq": 37,
+            "summed": 7200,
+            "wall": 7200
+          },
+          {
+            "entries": 1,
+            "key": "018f0000-0000-7000-8000-0000000000c3",
+            "label": "Weekly planning",
+            "seq": 39,
+            "summed": 2700,
+            "wall": 2700
+          },
+          {
+            "entries": 1,
+            "key": "none",
+            "label": "(deleted task)",
+            "summed": 1800,
+            "wall": 1800
+          }
+        ],
+        "summed": 43800,
+        "to": "2026-10-03T22:00:00Z",
+        "wall": 36600
+      },
+      "group_by": "task",
+      "name": "three days by task",
+      "now": "2026-10-03T16:30:00Z",
+      "range": {
+        "from": "2026-09-30T22:00:00Z",
+        "to": "2026-10-03T22:00:00Z"
+      },
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": {
+        "from": "2026-09-30T22:00:00Z",
+        "group_by": "tag",
+        "groups": [
+          {
+            "entries": 4,
+            "key": "none",
+            "label": "(no tag)",
+            "summed": 27000,
+            "wall": 27000
+          },
+          {
+            "entries": 3,
+            "key": "018f0000-0000-7000-8000-0000000000b2",
+            "label": "urgent",
+            "summed": 16800,
+            "wall": 16800
+          },
+          {
+            "entries": 2,
+            "key": "018f0000-0000-7000-8000-0000000000b1",
+            "label": "backend",
+            "summed": 14100,
+            "wall": 14100
+          }
+        ],
+        "summed": 43800,
+        "to": "2026-10-03T22:00:00Z",
+        "wall": 36600
+      },
+      "group_by": "tag",
+      "name": "three days by tag",
+      "now": "2026-10-03T16:30:00Z",
+      "range": {
+        "from": "2026-09-30T22:00:00Z",
+        "to": "2026-10-03T22:00:00Z"
+      },
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": {
+        "from": "2026-09-30T22:00:00Z",
+        "group_by": "project",
+        "groups": [
+          {
+            "entries": 3,
+            "key": "none",
+            "label": "(no project)",
+            "summed": 22500,
+            "wall": 22500
+          },
+          {
+            "entries": 2,
+            "key": "018f0000-0000-7000-8000-0000000000a1",
+            "label": "Atlas",
+            "summed": 14100,
+            "wall": 14100
+          },
+          {
+            "entries": 2,
+            "key": "018f0000-0000-7000-8000-0000000000a2",
+            "label": "Billing",
+            "summed": 7200,
+            "wall": 7200
+          }
+        ],
+        "summed": 43800,
+        "to": "2026-10-03T22:00:00Z",
+        "wall": 36600
+      },
+      "group_by": "project",
+      "name": "three days by project",
+      "now": "2026-10-03T16:30:00Z",
+      "range": {
+        "from": "2026-09-30T22:00:00Z",
+        "to": "2026-10-03T22:00:00Z"
+      },
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": {
+        "from": "2026-09-30T22:00:00Z",
+        "group_by": "day",
+        "groups": [
+          {
+            "entries": 4,
+            "key": "2026-10-01",
+            "label": "2026-10-01",
+            "summed": 15000,
+            "wall": 13200
+          },
+          {
+            "entries": 2,
+            "key": "2026-10-02",
+            "label": "2026-10-02",
+            "summed": 5400,
+            "wall": 5400
+          },
+          {
+            "entries": 2,
+            "key": "2026-10-03",
+            "label": "2026-10-03",
+            "summed": 23400,
+            "wall": 18000
+          }
+        ],
+        "summed": 43800,
+        "to": "2026-10-03T22:00:00Z",
+        "wall": 36600
+      },
+      "group_by": "day",
+      "name": "three days by day",
+      "now": "2026-10-03T16:30:00Z",
+      "range": {
+        "from": "2026-09-30T22:00:00Z",
+        "to": "2026-10-03T22:00:00Z"
+      },
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": {
+        "from": "2026-10-01T06:00:00Z",
+        "group_by": "task",
+        "groups": [
+          {
+            "entries": 1,
+            "key": "018f0000-0000-7000-8000-0000000000c4",
+            "label": "On-call triage",
+            "seq": 44,
+            "summed": 14400,
+            "wall": 14400
+          },
+          {
+            "entries": 2,
+            "key": "018f0000-0000-7000-8000-0000000000c1",
+            "label": "Fix login redirect loop",
+            "seq": 42,
+            "summed": 12300,
+            "wall": 12300
+          },
+          {
+            "entries": 2,
+            "key": "018f0000-0000-7000-8000-0000000000c2",
+            "label": "Invoice PDF rendering",
+            "seq": 37,
+            "summed": 7200,
+            "wall": 7200
+          },
+          {
+            "entries": 1,
+            "key": "018f0000-0000-7000-8000-0000000000c3",
+            "label": "Weekly planning",
+            "seq": 39,
+            "summed": 2700,
+            "wall": 2700
+          },
+          {
+            "entries": 1,
+            "key": "none",
+            "label": "(deleted task)",
+            "summed": 1800,
+            "wall": 1800
+          }
+        ],
+        "summed": 38400,
+        "to": "2026-10-03T16:00:00Z",
+        "wall": 33000
+      },
+      "group_by": "task",
+      "name": "custom range with times clips entries (2026-10-01 08:00 .. 2026-10-03 18:00 Berlin)",
+      "now": "2026-10-03T16:30:00Z",
+      "range": {
+        "from": "2026-10-01T06:00:00Z",
+        "to": "2026-10-03T16:00:00Z"
+      },
+      "tz": "Europe/Berlin"
+    },
+    {
+      "expected": {
+        "from": "2026-10-03T15:30:00Z",
+        "group_by": "project",
+        "groups": [
+          {
+            "entries": 1,
+            "key": "none",
+            "label": "(no project)",
+            "summed": 5400,
+            "wall": 5400
+          },
+          {
+            "entries": 1,
+            "key": "018f0000-0000-7000-8000-0000000000a1",
+            "label": "Atlas",
+            "summed": 3600,
+            "wall": 3600
+          }
+        ],
+        "summed": 9000,
+        "to": "2026-10-04T00:00:00Z",
+        "wall": 5400
+      },
+      "group_by": "project",
+      "name": "running entry counts up to now",
+      "now": "2026-10-03T16:30:00Z",
+      "range": {
+        "from": "2026-10-03T15:30:00Z",
+        "to": "2026-10-04T00:00:00Z"
+      },
+      "tz": "UTC"
+    },
+    {
+      "expected": {
+        "from": "2026-11-01T00:00:00Z",
+        "group_by": "task",
+        "groups": [],
+        "summed": 0,
+        "to": "2026-11-02T00:00:00Z",
+        "wall": 0
+      },
+      "group_by": "task",
+      "name": "empty range",
+      "now": "2026-10-03T16:30:00Z",
+      "range": {
+        "from": "2026-11-01T00:00:00Z",
+        "to": "2026-11-02T00:00:00Z"
+      },
+      "tz": "UTC"
+    }
+  ],
+  "view": {
+    "entries": [
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "end": "2026-10-01T07:15:00Z",
+        "id": "00000000-0000-4000-8000-000000000001",
+        "start": "2026-10-01T06:30:00Z",
+        "task": "018f0000-0000-7000-8000-0000000000c3",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "end": "2026-10-01T09:40:00Z",
+        "id": "00000000-0000-4000-8000-000000000002",
+        "note": "repro + fix",
+        "start": "2026-10-01T07:15:00Z",
+        "task": "018f0000-0000-7000-8000-0000000000c1",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "end": "2026-10-01T08:35:00Z",
+        "id": "00000000-0000-4000-8000-000000000003",
+        "start": "2026-10-01T08:05:00Z",
+        "task": "018f0000-0000-7000-8000-0000000000c2",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "end": "2026-10-01T23:00:00Z",
+        "id": "00000000-0000-4000-8000-000000000004",
+        "start": "2026-10-01T21:30:00Z",
+        "task": "018f0000-0000-7000-8000-0000000000c2",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "end": "2026-10-02T10:30:00Z",
+        "id": "00000000-0000-4000-8000-000000000005",
+        "start": "2026-10-02T10:00:00Z",
+        "task": "018f0000-0000-7000-8000-0000000000ff",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "end": "2026-10-03T17:00:00Z",
+        "id": "00000000-0000-4000-8000-000000000006",
+        "start": "2026-10-03T12:00:00Z",
+        "task": "018f0000-0000-7000-8000-0000000000c4",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "end": null,
+        "id": "00000000-0000-4000-8000-000000000007",
+        "start": "2026-10-03T15:00:00Z",
+        "task": "018f0000-0000-7000-8000-0000000000c1",
+        "updated": "2026-09-01T00:00:00Z"
+      }
+    ],
+    "projects": [
+      {
+        "archived": false,
+        "color": "mauve",
+        "created": "2026-09-01T00:00:00Z",
+        "id": "018f0000-0000-7000-8000-0000000000a1",
+        "name": "Atlas",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "archived": false,
+        "created": "2026-09-01T00:00:00Z",
+        "id": "018f0000-0000-7000-8000-0000000000a2",
+        "name": "Billing",
+        "updated": "2026-09-01T00:00:00Z"
+      }
+    ],
+    "tags": [
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "id": "018f0000-0000-7000-8000-0000000000b1",
+        "name": "backend",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "id": "018f0000-0000-7000-8000-0000000000b2",
+        "name": "urgent",
+        "updated": "2026-09-01T00:00:00Z"
+      }
+    ],
+    "tasks": [
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "description": "",
+        "id": "018f0000-0000-7000-8000-0000000000c1",
+        "metadata": {
+          "ticket": "PROJ-123"
+        },
+        "project": "018f0000-0000-7000-8000-0000000000a1",
+        "seq": 42,
+        "state": "open",
+        "tags": [
+          "018f0000-0000-7000-8000-0000000000b1",
+          "018f0000-0000-7000-8000-0000000000b2"
+        ],
+        "title": "Fix login redirect loop",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "description": "",
+        "id": "018f0000-0000-7000-8000-0000000000c2",
+        "metadata": {},
+        "project": "018f0000-0000-7000-8000-0000000000a2",
+        "seq": 37,
+        "state": "open",
+        "tags": [],
+        "title": "Invoice PDF rendering",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "description": "",
+        "id": "018f0000-0000-7000-8000-0000000000c3",
+        "metadata": {},
+        "seq": 39,
+        "state": "done",
+        "tags": [
+          "018f0000-0000-7000-8000-0000000000b2"
+        ],
+        "title": "Weekly planning",
+        "updated": "2026-09-01T00:00:00Z"
+      },
+      {
+        "created": "2026-09-01T00:00:00Z",
+        "description": "",
+        "id": "018f0000-0000-7000-8000-0000000000c4",
+        "metadata": {},
+        "seq": 44,
+        "state": "open",
+        "tags": [],
+        "title": "On-call triage",
+        "updated": "2026-09-01T00:00:00Z"
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" data-theme="mocha">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#181825" />
+    <meta name="description" content="tt — offline-first time tracking" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <title>tt</title>
+    <script>
+      // Apply the stored theme before first paint (no flash).
+      try {
+        const t = JSON.parse(localStorage.getItem("tt.settings") || "{}").theme || "system";
+        const dark = t === "mocha" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "mocha" : "latte";
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
