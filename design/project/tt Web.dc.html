@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/nocturne-53929d40-05df-499c-bc14-17884e999fc5/styles.css">
+<script src="_ds/nocturne-53929d40-05df-499c-bc14-17884e999fc5/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:#11111b;font-family:"Inter",system-ui,sans-serif;font-size:13px;line-height:1.4}
+a{color:#89b4fa}a:hover{color:#b4befe}
+kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid var(--c-s1);color:var(--c-sub0);background:var(--c-base);line-height:1.3}
+/* Catppuccin flavors mapped onto Nocturne's token names. Accent = blue. */
+.ctp-mocha{--ctp-rosewater:#f5e0dc;--ctp-flamingo:#f2cdcd;--ctp-pink:#f5c2e7;--ctp-mauve:#cba6f7;--ctp-red:#f38ba8;--ctp-maroon:#eba0ac;--ctp-peach:#fab387;--ctp-yellow:#f9e2af;--ctp-green:#a6e3a1;--ctp-teal:#94e2d5;--ctp-sky:#89dceb;--ctp-sapphire:#74c7ec;--ctp-blue:#89b4fa;--ctp-lavender:#b4befe;--c-text:#cdd6f4;--c-sub1:#bac2de;--c-sub0:#a6adc8;--c-ov2:#9399b2;--c-ov1:#7f849c;--c-ov0:#6c7086;--c-s2:#585b70;--c-s1:#45475a;--c-s0:#313244;--c-base:#1e1e2e;--c-mantle:#181825;--c-crust:#11111b;--color-bg:#1e1e2e;--color-surface:#313244;--color-text:#cdd6f4;--color-accent:#89b4fa;--color-accent-2:#b4befe;--color-divider:#45475a;--color-accent-800:#2b3d5c;--color-accent-100:#cfe0ff;--color-neutral-800:#45475a;--color-neutral-100:#cdd6f4;--shadow-sm:0 0 0 1px #313244;--shadow-md:0 0 0 1px #45475a,0 6px 18px rgba(0,0,0,.5);--shadow-lg:0 0 0 1px #585b70,0 16px 40px rgba(0,0,0,.6);color:var(--c-text)}
+.ctp-latte{--ctp-rosewater:#dc8a78;--ctp-flamingo:#dd7878;--ctp-pink:#ea76cb;--ctp-mauve:#8839ef;--ctp-red:#d20f39;--ctp-maroon:#e64553;--ctp-peach:#fe640b;--ctp-yellow:#df8e1d;--ctp-green:#40a02b;--ctp-teal:#179299;--ctp-sky:#04a5e5;--ctp-sapphire:#209fb5;--ctp-blue:#1e66f5;--ctp-lavender:#7287fd;--c-text:#4c4f69;--c-sub1:#5c5f77;--c-sub0:#6c6f85;--c-ov2:#7c7f93;--c-ov1:#8c8fa1;--c-ov0:#9ca0b0;--c-s2:#acb0be;--c-s1:#bcc0cc;--c-s0:#ccd0da;--c-base:#eff1f5;--c-mantle:#e6e9ef;--c-crust:#dce0e8;--color-bg:#eff1f5;--color-surface:#e6e9ef;--color-text:#4c4f69;--color-accent:#1e66f5;--color-accent-2:#7287fd;--color-divider:#ccd0da;--color-accent-800:#d6e2fd;--color-accent-100:#1e66f5;--color-neutral-800:#ccd0da;--color-neutral-100:#4c4f69;--shadow-sm:0 0 0 1px #ccd0da;--shadow-md:0 0 0 1px #bcc0cc,0 6px 18px rgba(76,79,105,.14);--shadow-lg:0 0 0 1px #acb0be,0 16px 40px rgba(76,79,105,.2);color:var(--c-text)}
+</style>
+</helmet>
+
+<div style="padding:40px 44px 80px;display:flex;flex-direction:column;gap:28px;color:#cdd6f4">
+  <div style="max-width:880px;display:flex;flex-direction:column;gap:10px">
+    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#89b4fa">tt · web frontend · turn 1</div>
+    <h1 style="font-size:28px;margin:0;font-weight:500;letter-spacing:-.02em">Timeline, entry sheet, task list — Catppuccin Mocha / Latte</h1>
+    <p style="margin:0;color:#a6adc8;font-size:13px;line-height:1.55;text-wrap:pretty"><strong style="color:#cdd6f4;font-weight:500">Assumptions.</strong> Nocturne supplies type (Inter 500 headings), 8px radii, 0.7× density and outlined primaries; every color is a Catppuccin token with <span style="color:#89b4fa">blue</span> as the accent. Entry color: project first (Atlas=mauve, Billing=peach, Infra=teal), tag second (urgent=red, meeting=yellow, review=sapphire, ops=green), neutral otherwise. Running entries are drawn to a live "now" edge with a dashed bottom and a pulse dot; concurrent entries split the column into lanes, never stack. Fictional day: Thu 8 Oct 2026, 15:42, two entries running. Shortcuts shown inline as <kbd style="--c-s1:#45475a;--c-sub0:#a6adc8;--c-base:#1e1e2e">J</kbd>-style hints so the keyboard model is visible in the UI.</p>
+    <p style="margin:0;color:#a6adc8;font-size:13px;line-height:1.55;text-wrap:pretty"><strong style="color:#cdd6f4;font-weight:500">shadcn/ui map.</strong> Top bar → <code>NavigationMenu</code>; view switcher &amp; snap → <code>ToggleGroup</code>; date jump → <code>Popover + Calendar</code>; running strip chips → <code>Badge + Button</code>; entry sheet → <code>Sheet</code>; task picker → <code>Command</code> (also powers ⌘K); start/end → <code>Input</code> + <code>Popover</code>; note → <code>Textarea</code>; tags → <code>Badge</code> variants; filters → <code>DropdownMenu</code> with checkbox items; task table → <code>Table</code>; undo → <code>Sonner</code> toast; sync state → <code>Tooltip</code> on a dot; theme → shadcn CSS variables remapped to the Catppuccin flavor.</p>
+    <p style="margin:0;color:#6c7086;font-size:12px">Left column Mocha, right column Latte. Turn 2 (login, ⌘K, settings, task detail, reports, phone) sits above turn 1 (day, week, month, sheet, tasks). Drag spec below.</p>
+  </div>
+
+  <!-- ═══════ DRAG SPEC ═══════ -->
+  <div class="ctp-mocha" style="display:grid;grid-template-columns:repeat(4,300px);gap:20px;align-items:start">
+    <div style="grid-column:1/-1;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#89b4fa">Interaction spec · dnd-kit</div>
+    <div style="background:var(--c-mantle);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm)">
+      <div style="font-size:14px;font-weight:500">Create</div>
+      <div style="position:relative;height:110px;background:var(--c-base);border-radius:6px;overflow:hidden"><div style="position:absolute;inset:0;background:repeating-linear-gradient(to bottom,var(--c-s0) 0 1px,transparent 1px 22px)"></div><div style="position:absolute;left:44px;right:12px;top:22px;height:66px;border:1px dashed var(--color-accent);border-radius:5px;background:color-mix(in srgb,var(--color-accent) 8%,transparent);display:flex;align-items:flex-end;padding:0 0 4px 6px;font-size:10px;color:var(--color-accent);font-family:ui-monospace,Menlo,monospace">17:30 – 18:15 · 45m</div><span style="position:absolute;left:6px;top:16px;font-size:9.5px;color:var(--c-ov1);font-family:ui-monospace,Menlo,monospace">17:30</span><span style="position:absolute;left:6px;top:82px;font-size:9.5px;color:var(--c-ov1);font-family:ui-monospace,Menlo,monospace">18:15</span></div>
+      <ul style="margin:0;padding-left:14px;font-size:12px;line-height:1.5;color:var(--c-sub1)"><li>Pointer down on empty space ≥ 4px move starts a ghost; start snaps down, end snaps up to the grid.</li><li>Live label shows range + duration; dragging upward flips anchor.</li><li>Release opens the task picker (Command) anchored to the ghost; <kbd>Esc</kbd> discards; pick creates the entry; <kbd>⌘⏎</kbd> picks and keeps it running if end = now.</li><li>Below 5 min the ghost is discarded (click, not drag).</li></ul>
+    </div>
+    <div style="background:var(--c-mantle);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm)">
+      <div style="font-size:14px;font-weight:500">Move</div>
+      <div style="position:relative;height:110px;background:var(--c-base);border-radius:6px;overflow:hidden"><div style="position:absolute;inset:0;background:repeating-linear-gradient(to bottom,var(--c-s0) 0 1px,transparent 1px 22px)"></div><div style="position:absolute;left:44px;right:12px;top:11px;height:44px;border-radius:5px;border:1px dashed var(--c-s2);opacity:.7"></div><div style="position:absolute;left:44px;right:12px;top:44px;height:44px;border-radius:5px;background:color-mix(in srgb,var(--ctp-mauve) 22%,var(--c-base));border-left:3px solid var(--ctp-mauve);box-shadow:var(--shadow-md);padding:4px 7px;font-size:10.5px;font-weight:500;cursor:grabbing">Fix login redirect loop<div style="font-size:9.5px;color:var(--c-sub0);font-family:ui-monospace,Menlo,monospace;font-weight:400">10:30 – 11:15 <span style="color:var(--ctp-peach)">+30m</span></div></div></div>
+      <ul style="margin:0;padding-left:14px;font-size:12px;line-height:1.5;color:var(--c-sub1)"><li>Drag body: duration fixed, start snaps to grid; a ghost stays at the origin until drop.</li><li>Delta badge (+30m) on the moving block; cross-column drag in week view changes the day.</li><li>Hold <kbd>⌥</kbd> for free positioning (1 min), <kbd>⇧</kbd> to lock to the column.</li><li>Running entries can move their start only; end stays "now".</li><li>Drop = one undoable op; <kbd>⌘Z</kbd> restores exactly.</li></ul>
+    </div>
+    <div style="background:var(--c-mantle);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm)">
+      <div style="font-size:14px;font-weight:500">Resize</div>
+      <div style="position:relative;height:110px;background:var(--c-base);border-radius:6px;overflow:hidden"><div style="position:absolute;inset:0;background:repeating-linear-gradient(to bottom,var(--c-s0) 0 1px,transparent 1px 22px)"></div><div style="position:absolute;left:44px;right:12px;top:22px;height:66px;border-radius:5px;background:color-mix(in srgb,var(--ctp-peach) 22%,var(--c-base));border-left:3px solid var(--ctp-peach);padding:4px 7px;font-size:10.5px;font-weight:500">Invoice PDF rendering</div><div style="position:absolute;left:44px;right:12px;top:84px;height:8px;border-radius:0 0 5px 5px;background:color-mix(in srgb,var(--ctp-peach) 45%,transparent);cursor:ns-resize"></div><span style="position:absolute;left:44px;right:12px;top:88px;border-top:1px solid var(--color-accent)"></span><span style="position:absolute;right:16px;top:92px;font-size:9.5px;color:var(--color-accent);font-family:ui-monospace,Menlo,monospace">14:15 · 1h 45m</span></div>
+      <ul style="margin:0;padding-left:14px;font-size:12px;line-height:1.5;color:var(--c-sub1)"><li>8px handles at top and bottom edges (hit area extends 3px outside the block, hover tints the edge).</li><li>Top handle moves start, bottom moves end; the opposite edge is pinned.</li><li>Min duration = one grid step; snap unless <kbd>⌥</kbd>.</li><li>Bottom handle on a running entry stops it at the dropped time.</li><li>Overlap created by resizing simply re-lanes neighbours live.</li></ul>
+    </div>
+    <div style="background:var(--c-mantle);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm)">
+      <div style="font-size:14px;font-weight:500">Re-link &amp; lanes</div>
+      <div style="position:relative;height:110px;background:var(--c-base);border-radius:6px;overflow:hidden;display:flex"><div style="flex:1;position:relative"><div style="position:absolute;left:8px;width:46%;top:14px;height:70px;border-radius:5px;background:color-mix(in srgb,var(--ctp-mauve) 22%,var(--c-base));border-left:3px solid var(--ctp-mauve)"></div><div style="position:absolute;left:52%;right:8px;top:36px;height:30px;border-radius:5px;background:color-mix(in srgb,var(--ctp-teal) 22%,var(--c-base));border-left:3px solid var(--ctp-teal)"></div><span style="position:absolute;left:8px;bottom:4px;font-size:9.5px;color:var(--c-ov1)">lanes split the column</span></div><div style="width:120px;border-left:1px solid var(--c-s0);background:var(--c-mantle);padding:8px 6px;display:flex;flex-direction:column;gap:4px;font-size:10px"><span style="padding:4px 6px;color:var(--c-sub0)">#44 On-call</span><span style="padding:4px 6px;border-radius:5px;color:var(--c-text);background:color-mix(in srgb,var(--color-accent) 12%,transparent);box-shadow:inset 0 0 0 1px var(--color-accent)">#37 Invoice PDF</span><span style="padding:4px 6px;color:var(--c-sub0)">#41 Review PR</span></div></div>
+      <ul style="margin:0;padding-left:14px;font-size:12px;line-height:1.5;color:var(--c-sub1)"><li>Drag a block over the side panel: panel rows become drop targets; the hovered row rings in accent; drop re-links, times unchanged.</li><li>Overlap: entries are grouped into clusters; each cluster splits its column into N equal lanes with a 3px gutter. Never stacked, never hidden, never auto-shortened.</li><li>Two running entries each carry their own dashed live edge and elapsed counter, plus distinct chips in the running strip.</li></ul>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:48px;align-items:flex-start">
+  <sc-for list="{{ themes }}" as="t" hint-placeholder-count="2">
+  <div class="{{ t.cls }}" style="display:flex;flex-direction:column;gap:32px;flex:none">
+
+    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#89b4fa;padding-bottom:4px;border-bottom:1px solid #313244">Turn 2 · login, palette, settings, task detail, reports, phone</div>
+
+    <!-- ═══════ ROW: LOGIN + PALETTE + SETTINGS ═══════ -->
+    <div style="display:flex;gap:32px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">6 · login</span>Login · {{ t.name }} · 560×640</div>
+        <div data-screen-label="Login {{ t.name }}" style="width:560px;height:640px;background:var(--c-base);color:var(--c-text);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:0 72px;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 20px 60px rgba(0,0,0,.4);font-size:13px;gap:22px">
+          <div><div style="font-weight:600;font-size:26px;letter-spacing:-.03em;color:var(--color-accent)">tt</div><div style="font-size:13px;color:var(--c-sub0);margin-top:2px">Sign in once. Works offline after that.</div></div>
+          <div style="display:flex;flex-direction:column;gap:12px;width:100%">
+            <div class="field"><label>Username</label><div style="display:flex;align-items:center;min-height:36px;padding:0 10px;border:1px solid var(--c-s1);border-radius:8px;background:var(--c-mantle);font-size:14px">mara</div></div>
+            <div class="field"><label>Password</label><div style="display:flex;align-items:center;justify-content:space-between;min-height:36px;padding:0 10px;border:1px solid var(--color-accent);border-radius:8px;background:var(--c-mantle);font-size:14px;letter-spacing:.2em">••••••••••<span style="font-size:11px;letter-spacing:0;color:var(--c-ov1)">show</span></div></div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--c-sub1)"><span style="width:14px;height:14px;border-radius:4px;border:1px solid var(--color-accent);background:color-mix(in srgb,var(--color-accent) 20%,transparent);display:flex;align-items:center;justify-content:center;color:var(--color-accent);font-size:10px">✓</span>Stay signed in on this device</div>
+          </div>
+          <span class="btn btn-primary" style="font-size:14px;padding:8px 18px;gap:10px">Sign in <kbd style="color:inherit;border-color:currentColor;opacity:.7">⏎</kbd></span>
+          <div style="font-size:11.5px;color:var(--c-ov1);display:flex;flex-direction:column;gap:3px"><span>Server <span style="font-family:ui-monospace,Menlo,monospace;color:var(--c-sub0)">https://tt.example.net</span> · <span style="color:var(--color-accent)">change</span></span><span>Your data is stored on this device and synced to the server when online.</span></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">7 · palette</span>Command palette ⌘K · {{ t.name }} · 640 wide</div>
+        <div data-screen-label="Palette {{ t.name }}" style="width:640px;height:640px;background:color-mix(in srgb,var(--c-crust) 70%,transparent);border-radius:10px;overflow:hidden;display:flex;justify-content:center;align-items:flex-start;padding-top:72px;box-shadow:0 0 0 1px rgba(255,255,255,.06);font-size:13px;color:var(--c-text)">
+          <div style="width:560px;background:var(--c-mantle);border-radius:10px;box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;gap:10px;height:46px;padding:0 14px;border-bottom:1px solid var(--c-s0);font-size:15px"><span style="color:var(--c-ov1)">›</span><span style="flex:1;display:flex;align-items:center;gap:1px">fix<span style="width:1px;height:18px;background:var(--color-accent)"></span></span><kbd>Esc</kbd></div>
+            <div style="padding:6px;display:flex;flex-direction:column;gap:1px">
+              <sc-for list="{{ palette }}" as="p" hint-placeholder-count="7">
+                <div style="{{ p.rowStyle }}">
+                  <span style="width:38px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--c-ov1);flex:none">{{ p.k }}</span>
+                  <span style="{{ p.dotStyle }}"></span>
+                  <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.label }}</span>
+                  <span style="font-size:11px;color:var(--c-ov1);flex:none">{{ p.hint }}</span>
+                  <kbd style="min-width:18px;text-align:center">{{ p.kbd }}</kbd>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--c-s0);font-size:11px;color:var(--c-ov1)"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>⏎</kbd> run</span><span><kbd>⌘⏎</kbd> start &amp; open</span><span style="margin-left:auto">fuzzy over titles, tags, metadata</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">8 · settings</span>Settings · {{ t.name }} · 1008×640</div>
+        <div data-screen-label="Settings {{ t.name }}" style="width:1008px;height:640px;background:var(--c-base);color:var(--c-text);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+          <div style="height:44px;flex:none;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid var(--c-s0);background:var(--c-mantle)"><div style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--color-accent)">tt</div><div style="display:flex;gap:2px;font-size:13px"><span style="padding:5px 9px;color:var(--c-sub0)">Timeline</span><span style="padding:5px 9px;color:var(--c-sub0)">Tasks</span><span style="padding:5px 9px;color:var(--c-sub0)">Reports</span><span style="padding:5px 9px;border-radius:6px;background:var(--c-s0);color:var(--c-text)">Settings</span></div></div>
+          <div style="flex:1;display:flex;min-height:0">
+            <div style="width:200px;flex:none;border-right:1px solid var(--c-s0);padding:14px 10px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:var(--c-sub0)"><span style="padding:6px 10px;border-radius:6px;background:var(--c-s0);color:var(--c-text)">General</span><span style="padding:6px 10px">Timeline</span><span style="padding:6px 10px">Sync</span><span style="padding:6px 10px">Shortcuts</span><span style="padding:6px 10px">Account</span></div>
+            <div style="flex:1;padding:18px 28px;display:flex;flex-direction:column;gap:18px;max-width:600px">
+              <div style="display:grid;grid-template-columns:180px 1fr;gap:14px 20px;align-items:center;font-size:13px">
+                <span style="color:var(--c-sub1)">Server endpoint</span><div style="display:flex;align-items:center;justify-content:space-between;min-height:34px;padding:0 10px;border:1px solid var(--c-s1);border-radius:8px;background:var(--c-mantle);font-family:ui-monospace,Menlo,monospace;font-size:12.5px">https://tt.example.net<span style="font-size:11px;color:var(--ctp-green);font-family:Inter,system-ui,sans-serif">reachable</span></div>
+                <span style="color:var(--c-sub1)">Week starts on</span><div style="display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden;font-size:12px;width:max-content"><span style="padding:5px 12px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent)">Monday</span><span style="padding:5px 12px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">Sunday</span><span style="padding:5px 12px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">Saturday</span></div>
+                <span style="color:var(--c-sub1)">Default snap grid</span><div style="display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden;font-size:12px;width:max-content"><span style="padding:5px 12px;color:var(--c-sub0)">5 min</span><span style="padding:5px 12px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">10 min</span><span style="padding:5px 12px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);border-left:1px solid var(--c-s1)">15 min</span></div>
+                <span style="color:var(--c-sub1)">Time zone</span><div style="display:flex;align-items:center;justify-content:space-between;min-height:34px;padding:0 10px;border:1px solid var(--c-s1);border-radius:8px;background:var(--c-mantle)">Europe/Berlin <span style="color:var(--c-ov1)">UTC+2 · ⌄</span></div>
+                <span style="color:var(--c-sub1)">Theme</span><div style="display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden;font-size:12px;width:max-content"><span style="padding:5px 12px;color:var(--c-sub0)">System</span><span style="padding:5px 12px;color:var(--c-sub0);border-left:1px solid var(--c-s1);display:flex;gap:6px;align-items:center"><span style="width:10px;height:10px;border-radius:50%;background:#eff1f5;border:1px solid #ccd0da"></span>Latte</span><span style="padding:5px 12px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);border-left:1px solid var(--c-s1);display:flex;gap:6px;align-items:center"><span style="width:10px;height:10px;border-radius:50%;background:#1e1e2e;border:1px solid #45475a"></span>Mocha</span></div>
+                <span style="color:var(--c-sub1)">Visible hours</span><div style="display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums"><span style="padding:5px 10px;border:1px solid var(--c-s1);border-radius:7px;background:var(--c-mantle)">07:00</span><span style="color:var(--c-ov1)">to</span><span style="padding:5px 10px;border:1px solid var(--c-s1);border-radius:7px;background:var(--c-mantle)">19:00</span><span style="font-size:11.5px;color:var(--c-ov1)">entries outside still render</span></div>
+              </div>
+              <div style="margin-top:auto;padding-top:16px;border-top:1px solid var(--c-s0);display:flex;align-items:center;gap:14px"><span class="btn btn-ghost" style="color:var(--ctp-red);font-size:13px;padding-inline:8px">Log out and wipe local data</span><span style="font-size:11.5px;color:var(--c-ov1)">Removes 1,206 entries from this device. Unsynced changes (0) would be lost.</span></div>
+            </div>
+          </div>
+          <div style="height:24px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-ov1)"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Synced</span><span>Changes save instantly · no save button</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ ROW: TASK DETAIL + REPORTS ═══════ -->
+    <div style="display:flex;gap:32px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">9 · task</span>Task detail · {{ t.name }} · 760×900</div>
+        <div data-screen-label="Task detail {{ t.name }}" style="width:760px;height:900px;background:var(--c-base);color:var(--c-text);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+          <div style="height:44px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--c-s0);background:var(--c-mantle);font-size:12.5px;color:var(--c-sub0)"><span style="color:var(--color-accent)">‹ Tasks</span><span style="color:var(--c-ov0)">/</span><span style="font-family:ui-monospace,Menlo,monospace">#42</span><span style="margin-left:auto;display:flex;gap:6px;align-items:center"><kbd>J</kbd><kbd>K</kbd> prev / next task</span></div>
+          <div style="flex:1;overflow:hidden;padding:18px 22px;display:flex;flex-direction:column;gap:18px">
+            <div style="display:flex;align-items:flex-start;gap:12px">
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+                <div style="font-size:22px;font-weight:500;letter-spacing:-.02em;line-height:1.2;padding:2px 0;border-bottom:1px dashed transparent">Fix login redirect loop</div>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px">
+                  <span style="display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:6px;background:color-mix(in srgb,var(--ctp-mauve) 18%,var(--c-base));color:var(--ctp-mauve)"><span style="width:7px;height:7px;border-radius:2px;background:var(--ctp-mauve)"></span>Atlas</span>
+                  <span style="padding:3px 9px;border-radius:6px;background:var(--c-s0);color:var(--c-sub1)">backend</span>
+                  <span style="padding:3px 9px;border-radius:6px;background:color-mix(in srgb,var(--ctp-red) 20%,var(--c-base));color:var(--ctp-red)">urgent</span>
+                  <span style="padding:3px 9px;border-radius:6px;border:1px dashed var(--c-s2);color:var(--c-ov1)">+ tag</span>
+                  <span style="margin-left:auto;display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden"><span style="padding:3px 10px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent)">Open</span><span style="padding:3px 10px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">Done</span><span style="padding:3px 10px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">Archive</span></span>
+                </div>
+              </div>
+              <span class="btn btn-primary" style="font-size:13px;gap:8px;flex:none;color:var(--ctp-green);border-color:var(--ctp-green)"><span style="width:8px;height:8px;background:currentColor;border-radius:1.5px"></span>Stop 1:12:08</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0)">Metadata</div>
+                <div style="display:grid;grid-template-columns:90px 1fr;gap:1px;border:1px solid var(--c-s1);border-radius:8px;overflow:hidden;background:var(--c-s1);font-size:12.5px;font-family:ui-monospace,Menlo,monospace">
+                  <span style="padding:6px 10px;background:var(--c-mantle);color:var(--c-sub0)">ticket</span><span style="padding:6px 10px;background:var(--c-base)">PROJ-123</span>
+                  <span style="padding:6px 10px;background:var(--c-mantle);color:var(--c-sub0)">url</span><span style="padding:6px 10px;background:var(--c-base);color:var(--color-accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">https://jira.example.net/PROJ-123</span>
+                  <span style="padding:6px 10px;background:var(--c-mantle);color:var(--c-sub0)">branch</span><span style="padding:6px 10px;background:var(--c-base)">fix/login-loop</span>
+                  <span style="padding:6px 10px;background:var(--c-mantle);color:var(--c-ov0)">key</span><span style="padding:6px 10px;background:var(--c-base);color:var(--c-ov0);font-family:Inter,system-ui,sans-serif">value · <kbd>⏎</kbd> adds a row</span>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0)"><span>Description</span><span style="display:inline-flex;text-transform:none;letter-spacing:0;font-size:11px"><span style="color:var(--c-ov1);padding:0 6px">Edit</span><span style="color:var(--color-accent);padding:0 6px;border-left:1px solid var(--c-s1)">Preview</span></span></div>
+                <div style="border:1px solid var(--c-s1);border-radius:8px;padding:10px 12px;background:var(--c-mantle);font-size:12.5px;line-height:1.5;min-height:118px"><p style="margin:0 0 6px">After SSO the <code style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;background:var(--c-s0);padding:0 4px;border-radius:3px">return_to</code> cookie is never cleared, so <code style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;background:var(--c-s0);padding:0 4px;border-radius:3px">/login</code> bounces to itself.</p><ul style="margin:0;padding-left:16px;color:var(--c-sub1)"><li>Clear cookie on successful callback</li><li>Add regression test</li></ul></div>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-height:0">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0)"><span>Entries · this week</span><span style="text-transform:none;letter-spacing:0;font-size:12.5px;color:var(--c-text)">{{ t42Total }} <span style="color:var(--c-ov1)">· 9h 12m all time</span></span></div>
+              <sc-for list="{{ t42 }}" as="x" hint-placeholder-count="4">
+                <div style="display:grid;grid-template-columns:110px 1fr 70px 24px;gap:12px;align-items:center;height:34px;padding:0 6px;border-bottom:1px solid color-mix(in srgb,var(--c-s0) 60%,transparent);font-size:12.5px;font-variant-numeric:tabular-nums"><span style="color:var(--c-sub1)">{{ x.day }}</span><span style="display:flex;gap:8px;align-items:center">{{ x.range }}<sc-if value="{{ x.running }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--ctp-green)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>running</span></sc-if></span><span style="text-align:right">{{ x.dur }}</span><span style="color:var(--c-ov1);text-align:center">›</span></div>
+              </sc-for>
+              <div style="font-size:11.5px;color:var(--c-ov1);padding-top:6px">Click an entry to open it on the timeline. Renaming this task renames all of them.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">10 · reports</span>Reports &amp; export · {{ t.name }} · 1440×900</div>
+        <div data-screen-label="Reports {{ t.name }}" style="width:1440px;height:900px;background:var(--c-base);color:var(--c-text);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+          <div style="height:44px;flex:none;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid var(--c-s0);background:var(--c-mantle)"><div style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--color-accent)">tt</div><div style="display:flex;gap:2px;font-size:13px"><span style="padding:5px 9px;color:var(--c-sub0)">Timeline</span><span style="padding:5px 9px;color:var(--c-sub0)">Tasks</span><span style="padding:5px 9px;border-radius:6px;background:var(--c-s0);color:var(--c-text)">Reports</span><span style="padding:5px 9px;color:var(--c-sub0)">Settings</span></div></div>
+          <div style="height:40px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--c-s0);font-size:12px">
+            <div style="display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden"><span style="padding:5px 11px;color:var(--c-sub0)">Day</span><span style="padding:5px 11px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);border-left:1px solid var(--c-s1)">Week</span><span style="padding:5px 11px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">Month</span><span style="padding:5px 11px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">Custom</span></div>
+            <div style="display:flex;align-items:center;gap:2px"><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--c-sub0);border:1px solid var(--c-s1)">‹</span><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--c-sub0);border:1px solid var(--c-s1)">›</span></div>
+            <span style="font-size:15px;font-weight:500">5 – 11 October 2026 <span style="font-size:12px;color:var(--c-ov1);font-weight:400">· Mon 00:00 → Sun 24:00</span></span>
+            <span style="margin-left:auto;display:flex;gap:18px;font-variant-numeric:tabular-nums"><span><span style="color:var(--c-sub0)">Summed </span><span style="font-weight:500">29h 06m</span></span><span><span style="color:var(--c-sub0)">Wall-clock </span><span style="font-weight:500">26h 51m</span></span><span><span style="color:var(--c-sub0)">Entries </span>22</span></span>
+          </div>
+          <div style="flex:1;display:flex;min-height:0">
+            <div style="width:560px;flex:none;border-right:1px solid var(--c-s0);padding:16px 18px;display:flex;flex-direction:column;gap:18px;overflow:hidden">
+              <div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0)">By task</div>
+                <sc-for list="{{ byTask }}" as="r" hint-placeholder-count="6"><div style="display:grid;grid-template-columns:1fr 70px;gap:12px;align-items:center;font-size:12.5px;font-variant-numeric:tabular-nums"><div style="min-width:0"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px">{{ r.label }}</div><div style="{{ r.barStyle }}"></div></div><span style="text-align:right">{{ r.dur }}</span></div></sc-for>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+                <div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0)">By tag</div>
+                  <sc-for list="{{ byTag }}" as="r" hint-placeholder-count="5"><div style="display:grid;grid-template-columns:1fr 60px;gap:8px;align-items:center;font-size:12px;font-variant-numeric:tabular-nums"><div><div style="margin-bottom:3px;color:var(--c-sub1)">{{ r.label }}</div><div style="{{ r.barStyle }}"></div></div><span style="text-align:right">{{ r.dur }}</span></div></sc-for>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0)">By project</div>
+                  <sc-for list="{{ byProject }}" as="r" hint-placeholder-count="4"><div style="display:grid;grid-template-columns:1fr 60px;gap:8px;align-items:center;font-size:12px;font-variant-numeric:tabular-nums"><div><div style="margin-bottom:3px;color:var(--c-sub1)">{{ r.label }}</div><div style="{{ r.barStyle }}"></div></div><span style="text-align:right">{{ r.dur }}</span></div></sc-for>
+                </div>
+              </div>
+            </div>
+            <!-- export panel -->
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--c-mantle)">
+              <div style="display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--c-s0);font-size:12px">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0)">Export</span>
+                <div style="display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden"><span style="padding:4px 10px;color:var(--c-sub0)">Raw JSON</span><span style="padding:4px 10px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">Raw CSV</span><span style="padding:4px 10px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);border-left:1px solid var(--c-s1)">Rounded &amp; flattened</span></div>
+                <span style="display:flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:1px solid var(--c-s1);border-radius:6px;color:var(--c-sub1)">Grid <span style="color:var(--c-text)">15 min</span><span style="color:var(--c-ov1)">⌄</span></span>
+                <div style="display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden"><span style="padding:4px 10px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent)">Per entry</span><span style="padding:4px 10px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">Per task / day</span></div>
+                <span class="btn btn-primary" style="margin-left:auto;font-size:12.5px;padding:5px 12px">Download CSV</span>
+              </div>
+              <div style="padding:14px 18px 0;display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--c-sub0)">
+                <div style="display:flex;justify-content:space-between"><span>Thu 8 Oct · raw</span><span>08:00 → 18:00</span></div>
+                <div style="position:relative;height:14px;border-radius:3px;background:var(--c-base)"><sc-for list="{{ stripRaw }}" as="b" hint-placeholder-count="7"><span style="{{ b.style }}"></span></sc-for></div>
+                <div style="display:flex;justify-content:space-between;margin-top:4px"><span>rounded up to 15 min, pushed apart</span><span style="color:var(--ctp-peach)">day ends later: +1h 01m</span></div>
+                <div style="position:relative;height:14px;border-radius:3px;background:var(--c-base)"><sc-for list="{{ stripFlat }}" as="b" hint-placeholder-count="7"><span style="{{ b.style }}"></span></sc-for></div>
+              </div>
+              <div style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:0;padding:14px 18px 0">
+                <div style="display:flex;flex-direction:column;border:1px solid var(--c-s0);border-radius:8px 0 0 8px;overflow:hidden">
+                  <div style="display:flex;justify-content:space-between;padding:7px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0);border-bottom:1px solid var(--c-s0)"><span>Raw · 7 entries</span><span style="color:var(--c-text);text-transform:none;letter-spacing:0;font-variant-numeric:tabular-nums">{{ rawTotal }}</span></div>
+                  <sc-for list="{{ rawRows }}" as="r" hint-placeholder-count="7"><div style="display:grid;grid-template-columns:96px 1fr 56px;gap:10px;align-items:center;height:32px;padding:0 10px;border-bottom:1px solid color-mix(in srgb,var(--c-s0) 60%,transparent);font-size:12px;font-variant-numeric:tabular-nums"><span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--c-sub1)">{{ r.range }}</span><span style="display:flex;align-items:center;gap:6px;min-width:0"><span style="width:7px;height:7px;border-radius:2px;background:{{ r.color }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</span></span><span style="text-align:right">{{ r.dur }}</span></div></sc-for>
+                </div>
+                <div style="display:flex;flex-direction:column;border:1px solid var(--color-accent);border-radius:0 8px 8px 0;overflow:hidden;background:var(--c-base)">
+                  <div style="display:flex;justify-content:space-between;padding:7px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--color-accent);border-bottom:1px solid var(--c-s0)"><span>Rounded &amp; flattened</span><span style="color:var(--c-text);text-transform:none;letter-spacing:0;font-variant-numeric:tabular-nums">{{ flatTotal }}</span></div>
+                  <sc-for list="{{ flatRows }}" as="r" hint-placeholder-count="7"><div style="display:grid;grid-template-columns:96px 1fr 56px 56px;gap:10px;align-items:center;height:32px;padding:0 10px;border-bottom:1px solid color-mix(in srgb,var(--c-s0) 60%,transparent);font-size:12px;font-variant-numeric:tabular-nums"><span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--c-sub1)">{{ r.range }}</span><span style="display:flex;align-items:center;gap:6px;min-width:0"><span style="width:7px;height:7px;border-radius:2px;background:{{ r.color }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</span></span><span style="{{ r.deltaStyle }}">{{ r.delta }}</span><span style="text-align:right">{{ r.dur }}</span></div></sc-for>
+                </div>
+              </div>
+              <div style="padding:10px 18px 12px;font-size:11.5px;color:var(--c-ov1)">Running entries are cut at export time. Overlap is resolved in start order; the later entry is pushed, never shortened.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ ROW: PHONE ═══════ -->
+    <div style="display:flex;gap:32px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">11 · phone</span>Day view · {{ t.name }} · 390×844</div>
+        <div data-screen-label="Phone day {{ t.name }}" style="width:390px;height:844px;background:var(--c-base);color:var(--c-text);border-radius:28px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+          <div style="height:54px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 6px;font-size:12px;color:var(--c-sub0)"><span style="font-variant-numeric:tabular-nums">15:42</span><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>synced</span></div>
+          <div style="flex:none;display:flex;flex-direction:column;gap:6px;padding:6px 14px 8px;border-bottom:1px solid var(--c-s0);background:color-mix(in srgb,var(--ctp-green) 7%,var(--c-base))">
+            <sc-for list="{{ running }}" as="r" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:8px;height:40px;padding:0 6px 0 10px;border-radius:8px;background:var(--c-base);border:1px solid var(--c-s1)"><span style="width:8px;height:8px;border-radius:2px;background:{{ r.color }}"></span><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:500">{{ r.title }}</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--ctp-green)">{{ r.elapsed }}</span><span style="width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--ctp-red);border:1px solid color-mix(in srgb,var(--ctp-red) 35%,transparent)"><span style="width:9px;height:9px;background:currentColor;border-radius:2px"></span></span></div>
+            </sc-for>
+          </div>
+          <div style="height:44px;flex:none;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--c-s0)"><span style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:7px;color:var(--c-sub0);border:1px solid var(--c-s1)">‹</span><span style="flex:1;text-align:center;font-size:14px;font-weight:500">Thu 8 Oct <span style="font-size:11px;color:var(--c-ov1);font-weight:400">· 7h 29m</span></span><span style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:7px;color:var(--c-sub0);border:1px solid var(--c-s1)">›</span></div>
+          <div style="flex:1;min-height:0;overflow:hidden;padding:10px 12px 0 10px">
+            <div style="position:relative;height:528px">
+              <sc-for list="{{ hours }}" as="h" hint-placeholder-count="12"><div style="height:44px;border-top:1px solid var(--c-s0);position:relative"><span style="position:absolute;left:0;top:-7px;width:34px;font-size:10px;color:var(--c-ov1);font-family:ui-monospace,Menlo,monospace">{{ h }}</span></div></sc-for>
+              <div style="position:absolute;left:42px;right:0;top:0;bottom:0">
+                <sc-for list="{{ phoneEntries }}" as="e" hint-placeholder-count="7">
+                  <div style="{{ e.pos }}"><div style="position:absolute;inset:0;border-radius:5px;overflow:hidden;padding:3px 6px 3px 7px;background:{{ e.bg }};border-left:3px solid {{ e.color }};box-shadow:inset 0 0 0 1px color-mix(in srgb,{{ e.color }} 25%,transparent)"><div style="{{ e.bodyStyle }}"><div style="font-size:11.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25;flex:1;min-width:0">{{ e.title }}</div><div style="{{ e.rangeStyle }}"><span style="font-size:10.5px;color:var(--c-sub0);font-variant-numeric:tabular-nums;white-space:nowrap">{{ e.range }}</span></div><sc-if value="{{ e.runningCompact }}" hint-placeholder-val="{{ false }}"><span style="font-family:ui-monospace,Menlo,monospace;font-size:9.5px;color:{{ e.color }};flex:none">{{ e.elapsed }}</span><span style="position:absolute;left:0;right:0;bottom:0;border-top:2px dashed {{ e.color }}"></span></sc-if></div><sc-if value="{{ e.running }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:0;right:0;bottom:0;height:14px;border-top:1px dashed {{ e.color }};background:color-mix(in srgb,{{ e.color }} 10%,transparent);display:flex;align-items:center;justify-content:flex-end;padding:0 6px;font-size:9.5px;color:{{ e.color }};font-family:ui-monospace,Menlo,monospace">{{ e.elapsed }}</div></sc-if></div></div>
+                </sc-for>
+                <div style="{{ phoneNowStyle }}"><span style="position:absolute;left:-5px;top:-4px;width:8px;height:8px;border-radius:50%;background:var(--ctp-red)"></span></div>
+              </div>
+            </div>
+          </div>
+          <div style="height:72px;flex:none;display:flex;align-items:flex-start;justify-content:space-around;padding:10px 10px 0;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-sub0)"><span style="color:var(--color-accent);display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px"><span style="width:18px;height:3px;border-radius:2px;background:currentColor"></span>Timeline</span><span style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px"><span style="width:18px;height:3px;border-radius:2px;background:transparent"></span>Tasks</span><span style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px"><span style="width:18px;height:3px;border-radius:2px;background:transparent"></span>Reports</span><span style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px"><span style="width:18px;height:3px;border-radius:2px;background:transparent"></span>Settings</span></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">12 · phone</span>Tasks · {{ t.name }} · 390×844</div>
+        <div data-screen-label="Phone tasks {{ t.name }}" style="width:390px;height:844px;background:var(--c-base);color:var(--c-text);border-radius:28px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+          <div style="height:54px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 6px;font-size:12px;color:var(--c-sub0)"><span style="font-variant-numeric:tabular-nums">15:42</span><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>synced</span></div>
+          <div style="padding:6px 14px 10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--c-s0)">
+            <div style="display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:1px solid var(--c-s1);border-radius:8px;background:var(--c-mantle);color:var(--c-ov1);font-size:13px"><span style="color:var(--color-accent)">+</span>Quick create · <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">title +tag @project</span></div>
+            <div style="display:flex;gap:6px;font-size:12px;overflow:hidden"><span style="padding:5px 10px;border-radius:6px;border:1px solid var(--color-accent);color:var(--color-accent);white-space:nowrap">Open</span><span style="padding:5px 10px;border-radius:6px;border:1px solid var(--c-s1);color:var(--c-sub0);white-space:nowrap">Tags ⌄</span><span style="padding:5px 10px;border-radius:6px;border:1px solid var(--c-s1);color:var(--c-sub0);white-space:nowrap">Project ⌄</span><span style="padding:5px 10px;border-radius:6px;border:1px solid var(--c-s1);color:var(--c-sub0);white-space:nowrap">Search</span></div>
+          </div>
+          <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column">
+            <sc-for list="{{ taskRows }}" as="k" hint-placeholder-count="8">
+              <div style="display:flex;align-items:center;gap:10px;min-height:60px;padding:8px 14px;border-bottom:1px solid color-mix(in srgb,var(--c-s0) 60%,transparent)">
+                <span style="width:8px;height:8px;border-radius:2px;background:{{ k.color }};flex:none"></span>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+                  <div style="display:flex;gap:6px;align-items:baseline;min-width:0"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--c-ov1)">#{{ k.seq }}</span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13.5px;{{ k.titleStyle }}">{{ k.title }}</span></div>
+                  <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap"><sc-for list="{{ k.tags }}" as="g" hint-placeholder-count="2"><span style="{{ g.style }}">{{ g.name }}</span></sc-for><span style="font-size:11px;color:var(--c-ov1)">{{ k.project }}</span><span style="font-size:11px;color:var(--c-ov1);font-variant-numeric:tabular-nums;margin-left:auto">{{ k.today }}</span></div>
+                </div>
+                <span style="width:44px;height:44px;border-radius:9px;display:flex;align-items:center;justify-content:center;border:1px solid var(--c-s1);color:var(--color-accent);font-size:11px;flex:none">▶</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="height:72px;flex:none;display:flex;align-items:flex-start;justify-content:space-around;padding:10px 10px 0;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-sub0)"><span style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px"><span style="width:18px;height:3px;border-radius:2px;background:transparent"></span>Timeline</span><span style="color:var(--color-accent);display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px"><span style="width:18px;height:3px;border-radius:2px;background:currentColor"></span>Tasks</span><span style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px"><span style="width:18px;height:3px;border-radius:2px;background:transparent"></span>Reports</span><span style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px"><span style="width:18px;height:3px;border-radius:2px;background:transparent"></span>Settings</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#6c7086;padding-bottom:4px;border-bottom:1px solid #313244;margin-top:8px">Turn 1 · timeline, entry sheet, tasks</div>
+
+    <!-- ═══════ DAY VIEW ═══════ -->
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">1 · day</span>Day view · {{ t.name }} · 1440×900</div>
+      <div data-screen-label="Day {{ t.name }}" style="width:1440px;height:900px;background:var(--c-base);color:var(--c-text);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+        <!-- top bar -->
+        <div style="height:44px;flex:none;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid var(--c-s0);background:var(--c-mantle)">
+          <div style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--color-accent)">tt</div>
+          <div style="display:flex;gap:2px;font-size:13px">
+            <span style="padding:5px 9px;border-radius:6px;background:var(--c-s0);color:var(--c-text)">Timeline</span>
+            <span style="padding:5px 9px;color:var(--c-sub0)">Tasks</span>
+            <span style="padding:5px 9px;color:var(--c-sub0)">Reports</span>
+            <span style="padding:5px 9px;color:var(--c-sub0)">Settings</span>
+          </div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;height:28px;padding:0 10px;border:1px solid var(--c-s0);border-radius:6px;color:var(--c-ov1);font-size:12px;width:240px;background:var(--c-base)"><span>Search or run a command…</span><kbd>⌘K</kbd></div>
+            <div style="width:26px;height:26px;border-radius:50%;background:var(--c-s0);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--c-sub1)">ms</div>
+          </div>
+        </div>
+        <!-- running strip -->
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid var(--c-s0);background:color-mix(in srgb,var(--ctp-green) 7%,var(--c-base))">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0);display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:var(--ctp-green);box-shadow:0 0 0 3px color-mix(in srgb,var(--ctp-green) 30%,transparent)"></span>Running · 2</span>
+          <sc-for list="{{ running }}" as="r" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:8px;height:28px;padding:0 4px 0 10px;border-radius:7px;background:var(--c-base);border:1px solid var(--c-s1)">
+              <span style="width:8px;height:8px;border-radius:2px;background:{{ r.color }}"></span>
+              <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--c-ov1)">#{{ r.seq }}</span>
+              <span style="font-size:12.5px;font-weight:500">{{ r.title }}</span>
+              <span style="font-size:11px;color:var(--c-sub0)">since {{ r.since }}</span>
+              <span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--ctp-green);margin-left:4px">{{ r.elapsed }}</span>
+              <span style="width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:var(--ctp-red);border:1px solid color-mix(in srgb,var(--ctp-red) 35%,transparent)"><span style="width:8px;height:8px;background:currentColor;border-radius:1.5px"></span></span>
+            </div>
+          </sc-for>
+          <span style="margin-left:auto;font-size:12px;color:var(--c-sub0);display:flex;align-items:center;gap:6px">Stop all <kbd>⇧S</kbd></span>
+        </div>
+        <!-- toolbar -->
+        <div style="height:40px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--c-s0)">
+          <div style="display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden;font-size:12px">
+            <span style="padding:5px 11px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);display:flex;gap:6px;align-items:center">Day<kbd>D</kbd></span>
+            <span style="padding:5px 11px;color:var(--c-sub0);border-left:1px solid var(--c-s1);display:flex;gap:6px;align-items:center">Week<kbd>W</kbd></span>
+            <span style="padding:5px 11px;color:var(--c-sub0);border-left:1px solid var(--c-s1);display:flex;gap:6px;align-items:center">Month<kbd>M</kbd></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:2px">
+            <span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--c-sub0);border:1px solid var(--c-s1)">‹</span>
+            <span style="height:26px;padding:0 9px;display:flex;align-items:center;border-radius:6px;color:var(--c-sub1);border:1px solid var(--c-s1);font-size:12px;margin:0 2px">Today</span>
+            <span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--c-sub0);border:1px solid var(--c-s1)">›</span>
+          </div>
+          <div style="font-size:15px;font-weight:500;letter-spacing:-.01em;display:flex;align-items:baseline;gap:8px">Thursday, 8 October <span style="font-size:12px;color:var(--c-ov1);font-weight:400">2026 · W41 · <kbd>G</kbd> jump</span></div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--c-sub0)">
+            <span style="display:flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:1px solid var(--c-s1);border-radius:6px">Snap <span style="color:var(--c-text)">15m</span><span style="color:var(--c-ov0)">· hold ⌥ to free</span></span>
+            <span style="display:flex;gap:2px"><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:1px solid var(--c-s1);border-radius:6px 0 0 6px">↶</span><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:1px solid var(--c-s1);border-left:0;border-radius:0 6px 6px 0;color:var(--c-ov0)">↷</span></span>
+          </div>
+        </div>
+        <!-- main -->
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:1;min-width:0;position:relative;padding:14px 18px 0 14px;overflow:hidden">
+            <div style="position:relative;height:672px">
+              <sc-for list="{{ hours }}" as="h" hint-placeholder-count="12">
+                <div style="height:56px;border-top:1px solid var(--c-s0);position:relative"><span style="position:absolute;left:0;top:-8px;width:40px;font-size:11px;color:var(--c-ov1);font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,monospace">{{ h }}</span><span style="position:absolute;left:52px;right:0;top:28px;border-top:1px dashed color-mix(in srgb,var(--c-s0) 60%,transparent)"></span></div>
+              </sc-for>
+              <div style="position:absolute;left:52px;right:0;top:0;bottom:0">
+                <sc-for list="{{ dayEntries }}" as="e" hint-placeholder-count="7">
+                  <div style="{{ e.pos }}">
+                    <div style="position:absolute;inset:0;border-radius:6px;overflow:hidden;padding:4px 8px 4px 9px;background:{{ e.bg }};border-left:3px solid {{ e.color }};box-shadow:inset 0 0 0 1px color-mix(in srgb,{{ e.color }} 25%,transparent)">
+                      <div style="{{ e.bodyStyle }}">
+                        <div style="display:flex;gap:6px;align-items:baseline;min-width:0;flex:1"><span style="font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ e.title }}</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--c-ov1);flex:none">#{{ e.seq }}</span></div>
+                        <div style="font-size:11px;color:var(--c-sub0);font-variant-numeric:tabular-nums;display:flex;gap:8px;flex:none"><span>{{ e.range }}</span><span style="color:var(--c-ov1)">{{ e.dur }}</span><span style="color:var(--c-ov1)">{{ e.note }}</span></div>
+                        <sc-if value="{{ e.runningCompact }}" hint-placeholder-val="{{ false }}"><span style="display:flex;gap:5px;align-items:center;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:{{ e.color }};flex:none">{{ e.elapsed }}<span style="width:6px;height:6px;border-radius:50%;background:{{ e.color }};box-shadow:0 0 0 3px color-mix(in srgb,{{ e.color }} 30%,transparent)"></span></span><span style="position:absolute;left:0;right:0;bottom:0;border-top:2px dashed {{ e.color }}"></span></sc-if>
+                      </div>
+                      <sc-if value="{{ e.running }}" hint-placeholder-val="{{ false }}">
+                        <div style="position:absolute;left:0;right:0;bottom:0;height:16px;display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 9px;border-top:1px dashed {{ e.color }};font-size:10px;color:{{ e.color }};background:color-mix(in srgb,{{ e.color }} 10%,transparent)"><span>running</span><span style="display:flex;gap:4px;align-items:center;font-family:ui-monospace,Menlo,monospace">{{ e.elapsed }}<span style="width:6px;height:6px;border-radius:50%;background:{{ e.color }};box-shadow:0 0 0 3px color-mix(in srgb,{{ e.color }} 30%,transparent)"></span></span></div>
+                      </sc-if>
+                    </div>
+                    <div style="position:absolute;left:0;right:0;top:-3px;height:7px;cursor:ns-resize"></div>
+                    <div style="position:absolute;left:0;right:0;bottom:-3px;height:7px;cursor:ns-resize"></div>
+                  </div>
+                </sc-for>
+                <!-- now line -->
+                <div style="{{ nowStyle }}"><span style="position:absolute;left:-5px;top:-4px;width:9px;height:9px;border-radius:50%;background:var(--ctp-red)"></span><span style="position:absolute;left:-52px;top:-7px;width:40px;text-align:right;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--ctp-red);background:var(--c-base);line-height:14px">15:42</span></div>
+                <!-- drag-to-create ghost -->
+                <div style="position:absolute;left:0;right:0;top:588px;height:42px;border:1px dashed var(--color-accent);border-radius:6px;background:color-mix(in srgb,var(--color-accent) 8%,transparent);display:flex;align-items:center;padding:0 9px;font-size:11px;color:var(--color-accent);gap:8px"><span>17:30 – 18:15</span><span style="color:var(--c-ov1)">release to pick a task</span></div>
+              </div>
+            </div>
+            <!-- undo toast -->
+            <div style="position:absolute;left:66px;bottom:12px;display:flex;align-items:center;gap:12px;height:32px;padding:0 6px 0 12px;border-radius:7px;background:var(--c-mantle);box-shadow:var(--shadow-md);font-size:12px"><span>Moved <span style="color:var(--c-sub0)">#41 Review PR #918</span> to 10:05</span><span style="display:flex;align-items:center;gap:6px;color:var(--color-accent);padding:4px 8px;border-radius:5px">Undo <kbd>⌘Z</kbd></span></div>
+          </div>
+          <!-- side panel -->
+          <aside style="width:292px;flex:none;border-left:1px solid var(--c-s0);background:var(--c-mantle);display:flex;flex-direction:column;min-height:0">
+            <div style="padding:10px 12px 8px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0)"><span>Tasks</span><span style="color:var(--c-ov0);text-transform:none;letter-spacing:0">drop an entry to re-link</span></div>
+              <div style="height:28px;padding:0 9px;border:1px solid var(--c-s1);border-radius:6px;background:var(--c-base);display:flex;align-items:center;justify-content:space-between;color:var(--c-ov1);font-size:12px"><span>Filter tasks…</span><kbd>/</kbd></div>
+            </div>
+            <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+              <sc-for list="{{ sideTasks }}" as="s" hint-placeholder-count="7">
+                <div style="{{ s.rowStyle }}">
+                  <span style="width:8px;height:8px;border-radius:2px;background:{{ s.color }};flex:none"></span>
+                  <span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--c-ov1);flex:none;width:26px">#{{ s.seq }}</span>
+                  <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px">{{ s.title }}</span>
+                  <span style="font-size:11px;color:var(--c-sub0);font-variant-numeric:tabular-nums;flex:none">{{ s.today }}</span>
+                  <span style="{{ s.playStyle }}">▶</span>
+                </div>
+              </sc-for>
+              <div style="margin:8px 12px;padding:8px 10px;border:1px dashed var(--c-s1);border-radius:6px;font-size:11.5px;color:var(--c-ov1);display:flex;align-items:center;gap:6px"><span style="color:var(--color-accent)">+</span>New task <kbd>C</kbd></div>
+            </div>
+            <div style="padding:10px 12px;border-top:1px solid var(--c-s0);display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0)">Today</div>
+              <div style="display:grid;grid-template-columns:1fr auto;gap:3px 12px;font-size:12.5px;font-variant-numeric:tabular-nums">
+                <span style="color:var(--c-sub0)">Tracked (summed)</span><span style="font-weight:500">7h 29m</span>
+                <span style="color:var(--c-sub0)">Wall-clock</span><span style="font-weight:500">6h 42m</span>
+                <span style="color:var(--c-sub0)">Overlap</span><span style="color:var(--ctp-peach)">47m</span>
+                <span style="color:var(--c-sub0)">Entries</span><span>7 · 2 running</span>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <!-- status bar -->
+        <div style="height:24px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-ov1)">
+          <span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Synced · 14s ago</span>
+          <span>daemon 127.0.0.1:7429</span>
+          <span>Europe/Berlin</span>
+          <span style="margin-left:auto;display:flex;gap:10px"><span><kbd>J</kbd><kbd>K</kbd> move</span><span><kbd>←</kbd><kbd>→</kbd> day</span><span><kbd>T</kbd> today</span><span><kbd>S</kbd> start</span><span><kbd>?</kbd> all shortcuts</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ WEEK VIEW ═══════ -->
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">2 · week</span>Week view · {{ t.name }} · 1440×900</div>
+      <div data-screen-label="Week {{ t.name }}" style="width:1440px;height:900px;background:var(--c-base);color:var(--c-text);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+        <div style="height:44px;flex:none;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid var(--c-s0);background:var(--c-mantle)">
+          <div style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--color-accent)">tt</div>
+          <div style="display:flex;gap:2px;font-size:13px"><span style="padding:5px 9px;border-radius:6px;background:var(--c-s0);color:var(--c-text)">Timeline</span><span style="padding:5px 9px;color:var(--c-sub0)">Tasks</span><span style="padding:5px 9px;color:var(--c-sub0)">Reports</span><span style="padding:5px 9px;color:var(--c-sub0)">Settings</span></div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><div style="display:flex;align-items:center;justify-content:space-between;height:28px;padding:0 10px;border:1px solid var(--c-s0);border-radius:6px;color:var(--c-ov1);font-size:12px;width:240px;background:var(--c-base)"><span>Search or run a command…</span><kbd>⌘K</kbd></div><div style="width:26px;height:26px;border-radius:50%;background:var(--c-s0);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--c-sub1)">ms</div></div>
+        </div>
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid var(--c-s0);background:color-mix(in srgb,var(--ctp-green) 7%,var(--c-base))">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0);display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:var(--ctp-green);box-shadow:0 0 0 3px color-mix(in srgb,var(--ctp-green) 30%,transparent)"></span>Running · 2</span>
+          <sc-for list="{{ running }}" as="r" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:8px;height:28px;padding:0 4px 0 10px;border-radius:7px;background:var(--c-base);border:1px solid var(--c-s1)"><span style="width:8px;height:8px;border-radius:2px;background:{{ r.color }}"></span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--c-ov1)">#{{ r.seq }}</span><span style="font-size:12.5px;font-weight:500">{{ r.title }}</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--ctp-green);margin-left:4px">{{ r.elapsed }}</span><span style="width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:var(--ctp-red);border:1px solid color-mix(in srgb,var(--ctp-red) 35%,transparent)"><span style="width:8px;height:8px;background:currentColor;border-radius:1.5px"></span></span></div>
+          </sc-for>
+          <span style="margin-left:auto;font-size:12px;color:var(--c-sub0);display:flex;align-items:center;gap:6px">Stop all <kbd>⇧S</kbd></span>
+        </div>
+        <div style="height:40px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--c-s0)">
+          <div style="display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden;font-size:12px"><span style="padding:5px 11px;color:var(--c-sub0);display:flex;gap:6px;align-items:center">Day<kbd>D</kbd></span><span style="padding:5px 11px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);border-left:1px solid var(--c-s1);display:flex;gap:6px;align-items:center">Week<kbd>W</kbd></span><span style="padding:5px 11px;color:var(--c-sub0);border-left:1px solid var(--c-s1);display:flex;gap:6px;align-items:center">Month<kbd>M</kbd></span></div>
+          <div style="display:flex;align-items:center;gap:2px"><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--c-sub0);border:1px solid var(--c-s1)">‹</span><span style="height:26px;padding:0 9px;display:flex;align-items:center;border-radius:6px;color:var(--c-sub1);border:1px solid var(--c-s1);font-size:12px;margin:0 2px">This week</span><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--c-sub0);border:1px solid var(--c-s1)">›</span></div>
+          <div style="font-size:15px;font-weight:500;letter-spacing:-.01em;display:flex;align-items:baseline;gap:8px">5 – 11 October <span style="font-size:12px;color:var(--c-ov1);font-weight:400">2026 · W41</span></div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--c-sub0)"><span style="display:flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:1px solid var(--c-s1);border-radius:6px">Snap <span style="color:var(--c-text)">15m</span></span><span style="display:flex;gap:2px"><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:1px solid var(--c-s1);border-radius:6px 0 0 6px">↶</span><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:1px solid var(--c-s1);border-left:0;border-radius:0 6px 6px 0;color:var(--c-ov0)">↷</span></span></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0;padding:0 18px 0 14px">
+          <!-- day headers -->
+          <div style="display:grid;grid-template-columns:52px repeat(7,1fr);height:48px;flex:none;align-items:end;padding-bottom:6px">
+            <span></span>
+            <sc-for list="{{ weekDays }}" as="d" hint-placeholder-count="7">
+              <div style="padding:0 6px;display:flex;align-items:baseline;justify-content:space-between;border-left:1px solid var(--c-s0)"><span style="display:flex;align-items:baseline;gap:5px"><span style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--c-sub0)">{{ d.name }}</span><span style="{{ d.numStyle }}">{{ d.num }}</span></span><span style="font-size:11px;color:var(--c-ov1);font-variant-numeric:tabular-nums">{{ d.total }}</span></div>
+            </sc-for>
+          </div>
+          <div style="position:relative;height:624px;flex:none">
+            <sc-for list="{{ hours }}" as="h" hint-placeholder-count="12">
+              <div style="height:52px;border-top:1px solid var(--c-s0);position:relative"><span style="position:absolute;left:0;top:-8px;width:40px;font-size:11px;color:var(--c-ov1);font-family:ui-monospace,Menlo,monospace">{{ h }}</span></div>
+            </sc-for>
+            <div style="position:absolute;left:52px;right:0;top:0;bottom:0;display:grid;grid-template-columns:repeat(7,1fr)">
+              <sc-for list="{{ weekDays }}" as="d" hint-placeholder-count="7">
+                <div style="{{ d.colStyle }}">
+                  <sc-for list="{{ d.entries }}" as="e" hint-placeholder-count="4">
+                    <div style="{{ e.pos }}">
+                      <div style="position:absolute;inset:0;border-radius:5px;overflow:hidden;padding:3px 6px 3px 7px;background:{{ e.bg }};border-left:3px solid {{ e.color }};box-shadow:inset 0 0 0 1px color-mix(in srgb,{{ e.color }} 25%,transparent)">
+                        <div style="{{ e.bodyStyle }}">
+                          <div style="font-size:11.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25;flex:1;min-width:0">{{ e.title }}</div>
+                          <div style="{{ e.rangeStyle }}"><span style="font-size:10.5px;color:var(--c-sub0);font-variant-numeric:tabular-nums;white-space:nowrap">{{ e.range }}</span></div>
+                          <sc-if value="{{ e.runningCompact }}" hint-placeholder-val="{{ false }}"><span style="font-family:ui-monospace,Menlo,monospace;font-size:9.5px;color:{{ e.color }};flex:none">{{ e.elapsed }}</span><span style="position:absolute;left:0;right:0;bottom:0;border-top:2px dashed {{ e.color }}"></span></sc-if>
+                        </div>
+                        <sc-if value="{{ e.running }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:0;right:0;bottom:0;height:14px;border-top:1px dashed {{ e.color }};background:color-mix(in srgb,{{ e.color }} 10%,transparent);display:flex;align-items:center;justify-content:flex-end;padding:0 6px;font-size:9.5px;color:{{ e.color }};font-family:ui-monospace,Menlo,monospace">{{ e.elapsed }}</div></sc-if>
+                      </div>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ d.today }}" hint-placeholder-val="{{ false }}"><div style="{{ weekNowStyle }}"><span style="position:absolute;left:-4px;top:-3.5px;width:8px;height:8px;border-radius:50%;background:var(--ctp-red)"></span></div></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="height:32px;flex:none;display:flex;align-items:center;gap:22px;padding:0 14px;border-top:1px solid var(--c-s0);font-size:12px;font-variant-numeric:tabular-nums">
+          <span style="color:var(--c-sub0)">Week · 4 days tracked</span>
+          <span><span style="color:var(--c-sub0)">Summed </span><span style="font-weight:500">29h 06m</span></span>
+          <span><span style="color:var(--c-sub0)">Wall-clock </span><span style="font-weight:500">26h 51m</span></span>
+          <span><span style="color:var(--c-sub0)">Overlap </span><span style="color:var(--ctp-peach)">2h 15m</span></span>
+          <span style="margin-left:auto;display:flex;gap:14px;color:var(--c-sub0)"><span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--ctp-mauve)"></span>Atlas 11h 20m</span><span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--ctp-peach)"></span>Billing 8h 40m</span><span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--ctp-teal)"></span>Infra 6h 15m</span><span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--ctp-yellow)"></span>no project 2h 51m</span></span>
+        </div>
+        <div style="height:24px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-ov1)"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-yellow)"></span>Syncing · 3 changes</span><span>daemon 127.0.0.1:7429</span><span>Europe/Berlin</span><span style="margin-left:auto;display:flex;gap:10px"><span><kbd>←</kbd><kbd>→</kbd> week</span><span><kbd>1</kbd>–<kbd>7</kbd> open day</span><span><kbd>?</kbd> all shortcuts</span></span></div>
+      </div>
+    </div>
+
+    <!-- ═══════ MONTH VIEW ═══════ -->
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">3 · month</span>Month view · {{ t.name }} · 1440×900</div>
+      <div data-screen-label="Month {{ t.name }}" style="width:1440px;height:900px;background:var(--c-base);color:var(--c-text);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+        <div style="height:44px;flex:none;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid var(--c-s0);background:var(--c-mantle)">
+          <div style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--color-accent)">tt</div>
+          <div style="display:flex;gap:2px;font-size:13px"><span style="padding:5px 9px;border-radius:6px;background:var(--c-s0);color:var(--c-text)">Timeline</span><span style="padding:5px 9px;color:var(--c-sub0)">Tasks</span><span style="padding:5px 9px;color:var(--c-sub0)">Reports</span><span style="padding:5px 9px;color:var(--c-sub0)">Settings</span></div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><div style="display:flex;align-items:center;justify-content:space-between;height:28px;padding:0 10px;border:1px solid var(--c-s0);border-radius:6px;color:var(--c-ov1);font-size:12px;width:240px;background:var(--c-base)"><span>Search or run a command…</span><kbd>⌘K</kbd></div><div style="width:26px;height:26px;border-radius:50%;background:var(--c-s0);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--c-sub1)">ms</div></div>
+        </div>
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid var(--c-s0);background:color-mix(in srgb,var(--ctp-green) 7%,var(--c-base))">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0);display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:var(--ctp-green);box-shadow:0 0 0 3px color-mix(in srgb,var(--ctp-green) 30%,transparent)"></span>Running · 2</span>
+          <sc-for list="{{ running }}" as="r" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:8px;height:28px;padding:0 4px 0 10px;border-radius:7px;background:var(--c-base);border:1px solid var(--c-s1)"><span style="width:8px;height:8px;border-radius:2px;background:{{ r.color }}"></span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--c-ov1)">#{{ r.seq }}</span><span style="font-size:12.5px;font-weight:500">{{ r.title }}</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--ctp-green);margin-left:4px">{{ r.elapsed }}</span><span style="width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:var(--ctp-red);border:1px solid color-mix(in srgb,var(--ctp-red) 35%,transparent)"><span style="width:8px;height:8px;background:currentColor;border-radius:1.5px"></span></span></div>
+          </sc-for>
+          <span style="margin-left:auto;font-size:12px;color:var(--c-sub0);display:flex;align-items:center;gap:6px">Stop all <kbd>⇧S</kbd></span>
+        </div>
+        <div style="height:40px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--c-s0)">
+          <div style="display:inline-flex;border:1px solid var(--c-s1);border-radius:7px;overflow:hidden;font-size:12px"><span style="padding:5px 11px;color:var(--c-sub0);display:flex;gap:6px;align-items:center">Day<kbd>D</kbd></span><span style="padding:5px 11px;color:var(--c-sub0);border-left:1px solid var(--c-s1);display:flex;gap:6px;align-items:center">Week<kbd>W</kbd></span><span style="padding:5px 11px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent);border-left:1px solid var(--c-s1);display:flex;gap:6px;align-items:center">Month<kbd>M</kbd></span></div>
+          <div style="display:flex;align-items:center;gap:2px"><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--c-sub0);border:1px solid var(--c-s1)">‹</span><span style="height:26px;padding:0 9px;display:flex;align-items:center;border-radius:6px;color:var(--c-sub1);border:1px solid var(--c-s1);font-size:12px;margin:0 2px">This month</span><span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--c-sub0);border:1px solid var(--c-s1)">›</span></div>
+          <div style="font-size:15px;font-weight:500;letter-spacing:-.01em;display:flex;align-items:baseline;gap:8px">October <span style="font-size:12px;color:var(--c-ov1);font-weight:400">2026</span></div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--c-sub0)"><span style="display:flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:1px solid var(--c-s1);border-radius:6px">Show <span style="color:var(--c-text)">top 3 tasks</span></span></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0;padding:0 18px 0 14px">
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);height:28px;flex:none;align-items:end;padding-bottom:4px">
+            <sc-for list="{{ dow }}" as="n" hint-placeholder-count="7"><span style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--c-sub0);padding:0 8px">{{ n }}</span></sc-for>
+          </div>
+          <div style="flex:1;display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(5,1fr);border-top:1px solid var(--c-s0);border-left:1px solid var(--c-s0)">
+            <sc-for list="{{ monthCells }}" as="c" hint-placeholder-count="35">
+              <div style="{{ c.cellStyle }}">
+                <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="{{ c.numStyle }}">{{ c.num }}</span><span style="font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--c-sub1)">{{ c.total }}</span></div>
+                <div style="{{ c.barStyle }}"></div>
+                <div style="display:flex;flex-direction:column;gap:2px;margin-top:4px">
+                  <sc-for list="{{ c.tasks }}" as="k" hint-placeholder-count="0">
+                    <div style="display:flex;align-items:center;gap:6px;font-size:11.5px;min-width:0"><span style="width:7px;height:7px;border-radius:2px;background:{{ k.color }};flex:none"></span><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ k.title }}</span><span style="color:var(--c-ov1);font-variant-numeric:tabular-nums;flex:none">{{ k.dur }}</span></div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="height:32px;flex:none;display:flex;align-items:center;gap:22px;padding:0 14px;border-top:1px solid var(--c-s0);font-size:12px;font-variant-numeric:tabular-nums">
+          <span style="color:var(--c-sub0)">October so far · 6 days</span>
+          <span><span style="color:var(--c-sub0)">Summed </span><span style="font-weight:500">44h 48m</span></span>
+          <span><span style="color:var(--c-sub0)">Wall-clock </span><span style="font-weight:500">41h 10m</span></span>
+          <span><span style="color:var(--c-sub0)">Avg / day </span><span style="font-weight:500">7h 28m</span></span>
+          <span style="margin-left:auto;color:var(--c-ov1)">Click a day or press <kbd>Enter</kbd> to open it</span>
+        </div>
+        <div style="height:24px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-ov1)"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--c-ov0)"></span>Offline · 12 changes queued</span><span>daemon 127.0.0.1:7429</span><span>Europe/Berlin</span><span style="margin-left:auto;display:flex;gap:10px"><span><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> move</span><span><kbd>←</kbd><kbd>→</kbd> month</span><span><kbd>?</kbd> all shortcuts</span></span></div>
+      </div>
+    </div>
+
+    <!-- ═══════ ENTRY EDIT SHEET + TASK LIST (same row) ═══════ -->
+    <div style="display:flex;gap:32px;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">4 · sheet</span>Entry edit sheet · {{ t.name }} · anchored right, 400px</div>
+        <div data-screen-label="Entry sheet {{ t.name }}" style="width:400px;height:900px;background:var(--c-mantle);color:var(--c-text);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+          <div style="padding:14px 16px 12px;display:flex;align-items:flex-start;gap:10px;border-bottom:1px solid var(--c-s0)">
+            <span style="width:10px;height:10px;border-radius:3px;background:var(--ctp-mauve);margin-top:5px;flex:none"></span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:11px;color:var(--c-ov1);display:flex;gap:8px;align-items:center"><span style="font-family:ui-monospace,Menlo,monospace">#42</span><span>Atlas</span><span style="color:var(--ctp-green);display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>running 1:12:08</span></div>
+              <div style="font-size:15px;font-weight:500;line-height:1.25;margin-top:2px">Fix login redirect loop</div>
+            </div>
+            <span style="color:var(--c-ov1);font-size:12px;display:flex;gap:6px;align-items:center;margin-top:4px"><kbd>Esc</kbd></span>
+          </div>
+          <div style="flex:1;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:16px">
+            <div class="field"><label>Task</label>
+              <div style="display:flex;align-items:center;gap:8px;min-height:36px;padding:0 10px;border:1px solid var(--c-s1);border-radius:8px;background:var(--c-base)"><span style="width:8px;height:8px;border-radius:2px;background:var(--ctp-mauve)"></span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--c-ov1)">#42</span><span style="flex:1">Fix login redirect loop</span><span class="tag tag-neutral" style="font-size:10px;padding:1px 7px">backend</span><span style="font-size:10px;padding:1px 7px;border-radius:6px;background:color-mix(in srgb,var(--ctp-red) 20%,var(--c-base));color:var(--ctp-red)">urgent</span><span style="color:var(--c-ov1)">⌄</span></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div class="field"><label>Start</label><div style="display:flex;align-items:center;min-height:36px;padding:0 10px;border:1px solid var(--c-s1);border-radius:8px;background:var(--c-base);font-variant-numeric:tabular-nums;gap:8px"><span style="font-size:14px">14:30</span><span style="font-size:11px;color:var(--c-ov1);margin-left:auto">Thu 8 Oct</span></div></div>
+              <div class="field"><label>End</label><div style="display:flex;align-items:center;min-height:36px;padding:0 10px;border:1px solid var(--c-s1);border-radius:8px;background:var(--c-base);gap:8px"><span style="font-size:14px;color:var(--ctp-green)">now</span><span style="font-size:11px;color:var(--c-ov1);margin-left:auto">15:42 · set end to stop</span></div></div>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--c-sub0);margin-top:-6px"><span style="padding:3px 8px;border:1px solid var(--c-s1);border-radius:6px">−15m</span><span style="padding:3px 8px;border:1px solid var(--c-s1);border-radius:6px">+15m</span><span style="padding:3px 8px;border:1px solid var(--c-s1);border-radius:6px">Start at previous end 14:10</span><span style="padding:3px 8px;border:1px solid var(--c-s1);border-radius:6px">Round to 15m</span></div>
+            <div class="field"><label>Note</label><div style="min-height:70px;padding:7px 10px;border:1px solid var(--c-s1);border-radius:8px;background:var(--c-base);font-size:13px;line-height:1.45">Traced to stale <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--c-s0);padding:0 4px;border-radius:3px">return_to</span> cookie; repro in staging.</div></div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11px;color:var(--c-sub0);display:flex;justify-content:space-between"><span>Split at</span><span style="color:var(--c-ov1)">drag the marker or type a time</span></div>
+              <div style="position:relative;height:38px;border-radius:7px;background:color-mix(in srgb,var(--ctp-mauve) 18%,var(--c-base));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ctp-mauve) 25%,transparent);overflow:hidden">
+                <div style="position:absolute;left:0;top:0;bottom:0;width:58%;border-right:2px solid var(--color-accent)"></div>
+                <span style="position:absolute;left:8px;top:11px;font-size:11px;font-variant-numeric:tabular-nums;color:var(--c-sub1)">14:30</span>
+                <span style="position:absolute;left:calc(58% - 20px);top:-1px;padding:2px 6px;border-radius:0 0 5px 5px;background:var(--color-accent);color:var(--c-base);font-size:10.5px;font-variant-numeric:tabular-nums">15:12</span>
+                <span style="position:absolute;right:8px;top:11px;font-size:11px;color:var(--ctp-green)">now</span>
+              </div>
+              <div style="display:flex;gap:8px;font-size:12px"><span style="color:var(--color-accent);display:flex;align-items:center;gap:6px">Split here <kbd>⇧⏎</kbd></span><span style="color:var(--c-ov1)">→ 14:30–15:12 and 15:12–now, same task</span></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11px;color:var(--c-sub0)">Move to task</div>
+              <div style="display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border:1px solid var(--c-s1);border-radius:8px;background:var(--c-base);color:var(--c-ov1);font-size:12.5px"><span>Type to search tasks, tags or ticket ids…</span><kbd style="margin-left:auto">⌘M</kbd></div>
+            </div>
+            <div style="font-size:11.5px;color:var(--c-ov1);display:flex;flex-direction:column;gap:3px;margin-top:auto"><span>Created 14:30 from CLI · <span style="font-family:ui-monospace,Menlo,monospace">tt start 42</span></span><span>Overlaps <span style="color:var(--c-sub1)">#44 On-call triage</span> 15:10 → now</span></div>
+          </div>
+          <div style="padding:12px 16px;border-top:1px solid var(--c-s0);display:flex;align-items:center;gap:8px">
+            <span class="btn btn-primary" style="font-size:13px;gap:8px">Stop <kbd style="color:inherit;border-color:currentColor;opacity:.7">S</kbd></span>
+            <span class="btn btn-secondary" style="font-size:13px">Duplicate</span>
+            <span class="btn btn-ghost" style="margin-left:auto;color:var(--ctp-red);font-size:13px;gap:8px">Delete <kbd style="color:inherit;border-color:currentColor;opacity:.7">⌫</kbd></span>
+          </div>
+          <div style="padding:0 16px 12px;font-size:11px;color:var(--c-ov0)">Delete is immediate and undoable — no confirmation dialog.</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;color:#6c7086;display:flex;gap:8px"><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 6px;border-radius:4px;background:#313244;color:#cdd6f4">5 · tasks</span>Task list · {{ t.name }} · 1008×900</div>
+        <div data-screen-label="Tasks {{ t.name }}" style="width:1008px;height:900px;background:var(--c-base);color:var(--c-text);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 0 1px rgba(255,255,255,.06),0 20px 60px rgba(0,0,0,.4);font-size:13px">
+          <div style="height:44px;flex:none;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid var(--c-s0);background:var(--c-mantle)">
+            <div style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--color-accent)">tt</div>
+            <div style="display:flex;gap:2px;font-size:13px"><span style="padding:5px 9px;color:var(--c-sub0)">Timeline</span><span style="padding:5px 9px;border-radius:6px;background:var(--c-s0);color:var(--c-text)">Tasks</span><span style="padding:5px 9px;color:var(--c-sub0)">Reports</span><span style="padding:5px 9px;color:var(--c-sub0)">Settings</span></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px"><div style="display:flex;align-items:center;justify-content:space-between;height:28px;padding:0 10px;border:1px solid var(--c-s0);border-radius:6px;color:var(--c-ov1);font-size:12px;width:200px;background:var(--c-base)"><span>Command…</span><kbd>⌘K</kbd></div><div style="width:26px;height:26px;border-radius:50%;background:var(--c-s0);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--c-sub1)">ms</div></div>
+          </div>
+          <div style="flex:none;display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid var(--c-s0);background:color-mix(in srgb,var(--ctp-green) 7%,var(--c-base))">
+            <span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0);display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:var(--ctp-green)"></span>Running · 2</span>
+            <sc-for list="{{ running }}" as="r" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:8px;height:28px;padding:0 4px 0 10px;border-radius:7px;background:var(--c-base);border:1px solid var(--c-s1)"><span style="width:8px;height:8px;border-radius:2px;background:{{ r.color }}"></span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--c-ov1)">#{{ r.seq }}</span><span style="font-size:12.5px;font-weight:500">{{ r.title }}</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--ctp-green);margin-left:4px">{{ r.elapsed }}</span><span style="width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:var(--ctp-red);border:1px solid color-mix(in srgb,var(--ctp-red) 35%,transparent)"><span style="width:8px;height:8px;background:currentColor;border-radius:1.5px"></span></span></div>
+            </sc-for>
+            <span style="margin-left:auto;font-size:12px;color:var(--c-sub0)">Stop all <kbd>⇧S</kbd></span>
+          </div>
+          <!-- quick create -->
+          <div style="padding:14px 14px 10px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--c-s0)">
+            <div style="display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border:1px solid var(--color-accent);border-radius:8px;background:var(--c-mantle);font-size:14px">
+              <span style="color:var(--color-accent)">+</span>
+              <span style="display:flex;align-items:center;gap:5px;flex:1"><span>Flaky e2e: checkout flow</span><span style="padding:1px 7px;border-radius:6px;background:var(--c-s0);color:var(--c-sub1);font-size:12px">+frontend</span><span style="padding:1px 7px;border-radius:6px;background:color-mix(in srgb,var(--ctp-red) 20%,var(--c-base));color:var(--ctp-red);font-size:12px">+urgent</span><span style="padding:1px 7px;border-radius:6px;background:color-mix(in srgb,var(--ctp-peach) 20%,var(--c-base));color:var(--ctp-peach);font-size:12px">@billing</span><span style="padding:1px 7px;border-radius:6px;border:1px dashed var(--c-s2);color:var(--c-sub0);font-size:12px;font-family:ui-monospace,Menlo,monospace">ticket:BIL-81</span><span style="width:1px;height:16px;background:var(--color-accent)"></span></span>
+              <span style="font-size:11px;color:var(--c-ov1);display:flex;gap:6px;align-items:center"><kbd>⏎</kbd> create<span>·</span><kbd>⌘⏎</kbd> create &amp; start</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+              <div style="display:flex;align-items:center;gap:8px;height:28px;padding:0 9px;border:1px solid var(--c-s1);border-radius:6px;width:260px;color:var(--c-ov1);background:var(--c-base)"><span>Fuzzy search · title, tags, metadata</span><kbd style="margin-left:auto">/</kbd></div>
+              <span style="display:flex;align-items:center;gap:6px;height:28px;padding:0 9px;border:1px solid var(--c-s1);border-radius:6px;color:var(--c-sub1)">State <span style="color:var(--c-text)">Open</span><span style="color:var(--c-ov1)">⌄</span></span>
+              <span style="display:flex;align-items:center;gap:6px;height:28px;padding:0 9px;border:1px solid var(--c-s1);border-radius:6px;color:var(--c-sub1)">Tags <span style="color:var(--c-ov1)">any</span><span style="color:var(--c-ov1)">⌄</span></span>
+              <span style="display:flex;align-items:center;gap:6px;height:28px;padding:0 9px;border:1px solid var(--color-accent);border-radius:6px;color:var(--color-accent)">Project <span>Atlas, Infra</span><span style="opacity:.7">×</span></span>
+              <span style="margin-left:auto;display:inline-flex;border:1px solid var(--c-s1);border-radius:6px;overflow:hidden"><span style="padding:4px 9px;color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-accent)">List</span><span style="padding:4px 9px;color:var(--c-sub0);border-left:1px solid var(--c-s1)">Board</span></span>
+              <span style="color:var(--c-ov1)">Sort · last tracked</span>
+            </div>
+          </div>
+          <!-- table -->
+          <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+            <div style="display:grid;grid-template-columns:40px 1fr 230px 110px 80px 80px 32px;gap:10px;padding:6px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-sub0);border-bottom:1px solid var(--c-s0)"><span>#</span><span>Task</span><span>Tags</span><span>Metadata</span><span style="text-align:right">Today</span><span style="text-align:right">Total</span><span></span></div>
+            <sc-for list="{{ taskRows }}" as="k" hint-placeholder-count="8">
+              <div style="{{ k.rowStyle }}">
+                <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--c-ov1)">#{{ k.seq }}</span>
+                <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:8px;height:8px;border-radius:2px;background:{{ k.color }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;{{ k.titleStyle }}">{{ k.title }}</span><span style="font-size:11px;color:var(--c-ov1);flex:none">{{ k.project }}</span><sc-if value="{{ k.running }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--ctp-green);flex:none"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>running</span></sc-if></span>
+                <span style="display:flex;gap:4px;flex-wrap:wrap"><sc-for list="{{ k.tags }}" as="g" hint-placeholder-count="2"><span style="{{ g.style }}">{{ g.name }}</span></sc-for></span>
+                <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--c-sub0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ k.meta }}</span>
+                <span style="text-align:right;font-variant-numeric:tabular-nums;color:var(--c-sub1)">{{ k.today }}</span>
+                <span style="text-align:right;font-variant-numeric:tabular-nums">{{ k.total }}</span>
+                <span style="{{ k.playStyle }}">▶</span>
+              </div>
+            </sc-for>
+            <div style="padding:10px 14px;font-size:11.5px;color:var(--c-ov1);display:flex;gap:14px"><span>8 open · 3 done · 1 archived</span><span><kbd>J</kbd><kbd>K</kbd> move</span><span><kbd>S</kbd> start</span><span><kbd>⏎</kbd> open</span><span><kbd>E</kbd> edit title</span><span><kbd>X</kbd> done</span></div>
+          </div>
+          <div style="height:24px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-ov1)"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Synced</span><span>42 tasks · 1,206 entries local</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  </sc-for>
+  </div>
+
+  <p style="margin:8px 0 0;font-size:12px;color:#6c7086;max-width:880px;line-height:1.6">All brief screens covered. Candidates for a next pass: empty states for a brand-new user, the task board variant, custom-range picker with times, the ⌘K "jump to date" natural-language parsing, and hover/focus states sheet. Try: "empty states" · "board view" · "tighten density 10%".</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const NOW = 15 * 60 + 42;
+    const PROJ = { atlas: ['Atlas', 'mauve'], billing: ['Billing', 'peach'], infra: ['Infra', 'teal'] };
+    const TAGC = { urgent: 'red', meeting: 'yellow', review: 'sapphire', ops: 'green' };
+    const T = {
+      42: { title: 'Fix login redirect loop', tags: ['backend', 'urgent'], project: 'atlas', meta: 'ticket: PROJ-123', total: '9h 12m' },
+      41: { title: 'Review PR #918 — rate limiter', tags: ['review'], project: 'infra', meta: 'url: github.com/…/918', total: '2h 05m' },
+      39: { title: 'Weekly planning', tags: ['meeting'], meta: '', total: '6h 30m' },
+      37: { title: 'Invoice PDF rendering', tags: ['frontend'], project: 'billing', meta: 'ticket: BIL-77', total: '14h 40m' },
+      44: { title: 'On-call triage', tags: ['ops'], project: 'infra', meta: 'pager: INC-2291', total: '5h 48m' },
+      35: { title: 'Write migration guide', tags: ['docs'], project: 'atlas', meta: '', total: '4h 15m' },
+      45: { title: 'Flaky e2e: checkout flow', tags: ['frontend', 'urgent'], project: 'billing', meta: 'ticket: BIL-81', total: '—' },
+      30: { title: 'Set up staging DNS', tags: ['ops'], project: 'infra', meta: 'ticket: INF-12', total: '3h 02m', state: 'done' },
+    };
+    const colorOf = (id) => {
+      const t = T[id];
+      if (t.project) return `var(--ctp-${PROJ[t.project][1]})`;
+      const tg = t.tags.find((x) => TAGC[x]);
+      return tg ? `var(--ctp-${TAGC[tg]})` : 'var(--c-ov1)';
+    };
+    const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const dur = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`);
+    const elapsed = (m) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}:08`;
+
+    // lane layout: [start, end|null, taskId, note?]
+    const layout = (list, pxh, startH = 7) => {
+      const es = list.map(([s, e, id, note]) => ({ s, e: e == null ? NOW : e, id, note, running: e == null })).sort((a, b) => a.s - b.s);
+      let cluster = [], lanesEnd = [];
+      const flush = () => { cluster.forEach((x) => (x.lanes = lanesEnd.length)); cluster = []; lanesEnd = []; };
+      es.forEach((x) => {
+        if (cluster.length && x.s >= Math.max(...lanesEnd)) flush();
+        let lane = lanesEnd.findIndex((end) => end <= x.s);
+        if (lane < 0) { lane = lanesEnd.length; lanesEnd.push(x.e); } else lanesEnd[lane] = x.e;
+        x.lane = lane; cluster.push(x);
+      });
+      flush();
+      return es.map((x) => {
+        const c = colorOf(x.id), w = 100 / x.lanes, hpx = ((x.e - x.s) / 60) * pxh - 2, compact = hpx < 44;
+        return {
+          seq: x.id, title: T[x.id].title, color: c, running: x.running && !compact, runningCompact: x.running && compact, tall: !compact, note: x.note || '',
+          bodyStyle: compact ? { display: 'flex', alignItems: 'center', gap: '6px', height: '100%', minWidth: 0 } : { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 },
+          rangeStyle: compact ? { display: 'none' } : {},
+          bg: `color-mix(in srgb, ${c} 18%, var(--c-base))`,
+          range: `${hhmm(x.s)} – ${x.running ? 'now' : hhmm(x.e)}`, dur: dur(x.e - x.s), elapsed: elapsed(x.e - x.s),
+          pos: { position: 'absolute', top: ((x.s - startH * 60) / 60) * pxh + 'px', height: ((x.e - x.s) / 60) * pxh - 2 + 'px', left: `calc(${x.lane * w}% + ${x.lane ? 3 : 0}px)`, width: `calc(${w}% - ${x.lanes > 1 ? 3 : 0}px)` },
+        };
+      });
+    };
+
+    const DAY = [[510, 555, 39], [555, 700, 42, 'repro + fix'], [605, 635, 41], [750, 850, 37], [780, 805, 44], [870, null, 42], [910, null, 44]];
+    const WEEK = [
+      [[540, 615, 39], [615, 750, 35], [780, 900, 37], [810, 840, 41], [900, 1020, 42]],
+      [[525, 660, 42], [660, 720, 41], [690, 720, 44], [780, 930, 37], [930, 1005, 35]],
+      [[540, 570, 39], [570, 780, 37], [800, 860, 41], [860, 1020, 42], [990, 1020, 44]],
+      DAY, [], [], [],
+    ];
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const sum = (l) => l.reduce((a, [s, e]) => a + ((e == null ? NOW : e) - s), 0);
+    const weekDays = WEEK.map((l, i) => ({
+      name: names[i], num: 5 + i, today: i === 3, total: l.length ? dur(sum(l)) : '',
+      numStyle: i === 3 ? { fontSize: '15px', fontWeight: 500, color: 'var(--c-base)', background: 'var(--color-accent)', borderRadius: '6px', padding: '0 5px', lineHeight: '20px' } : { fontSize: '15px', fontWeight: 500, color: i > 3 ? 'var(--c-ov1)' : 'var(--c-text)' },
+      colStyle: { position: 'relative', borderLeft: '1px solid var(--c-s0)', padding: '0 3px', background: i === 3 ? 'color-mix(in srgb, var(--color-accent) 4%, transparent)' : i > 4 ? 'repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--c-s0) 50%, transparent) 6px 7px)' : 'transparent' },
+      entries: layout(l, 52),
+    }));
+
+    const running = DAY.filter(([, e]) => e == null).map(([s, , id]) => ({ seq: id, title: T[id].title, color: colorOf(id), since: hhmm(s), elapsed: elapsed(NOW - s) }));
+
+    // month: Mon 28 Sep → Sun 1 Nov 2026
+    const MDATA = { '9-28': [445, [42, 37, 39]], '9-29': [470, [37, 41, 44]], '9-30': [410, [35, 42]], '10-1': [455, [37, 42, 41]], '10-2': [380, [42, 35]], '10-5': [480, [42, 35, 37]], '10-6': [453, [42, 37, 41]], '10-7': [492, [37, 42, 39]], '10-8': [449, [42, 37, 44]] };
+    const SPLIT = [[0.45, 0.33, 0.22], [0.6, 0.25, 0.15], [0.5, 0.3, 0.2]];
+    const monthCells = [];
+    for (let i = 0; i < 35; i++) {
+      const d = new Date(2026, 8, 28 + i), m = d.getMonth() + 1, n = d.getDate(), key = `${m}-${n}`, inM = m === 10, today = key === '10-8', future = d > new Date(2026, 9, 8), wk = i % 7 >= 5;
+      const rec = MDATA[key];
+      const sp = SPLIT[i % 3];
+      monthCells.push({
+        num: n, total: rec ? dur(rec[0]) : '',
+        cellStyle: { borderRight: '1px solid var(--c-s0)', borderBottom: '1px solid var(--c-s0)', padding: '6px 8px', minWidth: 0, overflow: 'hidden', background: today ? 'color-mix(in srgb, var(--color-accent) 5%, transparent)' : wk ? 'repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--c-s0) 50%, transparent) 6px 7px)' : 'transparent', opacity: inM ? 1 : 0.55 },
+        numStyle: today ? { fontSize: '12px', fontWeight: 500, color: 'var(--c-base)', background: 'var(--color-accent)', borderRadius: '5px', padding: '0 5px', lineHeight: '18px' } : { fontSize: '12px', color: future ? 'var(--c-ov1)' : 'var(--c-sub1)' },
+        barStyle: rec ? { height: '3px', borderRadius: '2px', marginTop: '6px', width: Math.round((rec[0] / 540) * 100) + '%', background: `linear-gradient(to right, ${rec[1].map((id, j) => { const a = sp.slice(0, j).reduce((x, y) => x + y, 0) * 100, b = a + sp[j] * 100; return `${colorOf(id)} ${a}% ${b}%`; }).join(', ')})` } : { height: '3px', marginTop: '6px' },
+        tasks: rec ? rec[1].map((id, j) => ({ title: T[id].title, color: colorOf(id), dur: dur(Math.round(rec[0] * sp[j])) })) : [],
+      });
+    }
+
+    const todayMin = {}; DAY.forEach(([s, e, id]) => (todayMin[id] = (todayMin[id] || 0) + ((e == null ? NOW : e) - s)));
+    const sideIds = [42, 44, 37, 41, 39, 35, 30];
+    const sideTasks = sideIds.map((id, i) => ({
+      seq: id, title: T[id].title, color: colorOf(id), today: todayMin[id] ? dur(todayMin[id]) : '',
+      rowStyle: { display: 'flex', alignItems: 'center', gap: '8px', height: '34px', padding: '0 8px 0 12px', fontSize: '12.5px', background: i === 2 ? 'color-mix(in srgb, var(--color-accent) 10%, transparent)' : 'transparent', boxShadow: i === 2 ? 'inset 0 0 0 1px var(--color-accent)' : 'none', borderRadius: i === 2 ? '6px' : 0, margin: i === 2 ? '0 6px' : 0, opacity: T[id].state === 'done' ? 0.5 : 1, textDecoration: T[id].state === 'done' ? 'line-through' : 'none' },
+      playStyle: { width: '22px', height: '22px', borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', color: i === 2 ? 'var(--color-accent)' : 'transparent', border: i === 2 ? '1px solid var(--c-s1)' : '1px solid transparent' },
+    }));
+
+    const tagStyle = (g) => TAGC[g]
+      ? { fontSize: '10.5px', padding: '2px 7px', borderRadius: '6px', background: `color-mix(in srgb, var(--ctp-${TAGC[g]}) 20%, var(--c-base))`, color: `var(--ctp-${TAGC[g]})` }
+      : { fontSize: '10.5px', padding: '2px 7px', borderRadius: '6px', background: 'var(--c-s0)', color: 'var(--c-sub1)' };
+    const rowIds = [42, 44, 37, 41, 39, 35, 45, 30];
+    const taskRows = rowIds.map((id, i) => ({
+      seq: id, title: T[id].title, color: colorOf(id), project: T[id].project ? PROJ[T[id].project][0] : '', meta: T[id].meta, total: T[id].total,
+      today: todayMin[id] ? dur(todayMin[id]) : '', running: running.some((r) => r.seq === id),
+      tags: T[id].tags.map((g) => ({ name: g, style: tagStyle(g) })),
+      titleStyle: T[id].state === 'done' ? 'color:var(--c-ov1);text-decoration:line-through' : '',
+      rowStyle: { display: 'grid', gridTemplateColumns: '40px 1fr 230px 110px 80px 80px 32px', gap: '10px', alignItems: 'center', height: '38px', padding: '0 14px', borderBottom: '1px solid color-mix(in srgb, var(--c-s0) 60%, transparent)', fontSize: '13px', background: i === 1 ? 'color-mix(in srgb, var(--color-accent) 8%, transparent)' : 'transparent', boxShadow: i === 1 ? 'inset 2px 0 0 var(--color-accent)' : 'none', opacity: T[id].state === 'done' ? 0.6 : 1 },
+      playStyle: { width: '24px', height: '24px', borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', color: i === 1 ? 'var(--color-accent)' : 'var(--c-ov0)', border: '1px solid ' + (i === 1 ? 'var(--color-accent)' : 'transparent') },
+    }));
+
+    // reports: week sums
+    const sumBy = (keyOf) => { const o = {}; WEEK.forEach((l) => l.forEach(([s, e, id]) => { const k = keyOf(id); if (k == null) return; o[k] = (o[k] || 0) + ((e == null ? NOW : e) - s); })); return o; };
+    const toRows = (o, labelOf, colorOf2) => { const es = Object.entries(o).sort((a, b) => b[1] - a[1]); const max = es[0] ? es[0][1] : 1; return es.map(([k, v]) => ({ label: labelOf(k), dur: dur(v), color: colorOf2(k), barStyle: { height: '4px', borderRadius: '2px', width: Math.round((v / max) * 100) + '%', background: colorOf2(k) } })); };
+    const byTask = toRows(sumBy((id) => id), (k) => `#${k} ${T[k].title}`, (k) => colorOf(+k));
+    const tagMin = {}; WEEK.forEach((l) => l.forEach(([s, e, id]) => T[id].tags.forEach((g) => (tagMin[g] = (tagMin[g] || 0) + ((e == null ? NOW : e) - s)))));
+    const byTag = toRows(tagMin, (k) => '+' + k, (k) => (TAGC[k] ? `var(--ctp-${TAGC[k]})` : 'var(--c-ov1)'));
+    const byProject = toRows(sumBy((id) => T[id].project || 'none'), (k) => (PROJ[k] ? PROJ[k][0] : 'No project'), (k) => (PROJ[k] ? `var(--ctp-${PROJ[k][1]})` : 'var(--c-ov1)'));
+
+    // rounded & flattened export preview (today)
+    const raw = DAY.map(([s, e, id]) => ({ s, e: e == null ? NOW : e, id })).sort((a, b) => a.s - b.s);
+    let cursor = 0;
+    const flat = raw.map((x) => { const d = Math.ceil((x.e - x.s) / 15) * 15; let s = Math.floor(x.s / 15) * 15; const moved = s < cursor; if (moved) s = cursor; cursor = s + d; return { s, e: cursor, id: x.id, d, moved, grew: d > x.e - x.s }; });
+    const rawRows = raw.map((x) => ({ range: `${hhmm(x.s)}–${hhmm(x.e)}`, title: T[x.id].title, color: colorOf(x.id), dur: dur(x.e - x.s) }));
+    const flatRows = flat.map((x) => ({ range: `${hhmm(x.s)}–${hhmm(x.e)}`, title: T[x.id].title, color: colorOf(x.id), dur: dur(x.d), delta: x.moved ? 'moved' : x.grew ? 'rounded' : '', deltaStyle: { fontSize: '10px', padding: '1px 6px', borderRadius: '5px', color: x.moved ? 'var(--ctp-peach)' : 'var(--c-ov1)', background: x.moved ? 'color-mix(in srgb, var(--ctp-peach) 18%, var(--c-base))' : 'transparent', visibility: x.moved || x.grew ? 'visible' : 'hidden' } }));
+    const rawTotal = dur(raw.reduce((a, x) => a + x.e - x.s, 0)), flatTotal = dur(flat.reduce((a, x) => a + x.d, 0));
+    const stripScale = 24 * 60; const stripRaw = raw.map((x) => ({ style: { position: 'absolute', top: 0, bottom: 0, left: ((x.s - 480) / 600) * 100 + '%', width: ((x.e - x.s) / 600) * 100 + '%', background: colorOf(x.id), opacity: 0.8, borderRadius: '2px' } }));
+    const stripFlat = flat.map((x) => ({ style: { position: 'absolute', top: 0, bottom: 0, left: ((x.s - 480) / 600) * 100 + '%', width: ((x.e - x.s) / 600) * 100 + '%', background: colorOf(x.id), borderRadius: '2px', boxShadow: 'inset 0 0 0 1px var(--c-base)' } }));
+
+    const palette = [
+      { k: 'Start', label: 'Fix login redirect loop', hint: '#42 · Atlas · running', kbd: '⏎', active: true, color: colorOf(42) },
+      { k: 'Start', label: 'Flaky e2e: checkout flow', hint: '#45 · Billing · BIL-81', kbd: '', color: colorOf(45) },
+      { k: 'Stop', label: 'On-call triage', hint: '#44 · running 0:32', kbd: '', color: colorOf(44) },
+      { k: 'Go', label: 'Jump to date…', hint: 'tomorrow, 12 oct, w42', kbd: 'G', color: 'transparent' },
+      { k: 'View', label: 'Switch to week', hint: '', kbd: 'W', color: 'transparent' },
+      { k: 'New', label: 'Create task "fix…"', hint: '+tags @project key:value', kbd: 'C', color: 'transparent' },
+      { k: 'App', label: 'Settings', hint: '', kbd: ',', color: 'transparent' },
+    ].map((p) => ({ ...p, rowStyle: { display: 'flex', alignItems: 'center', gap: '10px', height: '36px', padding: '0 12px', borderRadius: '6px', background: p.active ? 'color-mix(in srgb, var(--color-accent) 12%, transparent)' : 'transparent', boxShadow: p.active ? 'inset 0 0 0 1px var(--color-accent)' : 'none' }, dotStyle: { width: '8px', height: '8px', borderRadius: '2px', background: p.color, flex: 'none', visibility: p.color === 'transparent' ? 'hidden' : 'visible' } }));
+
+    const t42 = []; WEEK.forEach((l, i) => l.forEach(([s, e, id]) => { if (id === 42) t42.push({ day: `${names[i]} ${5 + i} Oct`, range: `${hhmm(s)} – ${e == null ? 'now' : hhmm(e)}`, dur: dur((e == null ? NOW : e) - s), running: e == null }); }));
+    const t42Total = dur(t42.reduce((a, x) => a + 0, 0) + sumBy((id) => id)[42]);
+
+    const nowTop = ((NOW - 420) / 60) * 56;
+    return {
+      byTask, byTag, byProject, rawRows, flatRows, rawTotal, flatTotal, stripRaw, stripFlat, palette, t42, t42Total,
+      phoneEntries: layout(DAY, 44), phoneNowStyle: { position: 'absolute', left: 0, right: 0, top: ((NOW - 420) / 60) * 44 + 'px', borderTop: '1px solid var(--ctp-red)', zIndex: 2 },
+      themes: [{ cls: 'ctp-mocha', name: 'Mocha' }, { cls: 'ctp-latte', name: 'Latte' }],
+      hours: Array.from({ length: 12 }, (_, i) => hhmm((7 + i) * 60)),
+      dow: names,
+      dayEntries: layout(DAY, 56), running, weekDays, monthCells, sideTasks, taskRows,
+      nowStyle: { position: 'absolute', left: 0, right: 0, top: nowTop + 'px', borderTop: '1px solid var(--ctp-red)', zIndex: 2, pointerEvents: 'none' },
+      weekNowStyle: { position: 'absolute', left: 0, right: 0, top: ((NOW - 420) / 60) * 52 + 'px', borderTop: '1px solid var(--ctp-red)', zIndex: 2 },
+    };
+  }
+}
+</script>
+</body>
+</html>
