@@ -1,0 +1,22 @@
+[package]
+name = "tt-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "tt domain model over Automerge documents: tasks, entries, events, reports, rounding"
+
+[dependencies]
+automerge.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+csv.workspace = true
+nucleo-matcher.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

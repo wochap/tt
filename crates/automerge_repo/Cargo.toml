@@ -1,0 +1,32 @@
+[package]
+name = "automerge-repo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Actor-owned Automerge repository with automerge-repo JS wire protocol (fork of fi)"
+
+[lib]
+name = "automerge_repo"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait.workspace = true
+automerge.workspace = true
+bs58.workspace = true
+bytes.workspace = true
+ciborium.workspace = true
+futures-util.workspace = true
+rusqlite = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+uuid.workspace = true
+
+[features]
+default = ["sqlite"]
+sqlite = ["dep:rusqlite"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true

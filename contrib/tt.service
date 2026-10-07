@@ -1,0 +1,23 @@
+# systemd user unit for the tt daemon.
+#
+#   install -Dm644 contrib/tt.service ~/.config/systemd/user/tt.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now tt.service
+#
+# Adjust ExecStart if `tt` is not installed in ~/.cargo/bin. The daemon logs to
+# $XDG_STATE_HOME/tt/daemon.log (and to the journal via stderr). The CLI
+# auto-spawns the daemon when this unit is not used.
+
+[Unit]
+Description=tt task and time tracker daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/tt daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
