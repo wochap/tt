@@ -5,6 +5,7 @@ members = [
     "crates/tt-core",
     "crates/tt-daemon",
     "crates/tt-cli",
+    "crates/tt-server",
 ]
 
 [workspace.package]
@@ -17,8 +18,13 @@ license = "MIT"
 automerge-repo = { path = "crates/automerge_repo" }
 tt-core = { path = "crates/tt-core" }
 tt-daemon = { path = "crates/tt-daemon" }
+tt-server = { path = "crates/tt-server" }
 anyhow = "1"
+argon2 = "0.5"
 async-trait = "0.1"
+axum = { version = "0.8", features = ["ws"] }
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
+base64 = "0.22"
 automerge = "=0.11.0"
 bs58 = { version = "0.5", features = ["check"] }
 bytes = "1"
@@ -32,15 +38,20 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 iana-time-zone = "0.1"
 nucleo-matcher = "0.3"
 proptest = "1"
+rcgen = "0.14"
+rand_core = { version = "0.6", features = ["getrandom"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-tokio-tungstenite = "0.30"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 toml = "0.8"
+tower-http = { version = "0.6", features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 ureq = { version = "3", features = ["json"] }

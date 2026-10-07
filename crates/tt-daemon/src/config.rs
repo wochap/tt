@@ -173,14 +173,28 @@ impl Config {
 
     /// Sync is enabled only with both a server URL and a token.
     #[must_use]
-    pub fn sync_endpoint(&self) -> Option<(String, String)> {
+    pub fn sync_endpoint(&self) -> Option<SyncEndpoint> {
         let url = self.server.url.as_deref()?.trim();
         let token = self.server.token.as_deref()?.trim();
         if url.is_empty() || token.is_empty() {
             return None;
         }
-        Some((websocket_url(url), token.to_owned()))
+        Some(SyncEndpoint {
+            base: url.trim_end_matches('/').to_owned(),
+            websocket: websocket_url(url),
+            token: token.to_owned(),
+        })
     }
+}
+
+/// Where and as whom the daemon syncs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyncEndpoint {
+    /// `https://host/base`: HTTP API root (`/api/ws-ticket`).
+    pub base: String,
+    /// `wss://host/base/sync`.
+    pub websocket: String,
+    pub token: String,
 }
 
 /// `https://host/base` → `wss://host/base/sync`.
@@ -226,7 +240,11 @@ mod tests {
         assert_eq!(loaded, config);
         assert_eq!(
             loaded.sync_endpoint(),
-            Some(("wss://tt.example/sync".into(), "secret".into()))
+            Some(SyncEndpoint {
+                base: "https://tt.example".into(),
+                websocket: "wss://tt.example/sync".into(),
+                token: "secret".into(),
+            })
         );
         assert!(config.set("tz", Some("Mars/Base".into())).is_err());
         assert!(config.set("nope", None).is_err());

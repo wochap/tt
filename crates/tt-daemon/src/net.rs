@@ -1,19 +1,130 @@
 //! Switchable transport: the Repo is opened once, while the websocket client
 //! behind it can be started, replaced (after `tt login`) or stopped. With no
 //! server configured no client exists and nothing touches the network.
+//!
+//! Each connection attempt first asks the server for a single-use websocket
+//! ticket (`POST /api/ws-ticket` with the bearer token), so the long-lived
+//! token never appears in a URL. A 401 means the token was revoked: the
+//! client stops and `tt status` reports that login is required. A server
+//! without the ticket endpoint (404, e.g. a plain automerge-repo sync server)
+//! gets the token as an `Authorization` header instead.
+//!
+//! [`SyncScope`] is the client-side access policy: only documents reachable
+//! from this device's index are announced to or accepted from the server, so
+//! stale local documents (an offline workspace from before `tt login`) are
+//! never pushed.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, RwLock},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use automerge_repo::{
-    PeerId,
+    AccessPolicy, DocumentId, PeerId,
     error::NetworkError,
     network::{NetworkEvent, NetworkTransport},
-    transport::{ConnectionState, WsJsClient, WsJsClientConfig},
+    transport::{
+        AuthError, ConnectAuth, ConnectTarget, ConnectionState, WsJsClient, WsJsClientConfig,
+    },
 };
 use bytes::Bytes;
 use serde_json::{Value, json};
 use tokio::{sync::mpsc, task::JoinHandle};
+
+use crate::config::SyncEndpoint;
+
+/// Documents this device syncs: its index and what the index lists.
+#[derive(Debug, Default)]
+pub struct SyncScope {
+    ids: RwLock<HashSet<DocumentId>>,
+}
+
+impl SyncScope {
+    /// Forgets everything (the index changed).
+    pub fn reset(&self) {
+        self.ids.write().unwrap().clear();
+    }
+    /// Adds `id`; `true` when it was new.
+    pub fn insert(&self, id: DocumentId) -> bool {
+        self.ids.write().unwrap().insert(id)
+    }
+    #[must_use]
+    pub fn contains(&self, id: DocumentId) -> bool {
+        self.ids.read().unwrap().contains(&id)
+    }
+}
+
+/// [`AccessPolicy`] backed by a [`SyncScope`].
+pub struct ScopePolicy(pub Arc<SyncScope>);
+
+impl AccessPolicy for ScopePolicy {
+    fn may_sync(&self, _peer: &PeerId, document: DocumentId) -> bool {
+        self.0.contains(document)
+    }
+}
+
+enum TicketReply {
+    Ticket(String),
+    NoTicketEndpoint,
+    Unauthorized,
+    Failed(String),
+}
+
+fn request_ticket(base: &str, token: &str) -> TicketReply {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .timeout_global(Some(Duration::from_secs(10)))
+        .build()
+        .into();
+    let response = agent
+        .post(&format!("{base}/api/ws-ticket"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send_json(json!({}));
+    let mut response = match response {
+        Ok(response) => response,
+        Err(error) => return TicketReply::Failed(format!("ticket request: {error}")),
+    };
+    match response.status().as_u16() {
+        200 => match response.body_mut().read_json::<Value>() {
+            Ok(body) => match body["ticket"].as_str() {
+                Some(ticket) => TicketReply::Ticket(ticket.to_owned()),
+                None => TicketReply::Failed("ticket response has no ticket".into()),
+            },
+            Err(error) => TicketReply::Failed(format!("ticket response: {error}")),
+        },
+        401 | 403 => TicketReply::Unauthorized,
+        404 | 405 => TicketReply::NoTicketEndpoint,
+        status => TicketReply::Failed(format!("ticket request: HTTP {status}")),
+    }
+}
+
+struct TicketAuth(SyncEndpoint);
+
+#[async_trait]
+impl ConnectAuth for TicketAuth {
+    async fn prepare(&self) -> Result<ConnectTarget, AuthError> {
+        let (base, token) = (self.0.base.clone(), self.0.token.clone());
+        let reply = tokio::task::spawn_blocking(move || request_ticket(&base, &token))
+            .await
+            .map_err(|error| AuthError::Retry(error.to_string()))?;
+        match reply {
+            TicketReply::Ticket(ticket) => Ok(ConnectTarget {
+                url: format!("{}?ticket={ticket}", self.0.websocket),
+                headers: Vec::new(),
+            }),
+            TicketReply::NoTicketEndpoint => Ok(ConnectTarget {
+                url: self.0.websocket.clone(),
+                headers: vec![("Authorization".into(), format!("Bearer {}", self.0.token))],
+            }),
+            TicketReply::Unauthorized => Err(AuthError::Rejected(
+                "login required: the server refused the token (run `tt login`)".into(),
+            )),
+            TicketReply::Failed(message) => Err(AuthError::Retry(message)),
+        }
+    }
+}
 
 struct Active {
     url: String,
@@ -40,10 +151,12 @@ impl SyncTransport {
         })
     }
 
-    /// Starts (or restarts) the client for `url` with a bearer token.
-    pub async fn connect(&self, url: &str, token: &str) {
+    /// Starts (or restarts) the client for `endpoint`.
+    pub async fn connect(&self, endpoint: SyncEndpoint) {
         self.disconnect().await;
-        let config = WsJsClientConfig::new(url, self.local.clone()).bearer(token);
+        let url = endpoint.base.clone();
+        let config = WsJsClientConfig::new(endpoint.websocket.clone(), self.local.clone())
+            .auth(Arc::new(TicketAuth(endpoint)));
         let client = WsJsClient::start(config);
         let mut events = client
             .take_events()
@@ -57,7 +170,7 @@ impl SyncTransport {
             }
         });
         *self.active.lock().unwrap() = Some(Active {
-            url: url.to_owned(),
+            url,
             client,
             forwarder,
         });
@@ -97,6 +210,7 @@ impl SyncTransport {
                 json!({"error": error, "retry_in_ms": retry_in.as_millis() as u64}),
             ),
             ConnectionState::Failed(error) => ("failed", json!(error.to_string())),
+            ConnectionState::Rejected(message) => ("login_required", json!(message)),
             ConnectionState::Closed => ("closed", Value::Null),
         };
         json!({"configured": true, "url": active.url, "state": state, "detail": detail})

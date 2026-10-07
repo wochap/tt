@@ -256,6 +256,11 @@ pub(crate) struct ActorHandle {
     control: mpsc::UnboundedSender<ControlCommand>,
 }
 impl ActorHandle {
+    /// Whether a [`DocHandle`] for this actor lives outside the repository
+    /// (the coordinator keeps two senders: its own and its handle's).
+    pub fn held_outside(&self) -> bool {
+        self.tx.strong_count() > 2
+    }
     pub fn revision(&self) -> u64 {
         self.revision.load(Ordering::Acquire)
     }

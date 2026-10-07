@@ -171,7 +171,13 @@ pub fn status(status: &Value, tz: Tz) -> String {
     );
     out.push_str(&format!("socket:  {}\n", s(daemon, "socket")));
     out.push_str(&format!("log:     {}\n", s(daemon, "log")));
-    if sync["configured"].as_bool() == Some(true) {
+    if sync["state"] == "login_required" {
+        out.push_str(&format!(
+            "sync:    login required ({}): run `tt login {}`\n",
+            s(sync, "url"),
+            s(sync, "url")
+        ));
+    } else if sync["configured"].as_bool() == Some(true) {
         out.push_str(&format!(
             "sync:    {} ({})",
             s(sync, "state"),

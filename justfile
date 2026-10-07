@@ -20,6 +20,11 @@ fmt-check:
 # Spike: Rust clients through the real @automerge/automerge-repo-sync-server (needs node + npm).
 interop:
     rtk cargo test -p automerge-repo --test js_interop -- --nocapture
+    rtk cargo test -p tt-server --test interop -- --nocapture
+
+# Run a local server for development (plain HTTP on localhost).
+server db="target/dev-server.db":
+    rtk cargo run -p tt-server -- --db {{db}} serve --insecure-http --listen 127.0.0.1:8080
 
 e2e: build
     scripts/e2e.sh

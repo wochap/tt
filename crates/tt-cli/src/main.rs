@@ -167,6 +167,8 @@ enum Cmd {
         #[arg(long)]
         username: Option<String>,
     },
+    /// Revoke the server token and stop syncing; local data stays
+    Logout,
     /// Read or change config.toml
     #[command(subcommand)]
     Config(ConfigCmd),
@@ -479,6 +481,7 @@ fn run(cli: Cli) -> CliResult<u8> {
             ctx.emit(&status, |s| output::status(s, tz));
         }
         Cmd::Login { url, username } => login(&mut ctx, &url, username)?,
+        Cmd::Logout => logout(&mut ctx)?,
         Cmd::Config(command) => config_cmd(&mut ctx, command)?,
         Cmd::Daemon { .. } | Cmd::DocsCli => unreachable!("handled above"),
     }
@@ -1050,6 +1053,50 @@ fn login(ctx: &mut Ctx, url: &str, username: Option<String>) -> CliResult {
     config.save(&path)?;
     let result = ctx.call("sync.reload", json!({}))?;
     ctx.emit(&result, |_| "logged in; sync enabled\n".into());
+    Ok(())
+}
+
+fn logout(ctx: &mut Ctx) -> CliResult {
+    let path = ctx.paths.config_file();
+    let mut config = Config::load(&path)?;
+    let Some(token) = config.server.token.take() else {
+        ctx.emit(&json!({"ok": true, "revoked": false}), |_| {
+            "not logged in\n".into()
+        });
+        return Ok(());
+    };
+    let mut revoked = false;
+    if let Some(base) = config.server.url.as_deref() {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .build()
+            .into();
+        let endpoint = format!("{}/api/logout", base.trim_end_matches('/'));
+        match agent
+            .post(&endpoint)
+            .header("Authorization", &format!("Bearer {token}"))
+            .send_json(json!({}))
+        {
+            // 401: already revoked or unknown; either way it is dead.
+            Ok(response) if matches!(response.status().as_u16(), 200 | 401) => revoked = true,
+            Ok(response) => eprintln!(
+                "tt: warning: server answered {} to logout; token removed locally only",
+                response.status()
+            ),
+            Err(error) => {
+                eprintln!("tt: warning: server not reached ({error}); token removed locally only");
+            }
+        }
+    }
+    config.save(&path)?;
+    // Only a running daemon needs to hear about it; never spawn for this.
+    if let Ok(mut client) = Client::connect(&ctx.paths.socket) {
+        let _ = client.call("sync.reload", json!({}));
+    }
+    ctx.emit(&json!({"ok": true, "revoked": revoked}), |_| {
+        "logged out; sync stopped, local data kept\n".into()
+    });
     Ok(())
 }
 

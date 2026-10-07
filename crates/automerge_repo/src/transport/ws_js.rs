@@ -52,10 +52,41 @@ pub enum ConnectionState {
     },
     /// A non-retryable failure, such as a protocol version mismatch.
     Failed(ProtocolError),
+    /// [`ConnectAuth::prepare`] reported that the credentials were refused;
+    /// not retried.
+    Rejected(String),
     Closed,
 }
 
-#[derive(Clone, Debug)]
+/// Where and how to dial for one connection attempt.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ConnectTarget {
+    /// `ws://` or `wss://` URL, e.g. with a single-use ticket in the query.
+    pub url: String,
+    /// Extra HTTP headers for the upgrade request.
+    pub headers: Vec<(String, String)>,
+}
+
+/// Why [`ConnectAuth::prepare`] could not produce a target.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum AuthError {
+    /// Transient (server unreachable, 5xx): retried with backoff.
+    #[error("{0}")]
+    Retry(String),
+    /// Credentials refused (401): the client stops in
+    /// [`ConnectionState::Rejected`].
+    #[error("{0}")]
+    Rejected(String),
+}
+
+/// Per-attempt connection setup, e.g. fetching a short-lived websocket ticket
+/// so a long-lived token never appears in a URL.
+#[async_trait]
+pub trait ConnectAuth: Send + Sync + 'static {
+    async fn prepare(&self) -> Result<ConnectTarget, AuthError>;
+}
+
+#[derive(Clone)]
 pub struct WsJsClientConfig {
     /// `ws://` or `wss://` URL.
     pub url: String,
@@ -67,6 +98,20 @@ pub struct WsJsClientConfig {
     pub handshake_timeout: Duration,
     pub min_backoff: Duration,
     pub max_backoff: Duration,
+    /// Called before every attempt; its target replaces `url` and adds
+    /// headers. `None` dials `url` directly.
+    pub auth: Option<Arc<dyn ConnectAuth>>,
+}
+
+impl std::fmt::Debug for WsJsClientConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WsJsClientConfig")
+            .field("url", &self.url)
+            .field("peer_id", &self.peer_id)
+            .field("headers", &self.headers.len())
+            .field("auth", &self.auth.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl WsJsClientConfig {
@@ -83,7 +128,13 @@ impl WsJsClientConfig {
             handshake_timeout: Duration::from_secs(10),
             min_backoff: Duration::from_millis(250),
             max_backoff: Duration::from_secs(30),
+            auth: None,
         }
+    }
+    #[must_use]
+    pub fn auth(mut self, auth: Arc<dyn ConnectAuth>) -> Self {
+        self.auth = Some(auth);
+        self
     }
     #[must_use]
     pub fn bearer(mut self, token: &str) -> Self {
@@ -99,6 +150,8 @@ enum AttemptError {
     Protocol(#[from] ProtocolError),
     #[error("{0}")]
     Io(String),
+    #[error("{0}")]
+    Rejected(String),
 }
 
 struct ClientShared {
@@ -171,6 +224,12 @@ async fn run_client(shared: Arc<ClientShared>) {
                 shared.state.send_replace(ConnectionState::Failed(error));
                 return;
             }
+            Err(AttemptError::Rejected(message)) => {
+                shared
+                    .state
+                    .send_replace(ConnectionState::Rejected(message));
+                return;
+            }
             Err(error) => error.to_string(),
         };
         // A connection that stayed up for a while earns a fresh backoff.
@@ -191,13 +250,26 @@ async fn run_client(shared: Arc<ClientShared>) {
 }
 
 async fn attempt(shared: &Arc<ClientShared>) -> Result<(), AttemptError> {
+    // `wss://` uses rustls with webpki roots; pin the ring provider so the
+    // choice never depends on which crypto features other crates enable.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let config = &shared.config;
-    let mut request = config
+    let target = match &config.auth {
+        Some(auth) => auth.prepare().await.map_err(|error| match error {
+            AuthError::Retry(message) => AttemptError::Io(message),
+            AuthError::Rejected(message) => AttemptError::Rejected(message),
+        })?,
+        None => ConnectTarget {
+            url: config.url.clone(),
+            headers: Vec::new(),
+        },
+    };
+    let mut request = target
         .url
         .as_str()
         .into_client_request()
         .map_err(|error| AttemptError::Io(error.to_string()))?;
-    for (name, value) in &config.headers {
+    for (name, value) in config.headers.iter().chain(&target.headers) {
         let value =
             HeaderValue::from_str(value).map_err(|error| AttemptError::Io(error.to_string()))?;
         let name: tokio_tungstenite::tungstenite::http::HeaderName = name

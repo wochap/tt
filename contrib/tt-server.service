@@ -1,0 +1,50 @@
+# systemd system unit for tt-server.
+#
+#   useradd --system --home /var/lib/tt-server --shell /usr/sbin/nologin tt-server
+#   install -Dm755 target/release/tt-server /usr/local/bin/tt-server
+#   install -Dm644 contrib/tt-server.service /etc/systemd/system/tt-server.service
+#   sudo -u tt-server tt-server --db /var/lib/tt-server/server.db user add alice
+#   systemctl daemon-reload && systemctl enable --now tt-server.service
+#
+# TLS here: put the key pair in /etc/tt-server/ readable by the tt-server
+# user and keep the TLS flags. Behind a reverse proxy on this host instead:
+# replace them with `--insecure-http --behind-proxy --listen 127.0.0.1:8080`.
+# See docs/server.md.
+
+[Unit]
+Description=tt sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tt-server
+Group=tt-server
+StateDirectory=tt-server
+StateDirectoryMode=0700
+Environment=TT_SERVER_LOG=info
+ExecStart=/usr/local/bin/tt-server --db /var/lib/tt-server/server.db serve \
+    --listen 0.0.0.0:8443 \
+    --tls-cert /etc/tt-server/fullchain.pem \
+    --tls-key /etc/tt-server/privkey.pem \
+    --web-dir /usr/local/share/tt-server/web
+Restart=on-failure
+RestartSec=2
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ReadWritePaths=/var/lib/tt-server
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

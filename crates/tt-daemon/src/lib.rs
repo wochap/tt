@@ -31,7 +31,7 @@ use crate::{
     config::Config,
     engine::Engine,
     hooks::Hooks,
-    net::SyncTransport,
+    net::{ScopePolicy, SyncScope, SyncTransport},
     paths::{Paths, ensure_private_dir},
     rpc::{RpcError, UNAVAILABLE},
 };
@@ -51,6 +51,7 @@ pub struct Daemon {
     paths: Paths,
     repo: Repo,
     transport: Arc<SyncTransport>,
+    scope: Arc<SyncScope>,
     engine: RwLock<Option<Arc<Mutex<Engine>>>>,
     readiness: watch::Sender<Readiness>,
     bus: Bus,
@@ -140,7 +141,7 @@ impl Daemon {
     async fn reload(self: &Daemon) -> Result<Value, RpcError> {
         let config = Config::load(&self.paths.config_file()).map_err(RpcError::internal)?;
         match config.sync_endpoint() {
-            Some((url, token)) => self.transport.connect(&url, &token).await,
+            Some(endpoint) => self.transport.connect(endpoint).await,
             None => self.transport.disconnect().await,
         }
         let current = match self.engine.read().await.clone() {
@@ -189,6 +190,7 @@ async fn initialize(daemon: Arc<Daemon>) {
         daemon.repo.clone(),
         config.user.index_doc.as_deref(),
         user,
+        daemon.scope.clone(),
         daemon.bus.clone(),
         daemon.hooks.clone(),
         daemon.remote.clone(),
@@ -333,18 +335,20 @@ pub async fn run(spawned: bool) -> Result<i32> {
     let peer = peer_id(&store).await?;
     let transport = SyncTransport::new(peer.clone());
     let store = Arc::new(store);
-    let repo = Repo::open(
+    let scope = Arc::new(SyncScope::default());
+    let repo = Repo::open_with_policy(
         store.clone(),
         store.clone(),
         transport.clone(),
         RepoConfig::default(),
+        Arc::new(ScopePolicy(scope.clone())),
     )
     .await?;
     let config = Config::load(&paths.config_file())?;
     match config.sync_endpoint() {
-        Some((url, token)) => {
-            info!(%url, "sync enabled");
-            transport.connect(&url, &token).await;
+        Some(endpoint) => {
+            info!(url = %endpoint.base, "sync enabled");
+            transport.connect(endpoint).await;
         }
         None => info!("no server configured; running offline"),
     }
@@ -355,6 +359,7 @@ pub async fn run(spawned: bool) -> Result<i32> {
         paths: paths.clone(),
         repo: repo.clone(),
         transport,
+        scope,
         engine: RwLock::new(None),
         readiness,
         bus: Bus::default(),

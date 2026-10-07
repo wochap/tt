@@ -23,6 +23,7 @@ toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tt-core.workspace = true
+ureq.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

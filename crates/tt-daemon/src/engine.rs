@@ -28,6 +28,7 @@ use uuid::Uuid;
 use crate::{
     bus::{self, Bus},
     hooks::Hooks,
+    net::SyncScope,
     rpc::{CONFLICT, RpcError, UNAVAILABLE},
 };
 
@@ -111,6 +112,7 @@ pub struct Engine {
     pub bus: Bus,
     hooks: Hooks,
     remote: mpsc::UnboundedSender<DocumentId>,
+    scope: Arc<SyncScope>,
 }
 
 /// Result of [`Engine::init`].
@@ -143,17 +145,21 @@ where
 
 impl Engine {
     /// Loads (or on first run creates) the index and workspace documents.
+    /// Only documents reachable from the index enter `scope` (and so sync).
     pub async fn init(
         repo: Repo,
         index_doc: Option<&str>,
         user: User,
+        scope: Arc<SyncScope>,
         bus: Bus,
         hooks: Hooks,
         remote: mpsc::UnboundedSender<DocumentId>,
     ) -> anyhow::Result<Init> {
         let mut created_index = None;
+        scope.reset();
         let (index, workspace) = if let Some(id) = index_doc {
             let id = DocumentId::parse_any(id)?;
+            scope.insert(id);
             let index = repo.find(id).await?;
             wait_ready(&index, REMOTE_DOC_TIMEOUT)
                 .await
@@ -169,10 +175,13 @@ impl Engine {
                 .workspace
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("index document lists no workspace"))?;
-            let workspace = repo.find(DocumentId::parse_any(workspace_id)?).await?;
+            let workspace_id = DocumentId::parse_any(workspace_id)?;
+            scope.insert(workspace_id);
+            let workspace = repo.find(workspace_id).await?;
             // Ask for every listed document so a fresh device fetches them all.
             for doc in view.entries.values() {
                 if let Ok(id) = DocumentId::parse_any(doc) {
+                    scope.insert(id);
                     let _ = repo.find(id).await;
                 }
             }
@@ -217,7 +226,14 @@ impl Engine {
             bus,
             hooks,
             remote,
+            scope,
         };
+        // The connection may have come up before the scope was known: push
+        // (and attach) everything in scope now.
+        for id in std::iter::once(engine.index.id()).chain(engine.listed()) {
+            engine.scope.insert(id);
+            let _ = engine.repo.announce(id).await;
+        }
         let year = Utc::now().year();
         for year in [year - 1, year] {
             if engine.index_view.entries.contains_key(&year)
@@ -235,6 +251,25 @@ impl Engine {
     #[must_use]
     pub fn index_id(&self) -> DocumentId {
         self.index.id()
+    }
+
+    /// Brings documents the index lists into the sync scope and pushes the
+    /// new ones to the server.
+    async fn share(&self, ids: impl IntoIterator<Item = DocumentId>) {
+        for id in ids {
+            if self.scope.insert(id) {
+                let _ = self.repo.announce(id).await;
+            }
+        }
+    }
+
+    fn listed(&self) -> Vec<DocumentId> {
+        self.index_view
+            .workspace
+            .iter()
+            .chain(self.index_view.entries.values())
+            .filter_map(|id| DocumentId::parse_any(id).ok())
+            .collect()
     }
 
     // ---------- documents ----------
@@ -301,6 +336,8 @@ impl Engine {
         })
         .await?;
         self.index_view.entries.insert(year, id);
+        // After the index edit, so the server sees the listing first.
+        self.share([handle.id()]).await;
         watch_remote(&handle, self.remote.clone());
         self.entries.insert(year, handle.clone());
         self.loaded.insert(year);
@@ -371,6 +408,7 @@ impl Engine {
                 .read(schema::read_index)
                 .await
                 .map_err(doc_error)?;
+            self.share(self.listed()).await;
             let year = Utc::now().year();
             let wanted: Vec<i32> = self
                 .index_view

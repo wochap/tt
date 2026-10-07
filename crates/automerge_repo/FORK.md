@@ -51,7 +51,21 @@ the automerge-repo JS wire protocol, so this repository interoperates with
 - `sqlite` (feature `sqlite`, default on): `SqliteStorage`, implementing both
   persistence ports in one WAL-mode, `synchronous=FULL` database.
 - `Repo::{open_with_policy, find, local_peer, subscribe_peers,
-  connected_peers}`.
+  connected_peers, announce}`. `announce(id)` pushes a loaded document to
+  every connected peer the policy now allows (for policies that start
+  allowing an existing document, such as tt's per-device sync scope).
+- `RepoConfig::lazy_load`: `open` lists stored documents without loading
+  them; `find`, `open_document`, and a peer's `sync`/`request` load on
+  demand (also documents another process stored in the same database).
+- `RepoConfig::idle_eviction`: a `Ready` document idle for that long, with
+  no connected peer attached and no `DocHandle` held outside the repository,
+  is closed (its pending snapshot persisted first) and reloads on demand.
+  For servers holding many users' documents.
+- `transport::{ConnectAuth, ConnectTarget, AuthError}` and
+  `WsJsClientConfig::auth`: called before every connection attempt to
+  produce the URL and headers (for example a fresh single-use ticket).
+  `AuthError::Rejected` ends the client in the new
+  `ConnectionState::Rejected` without retrying.
 - `DocumentStatus::Unavailable`, `LifecycleError::DocumentUnavailable`.
 - `ProtocolError::{Cbor, NotAMap, MissingField, InvalidField, Unencodable,
   UnexpectedHandshake, VersionMismatch, Remote}`, `NetworkError::NotConnected`.

@@ -26,6 +26,7 @@ Commands:
   status   Daemon, sync and running entries
   daemon   Run the daemon in the foreground
   login    Log in to a tt server and enable sync
+  logout   Revoke the server token and stop syncing; local data stays
   config   Read or change config.toml
   help     Print this message or the help of the given subcommand(s)
 
@@ -928,6 +929,24 @@ Options:
 
       --username <USERNAME>
           
+
+  -h, --help
+          Print help
+
+  -V, --version
+          Print version
+```
+
+## `tt logout`
+
+```text
+Revoke the server token and stop syncing; local data stays
+
+Usage: tt logout [OPTIONS]
+
+Options:
+  -j, --json
+          JSON output (stable schema: uuids, seqs, UTC timestamps, durations in seconds)
 
   -h, --help
           Print help

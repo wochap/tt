@@ -1,11 +1,18 @@
 //! Repository coordinator: document actors, persistence, and peer routing over
 //! the automerge-repo JS protocol.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+    time::Duration,
+};
 
 use automerge::{Automerge, sync::Message as SyncMessage, transaction::Transaction};
 use bytes::Bytes;
-use tokio::sync::{RwLock, broadcast, mpsc, oneshot, watch};
+use tokio::{
+    sync::{RwLock, broadcast, mpsc, oneshot, watch},
+    time::Instant,
+};
 
 use crate::{
     DocHandle, DocumentId, Error, PeerId, Result,
@@ -37,6 +44,13 @@ pub struct RepoConfig {
     pub persistence_retry_max: Duration,
     /// Capacity of each connected peer's private writer queue.
     pub peer_writer_capacity: usize,
+    /// Open lists stored documents without loading them; each is loaded on
+    /// first use (`find`, `open_document`, or a peer's sync/request).
+    pub lazy_load: bool,
+    /// Closes a `Ready` document after this long without activity, once no
+    /// connected peer is attached to it and no [`DocHandle`] is held outside
+    /// the repository. Its snapshot is flushed first; it reloads on demand.
+    pub idle_eviction: Option<Duration>,
 }
 impl Default for RepoConfig {
     fn default() -> Self {
@@ -49,6 +63,8 @@ impl Default for RepoConfig {
             persistence_retry_min: Duration::from_millis(100),
             persistence_retry_max: Duration::from_secs(5),
             peer_writer_capacity: 256,
+            lazy_load: false,
+            idle_eviction: None,
         }
     }
 }
@@ -68,6 +84,11 @@ impl RepoConfig {
         if self.persistence_retry_min.is_zero() {
             return Err(Error::Config(
                 "persistence_retry_min must be greater than zero".into(),
+            ));
+        }
+        if self.idle_eviction.is_some_and(|idle| idle.is_zero()) {
+            return Err(Error::Config(
+                "idle_eviction must be greater than zero".into(),
             ));
         }
         if self.persistence_retry_min > self.persistence_retry_max {
@@ -97,6 +118,7 @@ enum Command {
     Create(Option<InitJob>, oneshot::Sender<Result<DocHandle>>),
     Flush(oneshot::Sender<Result<()>>),
     Remove(DocumentId, oneshot::Sender<Result<()>>),
+    Announce(DocumentId, oneshot::Sender<Result<()>>),
     Shutdown(oneshot::Sender<Result<()>>),
 }
 
@@ -143,7 +165,7 @@ impl Repo {
         config.validate()?;
         let ids = storage.list().await?;
         let mut documents = HashMap::new();
-        for id in &ids {
+        for id in ids.iter().filter(|_| !config.lazy_load) {
             let bytes = storage.load(*id).await?.ok_or_else(|| {
                 StorageError::new("load", Some(*id), "listed snapshot disappeared")
             })?;
@@ -160,6 +182,8 @@ impl Repo {
         let (errors, _) = broadcast::channel(config.error_capacity.max(1));
         let (actor_tx, actor_rx) = mpsc::channel(config.coordinator_capacity.max(1));
         let mut actors = HashMap::new();
+        let now = Instant::now();
+        let last_active = documents.keys().map(|id| (*id, now)).collect();
         for (id, doc) in documents {
             let status = if doc.get_heads().is_empty() {
                 DocumentStatus::Loading
@@ -192,6 +216,8 @@ impl Repo {
             config,
             local_peer: local_peer.clone(),
             actors,
+            stored: ids.into_iter().collect(),
+            last_active,
             peers: HashMap::new(),
             peers_tx,
             peer_sync_tx,
@@ -297,6 +323,13 @@ impl Repo {
         self.lifecycle.ensure_open()?;
         request(&self.tx, |reply| Command::Remove(id, reply)).await
     }
+    /// Pushes a loaded document to every connected peer the policy now lets
+    /// it be announced to. Use after a policy starts allowing a document that
+    /// already exists; a document that is not loaded is left alone.
+    pub async fn announce(&self, id: DocumentId) -> Result<()> {
+        self.lifecycle.ensure_open()?;
+        request(&self.tx, |reply| Command::Announce(id, reply)).await
+    }
 }
 
 trait MakeCommand<T> {
@@ -307,6 +340,15 @@ impl<T, F: FnOnce(oneshot::Sender<Result<T>>) -> Command> MakeCommand<T> for F {
         self(reply)
     }
 }
+async fn tick(interval: Option<&mut tokio::time::Interval>) {
+    match interval {
+        Some(interval) => {
+            interval.tick().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
+}
+
 async fn request<T>(tx: &mpsc::Sender<Command>, command: impl MakeCommand<T>) -> Result<T> {
     let (reply, receive) = oneshot::channel();
     tx.send(command.make(reply))
@@ -330,6 +372,10 @@ struct Coordinator {
     config: RepoConfig,
     local_peer: PeerId,
     actors: HashMap<DocumentId, ActorHandle>,
+    /// Every document known to storage or created here, loaded or not.
+    stored: BTreeSet<DocumentId>,
+    /// Last activity per loaded document, for idle eviction.
+    last_active: HashMap<DocumentId, Instant>,
     peers: HashMap<PeerId, PeerState>,
     peers_tx: watch::Sender<Vec<PeerId>>,
     peer_sync_tx: watch::Sender<HashMap<PeerId, PeerSyncProgress>>,
@@ -350,6 +396,11 @@ impl Coordinator {
         mut actor_output: mpsc::Receiver<ActorOutput>,
     ) {
         let mut events_open = true;
+        let mut sweep = self.config.idle_eviction.map(|idle| {
+            let mut interval = tokio::time::interval((idle / 4).max(Duration::from_millis(10)));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval
+        });
         loop {
             tokio::select! {
                 Some(command) = commands.recv() => {
@@ -371,6 +422,7 @@ impl Coordinator {
                 Some(output) = actor_output.recv() => {
                     self.handle_actor_output(output).await;
                 }
+                _ = tick(sweep.as_mut()) => self.evict_idle().await,
                 else => break,
             }
         }
@@ -379,9 +431,9 @@ impl Coordinator {
     async fn handle_command(&mut self, command: Command) -> bool {
         match command {
             Command::DocumentIds(reply) => {
-                let mut ids: Vec<_> = self.actors.keys().copied().collect();
-                ids.sort();
-                let _ = reply.send(Ok(ids));
+                let mut ids: BTreeSet<_> = self.stored.clone();
+                ids.extend(self.actors.keys().copied());
+                let _ = reply.send(Ok(ids.into_iter().collect()));
             }
             Command::Get(id, reply) => {
                 let _ = reply.send(Ok(self.actors.get(&id).map(|actor| actor.handle.clone())));
@@ -401,6 +453,11 @@ impl Coordinator {
             Command::Remove(id, reply) => {
                 let _ = reply.send(self.remove_local(id).await);
             }
+            Command::Announce(id, reply) => {
+                self.touch(id);
+                self.announce(id).await;
+                let _ = reply.send(Ok(()));
+            }
             Command::Shutdown(reply) => {
                 let result = self.shutdown_all().await;
                 let _ = reply.send(result);
@@ -411,6 +468,7 @@ impl Coordinator {
     }
 
     async fn open_document(&mut self, id: DocumentId) -> Result<DocHandle> {
+        self.touch(id);
         if let Some(actor) = self.actors.get(&id) {
             return Ok(actor.handle.clone());
         }
@@ -419,11 +477,67 @@ impl Coordinator {
             document: id,
             message: error.to_string(),
         })?;
-        let actor = self.spawn(id, doc, DocumentStatus::Ready);
+        let status = if doc.get_heads().is_empty() {
+            DocumentStatus::Loading
+        } else {
+            DocumentStatus::Ready
+        };
+        let actor = self.spawn(id, doc, status);
         let handle = actor.handle.clone();
-        self.actors.insert(id, actor);
+        self.insert_actor(id, actor);
         self.announce(id).await;
         Ok(handle)
+    }
+
+    fn insert_actor(&mut self, id: DocumentId, actor: ActorHandle) {
+        self.actors.insert(id, actor);
+        self.stored.insert(id);
+        self.touch(id);
+    }
+
+    fn touch(&mut self, id: DocumentId) {
+        if self.config.idle_eviction.is_some() {
+            self.last_active.insert(id, Instant::now());
+        }
+    }
+
+    /// Closes `Ready` documents idle for the configured period that no
+    /// connected peer is attached to and no outside handle references.
+    async fn evict_idle(&mut self) {
+        let Some(idle) = self.config.idle_eviction else {
+            return;
+        };
+        let now = Instant::now();
+        let attached: BTreeSet<DocumentId> = self
+            .relationships
+            .keys()
+            .map(|(_, document)| *document)
+            .collect();
+        let idle_ids: Vec<DocumentId> = self
+            .actors
+            .iter()
+            .filter(|(id, actor)| {
+                actor.handle.status() == DocumentStatus::Ready
+                    && !attached.contains(id)
+                    && !actor.held_outside()
+                    && self
+                        .last_active
+                        .get(id)
+                        .is_none_or(|last| now.duration_since(*last) >= idle)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in idle_ids {
+            let Some(actor) = self.actors.remove(&id) else {
+                continue;
+            };
+            self.last_active.remove(&id);
+            self.unavailable.remove(&id);
+            // Close persists any pending revision before the actor stops.
+            if let Err(error) = actor.close().await {
+                let _ = self.errors.send(error);
+            }
+        }
     }
 
     async fn find(&mut self, id: DocumentId) -> Result<DocHandle> {
@@ -433,7 +547,7 @@ impl Coordinator {
         }
         let actor = self.spawn(id, Automerge::new(), DocumentStatus::Loading);
         let handle = actor.handle.clone();
-        self.actors.insert(id, actor);
+        self.insert_actor(id, actor);
         self.request_from_peers(id).await;
         Ok(handle)
     }
@@ -469,7 +583,7 @@ impl Coordinator {
             return Err(self.creation_failure(id, primary).await);
         }
         let handle = actor.handle.clone();
-        self.actors.insert(id, actor);
+        self.insert_actor(id, actor);
         Ok(handle)
     }
 
@@ -499,7 +613,13 @@ impl Coordinator {
     }
 
     async fn remove_local(&mut self, id: DocumentId) -> Result<()> {
+        if !self.actors.contains_key(&id) && self.stored.contains(&id) {
+            // Lazily stored or evicted: load it so removal follows one path.
+            self.open_document(id).await?;
+        }
         let actor = self.actors.remove(&id).ok_or(Error::NotFound(id))?;
+        self.stored.remove(&id);
+        self.last_active.remove(&id);
         // Closing waits for the actor's one ordered persistence worker, ensuring
         // no late store can recreate a successfully removed snapshot.
         let _ = actor.begin_remove().await;
@@ -752,6 +872,19 @@ impl Coordinator {
                 return;
             }
         };
+        if !self.actors.contains_key(&id) && (self.stored.contains(&id) || self.config.lazy_load) {
+            // Not loaded yet (lazy open, evicted, or stored by another
+            // process sharing the database): load before serving.
+            match self.open_document(id).await {
+                Ok(_) | Err(Error::NotFound(_)) => {}
+                Err(error) => {
+                    let _ = self.errors.send(error);
+                    self.send_unavailable(&peer, id).await;
+                    return;
+                }
+            }
+        }
+        self.touch(id);
         // A document still on its way to its first durable snapshot already
         // has history (a published revision) and can serve the requester.
         let have = self.actors.get(&id).is_some_and(|actor| {
@@ -764,7 +897,7 @@ impl Coordinator {
         }
         if !self.actors.contains_key(&id) {
             let actor = self.spawn(id, Automerge::new(), DocumentStatus::Loading);
-            self.actors.insert(id, actor);
+            self.insert_actor(id, actor);
         }
         if let Some(actor) = self.actors.get(&id)
             && let Err(error) = actor.receive(peer, message).await
@@ -839,6 +972,7 @@ impl Coordinator {
                 if !self.policy.may_sync(&peer, document) {
                     return;
                 }
+                self.touch(document);
                 let sender_id = self.local_peer.to_string();
                 let target_id = peer.to_string();
                 let data = message.encode();
