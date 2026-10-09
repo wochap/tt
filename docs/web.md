@@ -35,7 +35,18 @@ Playwright's Chromium, or a system Chrome (`TT_E2E_CHROME`).
   off exponentially, capped at 30 s; a 401 stops and shows "Sign in again".
 - **Sync status** (`src/sync/pending.ts`): every sync message from the server
   carries its heads; local changes beyond them are "pending". The status bar
-  shows Synced, Syncing · n changes, or Offline · n changes queued.
+  names the server: "Synced · laptop-a · 14s ago", "Syncing 3 changes ·
+  laptop-a", or "laptop-a unreachable · 5 changes saved here"; its tooltip adds
+  the short server id (first 8 characters), last sync and pending count.
+- **Session and server identity** (`src/sync/auth.ts`): login stores the
+  token, index document id and the server's `{id, name}` together, and
+  `/api/me` refreshes them once per load, so the status bar, phone header and
+  account menu ("wochap on laptop-a") name the server offline too. Before any
+  session, the login page asks `/api/health` for the name ("Sign in to
+  laptop-a", falling back to the host) and shows the URL. A 409
+  `account_conflict` shows a banner (the name is also used on another server;
+  the admin renames it with `tt-server user rename`) instead of the
+  wrong-password error, and Sign in stays disabled until the username changes.
 - **Store** (`src/data/store.ts`): index → workspace → `entries-YYYY`, merged
   into one view. Writes mirror tt-core: an entry lives in the document of its
   start year (moving it across years moves it between documents; the first

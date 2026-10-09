@@ -1,7 +1,7 @@
-// The session: server origin, bearer token, index document and user. Kept in
-// localStorage ("stay signed in") or sessionStorage, never in a URL.
+// The session: server origin and identity, bearer token, index document and
+// user. Kept in localStorage ("stay signed in") or sessionStorage, never in a URL.
 
-import type { Auth } from "./protocol.ts";
+import type { Auth, ServerIdentity } from "./protocol.ts";
 
 const KEY = "tt.auth";
 const SERVER_KEY = "tt.server";
@@ -42,6 +42,12 @@ export function saveAuth(auth: Auth, persist: boolean): void {
   localStorage.setItem(SERVER_KEY, auth.server);
 }
 
+/** Rewrites the stored session in place, keeping its storage choice. */
+export function updateAuth(auth: Auth): void {
+  const storage = localStorage.getItem(KEY) ? localStorage : sessionStorage.getItem(KEY) ? sessionStorage : null;
+  storage?.setItem(KEY, JSON.stringify(auth));
+}
+
 export function clearAuth(): void {
   localStorage.removeItem(KEY);
   sessionStorage.removeItem(KEY);
@@ -71,18 +77,50 @@ export async function login(server: string, username: string, password: string):
     token?: string;
     index_doc?: string;
     user?: { id: string; name: string };
+    server?: ServerIdentity;
     error?: string;
   };
   if (!response.ok || !body.token || !body.index_doc || !body.user) {
     const message =
       response.status === 401
         ? "Invalid username or password"
-        : response.status === 429
+        : response.status === 409 && body.error === "account_conflict"
+          ? ACCOUNT_CONFLICT
+          : response.status === 429
           ? "Too many attempts; wait a minute"
           : (body.error ?? `Sign-in failed (HTTP ${response.status})`);
     throw new LoginError(response.status, message);
   }
-  return { server, token: body.token, indexDoc: body.index_doc, user: body.user };
+  return { server, token: body.token, indexDoc: body.index_doc, user: body.user, identity: identity(body.server) };
+}
+
+export const ACCOUNT_CONFLICT = "This account name is also used on another server. Ask the admin to rename it.";
+
+function identity(value: ServerIdentity | null | undefined): ServerIdentity | undefined {
+  return value?.id && value.name ? { id: value.id, name: value.name } : undefined;
+}
+
+/** The session with user and server identity from `/api/me`, or null when offline or rejected. */
+export async function refreshMe(auth: Auth): Promise<Auth | null> {
+  try {
+    const response = await fetch(`${auth.server}/api/me`, { headers: { authorization: `Bearer ${auth.token}` }, cache: "no-store" });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { user?: { id: string; name: string }; server?: ServerIdentity };
+    return { ...auth, user: body.user ?? auth.user, identity: identity(body.server) ?? auth.identity };
+  } catch {
+    return null;
+  }
+}
+
+/** The server's identity from `/api/health` (no session needed); null if unknown or unreachable. */
+export async function fetchIdentity(server: string, signal?: AbortSignal): Promise<ServerIdentity | null> {
+  try {
+    const response = await fetch(`${server}/api/health`, { signal, cache: "no-store" });
+    const body = (await response.json()) as { server?: ServerIdentity | null };
+    return identity(body.server) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** Revokes the token on the server; offline logout still proceeds locally. */

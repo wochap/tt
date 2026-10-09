@@ -6,7 +6,7 @@
 //                projects:{ <uuid>:{name,color?,archived,created,updated} },
 //                tags:{ <uuid>:{name,color?,created,updated} },
 //                tasks:{ <uuid>:{seq,title,description,tags:{<tagId>:true},project?,
-//                                metadata:{k:v},state,created,updated} },
+//                                metadata:{k:v},state,previous_seqs?:[n],created,updated} },
 //                counters:{taskSeq} }
 //   entries    { schema, kind:"entries", year, entries:{ <uuid>:{task,start,end|null,note?,created,updated} } }
 //
@@ -131,6 +131,19 @@ function readState(value: unknown): TaskState {
   return (TASK_STATES as readonly string[]).includes(state ?? "") ? (state as TaskState) : "open";
 }
 
+function intList(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(int).filter((n): n is number => n !== undefined);
+}
+
+/**
+ * Old seqs in order, without the duplicates two devices repairing the same
+ * collision concurrently append (matches tt-core).
+ */
+function readPreviousSeqs(o: Obj): number[] {
+  return [...new Set(intList(o.previous_seqs).filter((seq) => seq >= 0))];
+}
+
 function readTask(o: Obj, id: Uuid): Task | undefined {
   const times = readTimes(o);
   const seq = int(o.seq);
@@ -148,6 +161,7 @@ function readTask(o: Obj, id: Uuid): Task | undefined {
     if (value !== undefined) metadata[key] = value;
   }
   const project = str(o.project);
+  const previousSeqs = readPreviousSeqs(o);
   return {
     id,
     seq,
@@ -157,6 +171,7 @@ function readTask(o: Obj, id: Uuid): Task | undefined {
     ...(project && isUuid(project) ? { project: project.toLowerCase() } : {}),
     metadata,
     state: readState(o.state),
+    ...(previousSeqs.length ? { previousSeqs } : {}),
     created: times[0],
     updated: times[1],
   };
@@ -265,6 +280,24 @@ function putIntIfChanged(parent: Obj, key: string, value: number): void {
   if (int(parent[key]) !== value) parent[key] = Math.trunc(value);
 }
 
+/**
+ * Writes `previous_seqs`, appending when the stored list is a prefix (so
+ * concurrent appends merge) and replacing it otherwise; an empty list is not
+ * created.
+ */
+function putPreviousSeqs(o: Obj, values: number[]): void {
+  if (readPreviousSeqs(o).join() === values.join()) return;
+  const current = intList(o.previous_seqs);
+  const list = o.previous_seqs;
+  if (Array.isArray(list) && current.every((seq, i) => values[i] === seq)) {
+    list.push(...values.slice(current.length));
+  } else if (!values.length) {
+    deleteIfPresent(o, "previous_seqs");
+  } else {
+    o.previous_seqs = [...values];
+  }
+}
+
 /** Upgrades a document written with an older schema (stamps the version). */
 export function migrate(root: Doc): void {
   const version = int(root.schema) ?? 0;
@@ -355,6 +388,7 @@ export function writeTask(root: Doc, task: Task): void {
     putText(root, [...base, "metadata", key], value);
   }
   putText(root, [...base, "state"], task.state);
+  putPreviousSeqs(o, task.previousSeqs ?? []);
   putIntIfChanged(o, "created", task.created);
   putIntIfChanged(o, "updated", task.updated);
 }

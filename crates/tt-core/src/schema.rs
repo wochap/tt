@@ -6,7 +6,7 @@
 //!              projects:{ <uuid>:{name,color?,archived,created,updated} },
 //!              tags:{ <uuid>:{name,color?,created,updated} },
 //!              tasks:{ <uuid>:{seq,title,description,tags:{<tagId>:true},project?,
-//!                              metadata:{k:v},state,created,updated} },
+//!                              metadata:{k:v},state,previous_seqs?:[n],created,updated} },
 //!              counters:{taskSeq} }
 //! entries    { schema, kind:"entries", year, entries:{ <uuid>:{task,start,end|null,note?,created,updated} } }
 //! ```
@@ -208,9 +208,24 @@ fn read_task<D: ReadDoc>(doc: &D, obj: &ObjId, id: Uuid) -> Option<Task> {
         state: am::get_string(doc, obj, "state")
             .and_then(|state| state.parse().ok())
             .unwrap_or(TaskState::Open),
+        previous_seqs: read_previous_seqs(doc, obj),
         created,
         updated,
     })
+}
+
+/// Old seqs in order, without the duplicates two devices repairing the same
+/// collision concurrently append.
+fn read_previous_seqs<D: ReadDoc>(doc: &D, obj: &ObjId) -> Vec<u64> {
+    let mut seqs: Vec<u64> = Vec::new();
+    for seq in am::get_i64_list(doc, obj, "previous_seqs") {
+        if let Ok(seq) = u64::try_from(seq)
+            && !seqs.contains(&seq)
+        {
+            seqs.push(seq);
+        }
+    }
+    seqs
 }
 
 fn collection<T: Transactable + ReadDoc>(tx: &mut T, name: &str) -> AmResult<ObjId> {
@@ -278,6 +293,14 @@ pub fn write_task<T: Transactable + ReadDoc>(tx: &mut T, task: &Task) -> AmResul
         am::put_text(tx, &metadata, key, value)?;
     }
     am::put_text(tx, &obj, "state", task.state.as_str())?;
+    if read_previous_seqs(tx, &obj) != task.previous_seqs {
+        let previous: Vec<i64> = task
+            .previous_seqs
+            .iter()
+            .map(|seq| i64::try_from(*seq).unwrap_or(i64::MAX))
+            .collect();
+        am::put_i64_list(tx, &obj, "previous_seqs", &previous)?;
+    }
     put_time_if_changed(tx, &obj, "created", task.created)?;
     put_time_if_changed(tx, &obj, "updated", task.updated)
 }
@@ -416,6 +439,7 @@ mod tests {
             project: Some(project.id),
             metadata: [("ticket".to_string(), "PROJ-1".to_string())].into(),
             state: TaskState::Open,
+            previous_seqs: vec![4],
             created: ts(1),
             updated: ts(1),
         };
@@ -433,6 +457,7 @@ mod tests {
         changed.metadata.clear();
         changed.project = None;
         changed.title = "Fix login flow".into();
+        changed.previous_seqs.push(7);
         write_task(&mut doc, &changed).unwrap();
         assert_eq!(read_workspace(&doc).tasks[&task.id], changed);
     }

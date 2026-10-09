@@ -30,10 +30,30 @@ impl TestServer {
         Self::start_in(dir, configure).await
     }
 
+    /// A server on a fresh database without a root (`NeedsDecision`).
+    pub async fn start_uninitialized(configure: impl FnOnce(&mut ServerOptions)) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        Self::open_in(dir, configure).await
+    }
+
+    /// Starts on `dir`, creating the root first when there is none.
     pub async fn start_in(
         dir: tempfile::TempDir,
         configure: impl FnOnce(&mut ServerOptions),
     ) -> Self {
+        let db = dir.path().join("server.db");
+        let ready = tt_server::db::Db::open(&db)
+            .unwrap()
+            .root()
+            .unwrap()
+            .is_some();
+        if !ready {
+            admin::init(&db, Some("test-server")).await.unwrap();
+        }
+        Self::open_in(dir, configure).await
+    }
+
+    async fn open_in(dir: tempfile::TempDir, configure: impl FnOnce(&mut ServerOptions)) -> Self {
         let mut options = ServerOptions::new(dir.path().join("server.db"));
         options.pending_timeout = Duration::from_millis(500);
         options.revocation_poll = Duration::from_millis(100);
@@ -70,7 +90,7 @@ impl TestServer {
         format!("ws://{}/sync", self.addr)
     }
 
-    pub async fn add_user(&self, name: &str) -> tt_server::db::UserRecord {
+    pub async fn add_user(&self, name: &str) -> tt_server::registry::Account {
         admin::add_user(&self.db(), name, PASSWORD).await.unwrap()
     }
 

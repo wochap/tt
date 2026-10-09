@@ -1,10 +1,11 @@
-//! `server.db`: accounts, tokens, tickets, ACL and the login audit log, next
-//! to the `documents`/`control` tables owned by `SqliteStorage` in the same
-//! file.
+//! `server.db`: the root record, tokens, tickets, and the login audit log,
+//! next to the `documents`/`control` tables owned by `SqliteStorage` in the
+//! same file. Accounts live in the registry document, not here; nothing in
+//! these tables is ever replicated.
 //!
 //! Every record is keyed by text: user ids are UUIDs, documents are bs58check
-//! ids (as clients and the index document write them), token and ticket
-//! secrets are only ever stored as SHA-256 hex. Times are Unix milliseconds.
+//! ids, token and ticket secrets are only ever stored as SHA-256 hex. Times
+//! are Unix milliseconds.
 
 use std::{
     path::Path,
@@ -12,74 +13,75 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use automerge_repo::DocumentId;
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 
-use crate::acl::Role;
+/// `PRAGMA user_version` of the current schema. Version 1 (accounts and ACL
+/// rows in SQLite) is refused, never migrated.
+pub const SCHEMA_VERSION: i64 = 2;
 
-/// Schema versions, applied in order and recorded in `PRAGMA user_version`.
-const MIGRATIONS: &[&str] = &[
-    // 1: accounts, tokens, tickets, ACL, login audit.
-    "CREATE TABLE users (
-         id TEXT PRIMARY KEY,
-         name TEXT NOT NULL UNIQUE,
-         password_hash TEXT NOT NULL,
-         index_doc TEXT NOT NULL,
-         workspace_doc TEXT NOT NULL,
-         created INTEGER NOT NULL
-     );
-     CREATE TABLE tokens (
-         token_hash TEXT PRIMARY KEY,
-         user_id TEXT NOT NULL REFERENCES users(id),
-         created INTEGER NOT NULL,
-         last_used INTEGER,
-         revoked INTEGER
-     );
-     CREATE INDEX tokens_user ON tokens(user_id);
-     CREATE TABLE tickets (
-         ticket_hash TEXT PRIMARY KEY,
-         user_id TEXT NOT NULL REFERENCES users(id),
-         token_hash TEXT NOT NULL REFERENCES tokens(token_hash),
-         expires INTEGER NOT NULL,
-         used INTEGER NOT NULL DEFAULT 0
-     );
-     CREATE TABLE acl (
-         doc_id TEXT NOT NULL,
-         user_id TEXT NOT NULL REFERENCES users(id),
-         role TEXT NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
-         created INTEGER NOT NULL,
-         PRIMARY KEY (doc_id, user_id)
-     );
-     CREATE INDEX acl_user ON acl(user_id);
-     CREATE TABLE login_audit (
-         id INTEGER PRIMARY KEY AUTOINCREMENT,
-         at INTEGER NOT NULL,
-         ip TEXT NOT NULL,
-         username TEXT NOT NULL,
-         success INTEGER NOT NULL,
-         reason TEXT NOT NULL
-     );",
-];
+const SCHEMA: &str = "
+    CREATE TABLE server (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        server_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        registry_doc TEXT NOT NULL,
+        created INTEGER NOT NULL
+    );
+    CREATE TABLE tokens (
+        token_hash TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        created INTEGER NOT NULL,
+        last_used INTEGER,
+        revoked INTEGER
+    );
+    CREATE INDEX tokens_user ON tokens(user_id);
+    CREATE TABLE tickets (
+        ticket_hash TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL REFERENCES tokens(token_hash),
+        expires INTEGER NOT NULL,
+        used INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE login_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at INTEGER NOT NULL,
+        ip TEXT NOT NULL,
+        username TEXT NOT NULL,
+        success INTEGER NOT NULL,
+        reason TEXT NOT NULL
+    );";
 
 #[must_use]
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UserRecord {
-    pub id: String,
+/// The database was written by an incompatible tt-server version.
+#[derive(Debug, thiserror::Error)]
+pub enum FormatError {
+    #[error(
+        "{0} has the database format of an older tt-server (accounts in SQLite), which is no longer supported; move it aside and run `tt-server init`"
+    )]
+    Old(String),
+    #[error("{0} was written by a newer tt-server (schema version {1})")]
+    Newer(String, i64),
+}
+
+/// The root of this server: the registry document and the server's name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RootRecord {
+    pub server_id: String,
     pub name: String,
-    pub password_hash: String,
-    pub index_doc: String,
-    pub workspace_doc: String,
+    pub registry_doc: String,
     pub created: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenRecord {
     pub token_hash: String,
     pub user_id: String,
+    /// Filled from the registry by [`crate::App::tokens`]; empty here.
     pub user_name: String,
     pub created: i64,
     pub last_used: Option<i64>,
@@ -106,11 +108,11 @@ pub struct AuditRecord {
 /// Outcome of consuming a websocket ticket.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TicketGrant {
-    pub user: UserRecord,
+    pub user_id: String,
     pub token_hash: String,
 }
 
-/// Shared connection. Calls from async code go through [`Db::call`], which
+/// Shared connection. Calls from async code go through [`Db::run`], which
 /// runs the closure on the blocking pool.
 #[derive(Clone)]
 pub struct Db {
@@ -123,21 +125,38 @@ impl std::fmt::Debug for Db {
     }
 }
 
-fn user_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserRecord> {
-    Ok(UserRecord {
-        id: row.get(0)?,
-        name: row.get(1)?,
-        password_hash: row.get(2)?,
-        index_doc: row.get(3)?,
-        workspace_doc: row.get(4)?,
-        created: row.get(5)?,
+/// Refuses databases of other schema versions before anything is written.
+fn check_format(connection: &Connection, path: &Path) -> Result<bool> {
+    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let has_users: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users')",
+        [],
+        |row| row.get(0),
+    )?;
+    let shown = path.display().to_string();
+    match version {
+        _ if has_users => Err(FormatError::Old(shown).into()),
+        0 => Ok(true),
+        SCHEMA_VERSION => Ok(false),
+        1 => Err(FormatError::Old(shown).into()),
+        newer => Err(FormatError::Newer(shown, newer).into()),
+    }
+}
+
+fn token_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TokenRecord> {
+    Ok(TokenRecord {
+        token_hash: row.get(0)?,
+        user_id: row.get(1)?,
+        user_name: String::new(),
+        created: row.get(2)?,
+        last_used: row.get(3)?,
+        revoked: row.get(4)?,
     })
 }
 
-const USER_COLUMNS: &str = "id, name, password_hash, index_doc, workspace_doc, created";
-
 impl Db {
-    /// Opens (creating if needed) the database and applies migrations.
+    /// Opens (creating if needed) the database. An older format is refused
+    /// with [`FormatError`] and the file is left unchanged.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)
@@ -145,10 +164,11 @@ impl Db {
         }
         let connection =
             Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        let fresh = check_format(&connection, path)?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=FULL;
-             PRAGMA busy_timeout=5000;
              PRAGMA foreign_keys=ON;",
         )?;
         #[cfg(unix)]
@@ -160,7 +180,14 @@ impl Db {
         let db = Self {
             connection: Arc::new(Mutex::new(connection)),
         };
-        db.with(migrate)?;
+        if fresh {
+            db.with(|connection| {
+                let tx = connection.transaction()?;
+                tx.execute_batch(SCHEMA)?;
+                tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+                tx.commit()
+            })?;
+        }
         Ok(db)
     }
 
@@ -179,62 +206,37 @@ impl Db {
         tokio::task::spawn_blocking(move || job(&db)).await?
     }
 
-    // ---------- users ----------
+    // ---------- root ----------
 
-    pub fn insert_user(&self, user: &UserRecord) -> Result<()> {
-        let user = user.clone();
-        self.with(move |connection| {
-            let tx = connection.transaction()?;
-            tx.execute(
-                "INSERT INTO users (id, name, password_hash, index_doc, workspace_doc, created)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    user.id,
-                    user.name,
-                    user.password_hash,
-                    user.index_doc,
-                    user.workspace_doc,
-                    user.created
-                ],
-            )?;
-            for doc in [&user.index_doc, &user.workspace_doc] {
-                tx.execute(
-                    "INSERT INTO acl (doc_id, user_id, role, created) VALUES (?1, ?2, 'owner', ?3)",
-                    params![doc, user.id, user.created],
-                )?;
-            }
-            tx.commit()
-        })
-    }
-
-    pub fn user_by_name(&self, name: &str) -> Result<Option<UserRecord>> {
-        let name = name.to_owned();
-        self.with(move |connection| {
+    /// The root, or `None` while the server is in `NeedsDecision`.
+    pub fn root(&self) -> Result<Option<RootRecord>> {
+        self.with(|connection| {
             connection
                 .query_row(
-                    &format!("SELECT {USER_COLUMNS} FROM users WHERE name = ?1"),
-                    params![name],
-                    user_from_row,
+                    "SELECT server_id, name, registry_doc, created FROM server WHERE id = 1",
+                    [],
+                    |row| {
+                        Ok(RootRecord {
+                            server_id: row.get(0)?,
+                            name: row.get(1)?,
+                            registry_doc: row.get(2)?,
+                            created: row.get(3)?,
+                        })
+                    },
                 )
                 .optional()
         })
     }
 
-    pub fn users(&self) -> Result<Vec<UserRecord>> {
-        self.with(|connection| {
-            let mut statement =
-                connection.prepare(&format!("SELECT {USER_COLUMNS} FROM users ORDER BY name"))?;
-            statement.query_map([], user_from_row)?.collect()
-        })
-    }
-
-    pub fn set_password(&self, user_id: &str, password_hash: &str) -> Result<bool> {
-        let (user_id, password_hash) = (user_id.to_owned(), password_hash.to_owned());
+    /// Records the root; `false` (and nothing written) when one exists.
+    pub fn insert_root(&self, root: &RootRecord) -> Result<bool> {
+        let root = root.clone();
         self.with(move |connection| {
             connection
                 .execute(
-                    "UPDATE users SET password_hash = ?1 WHERE id = ?2",
-                    params![password_hash, user_id],
+                    "INSERT INTO server (id, server_id, name, registry_doc, created)
+                     VALUES (1, ?1, ?2, ?3, ?4) ON CONFLICT (id) DO NOTHING",
+                    params![root.server_id, root.name, root.registry_doc, root.created],
                 )
                 .map(|changed| changed == 1)
         })
@@ -254,23 +256,15 @@ impl Db {
         })
     }
 
-    /// The user owning a live (unrevoked) token; records the use.
-    pub fn token_user(&self, token_hash: &str) -> Result<Option<UserRecord>> {
+    /// The user id of a live (unrevoked) token; records the use.
+    pub fn token_user(&self, token_hash: &str) -> Result<Option<String>> {
         let token_hash = token_hash.to_owned();
         self.with(move |connection| {
             let user = connection
                 .query_row(
-                    &format!(
-                        "SELECT {} FROM tokens t JOIN users u ON u.id = t.user_id
-                         WHERE t.token_hash = ?1 AND t.revoked IS NULL",
-                        USER_COLUMNS
-                            .split(", ")
-                            .map(|column| format!("u.{column}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
+                    "SELECT user_id FROM tokens WHERE token_hash = ?1 AND revoked IS NULL",
                     params![token_hash],
-                    user_from_row,
+                    |row| row.get(0),
                 )
                 .optional()?;
             if user.is_some() {
@@ -296,25 +290,27 @@ impl Db {
         })
     }
 
+    /// Revokes every live token of a user; returns the revoked hashes.
+    pub fn revoke_user_tokens(&self, user_id: &str) -> Result<Vec<String>> {
+        let user_id = user_id.to_owned();
+        self.with(move |connection| {
+            let mut statement = connection.prepare(
+                "UPDATE tokens SET revoked = ?1 WHERE user_id = ?2 AND revoked IS NULL
+                 RETURNING token_hash",
+            )?;
+            statement
+                .query_map(params![now_ms(), user_id], |row| row.get(0))?
+                .collect()
+        })
+    }
+
     pub fn tokens(&self) -> Result<Vec<TokenRecord>> {
         self.with(|connection| {
             let mut statement = connection.prepare(
-                "SELECT t.token_hash, t.user_id, u.name, t.created, t.last_used, t.revoked
-                 FROM tokens t JOIN users u ON u.id = t.user_id
-                 ORDER BY u.name, t.created",
+                "SELECT token_hash, user_id, created, last_used, revoked
+                 FROM tokens ORDER BY created",
             )?;
-            statement
-                .query_map([], |row| {
-                    Ok(TokenRecord {
-                        token_hash: row.get(0)?,
-                        user_id: row.get(1)?,
-                        user_name: row.get(2)?,
-                        created: row.get(3)?,
-                        last_used: row.get(4)?,
-                        revoked: row.get(5)?,
-                    })
-                })?
-                .collect()
+            statement.query_map([], token_from_row)?.collect()
         })
     }
 
@@ -386,67 +382,15 @@ impl Db {
                         params![token_hash],
                         |row| row.get(0),
                     )?;
-                    if live {
-                        tx.query_row(
-                            &format!("SELECT {USER_COLUMNS} FROM users WHERE id = ?1"),
-                            params![user_id],
-                            user_from_row,
-                        )
-                        .optional()?
-                        .map(|user| TicketGrant { user, token_hash })
-                    } else {
-                        None
-                    }
+                    live.then_some(TicketGrant {
+                        user_id,
+                        token_hash,
+                    })
                 }
                 None => None,
             };
             tx.commit()?;
             Ok(grant)
-        })
-    }
-
-    // ---------- ACL ----------
-
-    pub fn acl_rows(&self, doc: DocumentId) -> Result<Vec<(String, Role)>> {
-        let doc = doc.to_bs58check();
-        self.with(move |connection| {
-            let mut statement =
-                connection.prepare("SELECT user_id, role FROM acl WHERE doc_id = ?1")?;
-            statement
-                .query_map(params![doc], |row| {
-                    let role: String = row.get(1)?;
-                    Ok((row.get::<_, String>(0)?, Role::parse(&role)))
-                })?
-                .collect()
-        })
-    }
-
-    /// Makes `user_id` the owner of `doc` only if nobody has any row for it.
-    /// Returns the rows after the attempt.
-    pub fn claim(&self, doc: DocumentId, user_id: &str) -> Result<Vec<(String, Role)>> {
-        let doc_text = doc.to_bs58check();
-        let user_id = user_id.to_owned();
-        self.with(move |connection| {
-            connection.execute(
-                "INSERT INTO acl (doc_id, user_id, role, created)
-                 SELECT ?1, ?2, 'owner', ?3
-                 WHERE NOT EXISTS (SELECT 1 FROM acl WHERE doc_id = ?1)",
-                params![doc_text, user_id, now_ms()],
-            )?;
-            Ok(())
-        })?;
-        self.acl_rows(doc)
-    }
-
-    /// Documents `user_id` holds any role on.
-    pub fn user_docs(&self, user_id: &str) -> Result<Vec<String>> {
-        let user_id = user_id.to_owned();
-        self.with(move |connection| {
-            let mut statement =
-                connection.prepare("SELECT doc_id FROM acl WHERE user_id = ?1 ORDER BY doc_id")?;
-            statement
-                .query_map(params![user_id], |row| row.get(0))?
-                .collect()
         })
     }
 
@@ -486,67 +430,83 @@ impl Db {
     }
 }
 
-fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
-    let version: usize =
-        connection.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))? as usize;
-    for (index, migration) in MIGRATIONS.iter().enumerate().skip(version) {
-        let tx = connection.transaction()?;
-        tx.execute_batch(migration)?;
-        tx.pragma_update(None, "user_version", (index + 1) as i64)?;
-        tx.commit()?;
-    }
-    Ok(())
-}
+/// The version 1 schema, for tests that need an old-format database.
+#[doc(hidden)]
+pub const V1_SCHEMA_FOR_TESTS: &str = "
+    CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL, index_doc TEXT NOT NULL,
+        workspace_doc TEXT NOT NULL, created INTEGER NOT NULL);
+    CREATE TABLE acl (doc_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL,
+        created INTEGER NOT NULL, PRIMARY KEY (doc_id, user_id));
+    INSERT INTO users VALUES ('u1', 'alice', 'x', 'i', 'w', 0);
+    PRAGMA user_version = 1;";
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn user(name: &str) -> UserRecord {
-        UserRecord {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: name.into(),
-            password_hash: "x".into(),
-            index_doc: DocumentId::new().to_bs58check(),
-            workspace_doc: DocumentId::new().to_bs58check(),
-            created: now_ms(),
-        }
-    }
-
     #[test]
-    fn migrations_are_idempotent_and_users_get_owner_rows() {
+    fn fresh_database_gets_the_v2_schema_and_reopens() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("server.db");
         let db = Db::open(&path).unwrap();
-        let alice = user("alice");
-        db.insert_user(&alice).unwrap();
-        assert!(db.insert_user(&user("alice")).is_err(), "names are unique");
+        assert_eq!(db.root().unwrap(), None);
+        let root = RootRecord {
+            server_id: "abc".into(),
+            name: "laptop-a".into(),
+            registry_doc: "doc".into(),
+            created: 1,
+        };
+        assert!(db.insert_root(&root).unwrap());
+        assert!(!db.insert_root(&root).unwrap(), "one root only");
         drop(db);
         let db = Db::open(&path).unwrap();
-        let index = DocumentId::parse_any(&alice.index_doc).unwrap();
-        assert_eq!(db.acl_rows(index).unwrap(), vec![(alice.id, Role::Owner)]);
-        let version: i64 = db
-            .with(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))
+        assert_eq!(db.root().unwrap(), Some(root));
+        let (version, tables): (i64, Vec<String>) = db
+            .with(|c| {
+                let version = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+                let mut statement = c.prepare(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+                )?;
+                let tables = statement.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+                Ok((version, tables))
+            })
             .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i64);
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(tables, ["login_audit", "server", "tickets", "tokens"]);
     }
 
     #[test]
-    fn claim_only_succeeds_for_unowned_documents() {
+    fn version_one_database_is_refused_and_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.db");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(V1_SCHEMA_FOR_TESTS)
+            .unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let error = Db::open(&path).unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<FormatError>(),
+                Some(FormatError::Old(_))
+            ),
+            "{error:#}"
+        );
+        assert!(error.to_string().contains("tt-server init"), "{error}");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn revoking_a_user_returns_the_revoked_hashes() {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(&dir.path().join("server.db")).unwrap();
-        let (alice, bob) = (user("alice"), user("bob"));
-        db.insert_user(&alice).unwrap();
-        db.insert_user(&bob).unwrap();
-        let doc = DocumentId::new();
-        assert_eq!(
-            db.claim(doc, &alice.id).unwrap(),
-            vec![(alice.id.clone(), Role::Owner)]
-        );
-        assert_eq!(
-            db.claim(doc, &bob.id).unwrap(),
-            vec![(alice.id, Role::Owner)],
-            "an owned document cannot be claimed by someone else"
-        );
+        db.insert_token("h1", "alice").unwrap();
+        db.insert_token("h2", "alice").unwrap();
+        db.insert_token("h3", "bob").unwrap();
+        assert!(db.revoke_token("h1").unwrap());
+        assert_eq!(db.revoke_user_tokens("alice").unwrap(), ["h2"]);
+        assert_eq!(db.token_user("h3").unwrap().as_deref(), Some("bob"));
+        assert_eq!(db.token_user("h2").unwrap(), None);
     }
 }

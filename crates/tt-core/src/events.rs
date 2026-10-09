@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::model::{EntryView, Project, Tag, TaskView, Timestamp, View};
+use crate::model::{EntryView, Project, Tag, Task, TaskView, Timestamp, View};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -35,6 +35,7 @@ pub const EVENT_TYPES: &[&str] = &[
     "tag.deleted",
     "task.created",
     "task.updated",
+    "task.renumbered",
     "task.deleted",
     "entry.started",
     "entry.created",
@@ -63,6 +64,12 @@ pub struct DomainEvent {
     pub project: Option<Project>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<Tag>,
+    /// For `task.renumbered`: the old short id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<u64>,
+    /// For `task.renumbered`: the new short id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<u64>,
     /// Every running entry after the change.
     pub running: Vec<EntryView>,
 }
@@ -101,6 +108,8 @@ pub fn diff(prev: &View, next: &View, origin: Origin, now: Timestamp) -> Vec<Dom
         previous_task: None,
         project: None,
         tag: None,
+        from: None,
+        to: None,
         running: running.clone(),
     };
     let mut events = Vec::new();
@@ -154,10 +163,29 @@ pub fn diff(prev: &View, next: &View, origin: Origin, now: Timestamp) -> Vec<Dom
                 task: Some(next.task_view(task)),
                 ..base("task.created")
             }),
-            Some(old) if old != task => events.push(DomainEvent {
-                task: Some(next.task_view(task)),
-                ..base("task.updated")
-            }),
+            Some(old) if old != task => {
+                if renumbered(old, task) {
+                    events.push(DomainEvent {
+                        task: Some(next.task_view(task)),
+                        from: Some(old.seq),
+                        to: Some(task.seq),
+                        ..base("task.renumbered")
+                    });
+                    let unchanged = Task {
+                        seq: old.seq,
+                        previous_seqs: old.previous_seqs.clone(),
+                        updated: old.updated,
+                        ..task.clone()
+                    };
+                    if unchanged == *old {
+                        continue;
+                    }
+                }
+                events.push(DomainEvent {
+                    task: Some(next.task_view(task)),
+                    ..base("task.updated")
+                });
+            }
             _ => {}
         }
     }
@@ -208,6 +236,13 @@ pub fn diff(prev: &View, next: &View, origin: Origin, now: Timestamp) -> Vec<Dom
         }
     }
     events
+}
+
+/// A seq repair moved `task` off `old.seq` (recorded in `previous_seqs`).
+fn renumbered(old: &Task, task: &Task) -> bool {
+    task.seq != old.seq
+        && task.previous_seqs.len() > old.previous_seqs.len()
+        && task.previous_seqs.last() == Some(&old.seq)
 }
 
 /// Filters for watchers. Empty filters match everything.
@@ -328,6 +363,7 @@ mod tests {
             project: None,
             metadata: BTreeMap::new(),
             state: TaskState::Open,
+            previous_seqs: Vec::new(),
             created: now(),
             updated: now(),
         }
@@ -387,6 +423,35 @@ mod tests {
         assert_eq!(json["seq"], 42);
         assert_eq!(json["type"], "entry.deleted");
         assert_eq!(json["origin"], "local");
+    }
+
+    #[test]
+    fn seq_repair_emits_renumbered_instead_of_updated() {
+        let a = task(20, &[]);
+        let before = view_with(&[&a], &[]);
+        let mut moved = a.clone();
+        moved.seq = 31;
+        moved.previous_seqs.push(20);
+        moved.updated = now() + Duration::minutes(1);
+        let after = view_with(&[&moved], &[]);
+        let events = diff(&before, &after, Origin::Remote, now());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "task.renumbered");
+        let json = events[0].to_json(1);
+        assert_eq!(
+            (json["from"].clone(), json["to"].clone()),
+            (20.into(), 31.into())
+        );
+        assert_eq!(json["task"]["seq"], 31);
+
+        let mut renamed = moved.clone();
+        renamed.title = "renamed".into();
+        let after = view_with(&[&renamed], &[]);
+        let kinds: Vec<_> = diff(&before, &after, Origin::Local, now())
+            .into_iter()
+            .map(|event| event.kind)
+            .collect();
+        assert_eq!(kinds, ["task.renumbered", "task.updated"]);
     }
 
     #[test]

@@ -11,12 +11,12 @@ use std::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
-use tt_server::{ServerOptions, admin, admin::AdminError, serve};
+use tt_server::{ServerOptions, UserRef, admin, admin::AdminError, serve};
 
 #[derive(Parser)]
 #[command(name = "tt-server", version, about = "tt sync server")]
 struct Cli {
-    /// SQLite database holding accounts and documents
+    /// SQLite database holding the root, tokens, and documents
     #[arg(long, global = true, env = "TT_SERVER_DB", default_value = "server.db")]
     db: PathBuf,
     #[command(subcommand)]
@@ -25,8 +25,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Serve the API, the sync websocket, and the web bundle
+    /// Serve the API, the sync websocket, the admin socket, and the web bundle
     Serve(ServeArgs),
+    /// Create this server's root (the registry document); once per database
+    Init {
+        /// Human-friendly server name [default: the host name]
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Manage accounts
     #[command(subcommand)]
     User(UserCmd),
@@ -66,7 +72,22 @@ enum UserCmd {
     Add { name: String },
     /// Change a password
     Passwd { name: String },
-    /// List accounts
+    /// Rename an account; use --id for a conflicted account sharing a name
+    #[command(
+        override_usage = "tt-server user rename <NAME> <NEW_NAME>\n       tt-server user rename --id <ID> <NEW_NAME>"
+    )]
+    Rename {
+        /// Current name (the account owning it) and the new name; only the
+        /// new name with --id
+        #[arg(required = true, num_args = 1..=2, value_name = "NAME")]
+        names: Vec<String>,
+        /// Select the account by id (for a conflicted account sharing a name)
+        #[arg(long)]
+        id: Option<String>,
+    },
+    /// Delete an account: revokes its tokens and closes its sessions; documents are kept
+    Del { name: String },
+    /// List accounts, including conflicted and deleted ones
     Ls,
 }
 
@@ -103,13 +124,13 @@ fn read_password(confirm: bool) -> Result<String> {
     }
 }
 
-/// 4 for a duplicate account, 2 for unknown names/ids and invalid input.
+/// 4 for a duplicate account or a second `init`, 3 without a root, 2 for
+/// unknown names/ids and invalid input, 1 otherwise (including databases of
+/// an older format).
 fn exit_code(error: &anyhow::Error) -> u8 {
-    match error.downcast_ref::<AdminError>() {
-        Some(AdminError::Duplicate(_)) => 4,
-        Some(_) => 2,
-        None => 1,
-    }
+    error
+        .downcast_ref::<AdminError>()
+        .map_or(1, AdminError::exit_code)
 }
 
 async fn user(db: &Path, command: UserCmd) -> Result<()> {
@@ -124,18 +145,45 @@ async fn user(db: &Path, command: UserCmd) -> Result<()> {
         }
         UserCmd::Passwd { name } => {
             let password = read_password(true)?;
-            admin::set_password(db, &name, &password)?;
+            admin::set_password(db, &UserRef::Name(name.clone()), &password).await?;
             println!(
                 "password changed for {name}; existing tokens stay valid (revoke with `token revoke --user {name}`)"
             );
         }
+        UserCmd::Rename { mut names, id } => {
+            let (target, new_name) = match (id, names.len()) {
+                (Some(id), 1) => (UserRef::Id(id), names.remove(0)),
+                (None, 2) => (UserRef::Name(names.remove(0)), names.remove(0)),
+                _ => {
+                    return Err(AdminError::Invalid(
+                        "give <name> <new-name>, or --id <id> <new-name>".into(),
+                    )
+                    .into());
+                }
+            };
+            let user = admin::rename_user(db, &target, &new_name).await?;
+            println!("renamed {} ({}) to {}", target, user.id, user.name);
+        }
+        UserCmd::Del { name } => {
+            let user = admin::delete_user(db, &UserRef::Name(name)).await?;
+            println!(
+                "deleted {} ({}); its tokens are revoked and its documents kept",
+                user.name, user.id
+            );
+        }
         UserCmd::Ls => {
-            for user in admin::list_users(db)? {
+            for user in admin::list_users(db).await? {
+                let state = match (user.deleted, user.conflicted) {
+                    (Some(at), _) => format!("deleted {}", time(at)),
+                    (None, true) => "conflicted (rename it)".into(),
+                    (None, false) => "active".into(),
+                };
                 println!(
-                    "{:<20} {}  created {}  index {}",
+                    "{:<20} {}  created {}  {:<22} index {}",
                     user.name,
                     user.id,
                     time(user.created),
+                    state,
                     user.index_doc
                 );
             }
@@ -144,10 +192,10 @@ async fn user(db: &Path, command: UserCmd) -> Result<()> {
     Ok(())
 }
 
-fn token(db: &Path, command: TokenCmd) -> Result<()> {
+async fn token(db: &Path, command: TokenCmd) -> Result<()> {
     match command {
         TokenCmd::Ls => {
-            for token in admin::list_tokens(db)? {
+            for token in admin::list_tokens(db).await? {
                 let state = match token.revoked {
                     Some(at) => format!("revoked {}", time(at)),
                     None => "live".into(),
@@ -164,13 +212,13 @@ fn token(db: &Path, command: TokenCmd) -> Result<()> {
             }
         }
         TokenCmd::Revoke { id: Some(id), .. } => {
-            let token = admin::revoke_token(db, &id)?;
+            let token = admin::revoke_token(db, &id).await?;
             println!("revoked {} ({})", token.id(), token.user_name);
         }
         TokenCmd::Revoke {
             user: Some(name), ..
         } => {
-            let count = admin::revoke_user_tokens(db, &name)?;
+            let count = admin::revoke_user_tokens(db, &name).await?;
             println!("revoked {count} token(s) of {name}");
         }
         TokenCmd::Revoke { .. } => unreachable!("clap requires an id or --user"),
@@ -216,8 +264,16 @@ fn main() -> ExitCode {
                     .await
                     .map(|()| None)
             }
+            Cmd::Init { name } => {
+                let root = admin::init(&cli.db, name.as_deref()).await?;
+                println!(
+                    "initialized {} (server id {})\nregistry document: {}",
+                    root.name, root.server_id, root.registry_doc
+                );
+                Ok(None)
+            }
             Cmd::User(command) => user(&cli.db, command).await.map(|()| None),
-            Cmd::Token(command) => token(&cli.db, command).map(|()| None),
+            Cmd::Token(command) => token(&cli.db, command).await.map(|()| None),
         }
     });
     match result {

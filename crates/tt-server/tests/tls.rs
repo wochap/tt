@@ -20,7 +20,9 @@ async fn serves_tls_and_the_client_verifies_certificates() {
     std::fs::write(&key, certified.signing_key.serialize_pem()).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let options = ServerOptions::new(dir.path().join("server.db"));
+    let db = dir.path().join("server.db");
+    tt_server::admin::init(&db, Some("tls")).await.unwrap();
+    let options = ServerOptions::new(&db);
     let server = tokio::spawn(serve::run(
         options,
         listener,
@@ -117,7 +119,9 @@ async fn ws_client_trusts_a_private_ca_through_its_tls_config() {
     std::fs::write(&key, leaf_key.serialize_pem()).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let options = ServerOptions::new(dir.path().join("server.db"));
+    let db = dir.path().join("server.db");
+    tt_server::admin::init(&db, Some("tls")).await.unwrap();
+    let options = ServerOptions::new(&db);
     let server = tokio::spawn(serve::run(
         options,
         listener,

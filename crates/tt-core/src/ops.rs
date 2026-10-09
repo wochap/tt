@@ -208,6 +208,7 @@ pub fn add_task<T: Transactable + ReadDoc>(
         project,
         metadata: input.metadata.clone(),
         state: input.state.unwrap_or_default(),
+        previous_seqs: Vec::new(),
         created: now,
         updated: now,
     };
@@ -473,23 +474,30 @@ pub fn seq_collisions(workspace: &Workspace) -> Vec<(Uuid, u64)> {
         .collect()
 }
 
-/// Reassigns colliding `seq` values (see [`seq_collisions`]) and bumps the
-/// counter. Returns the renumbered task ids.
-pub fn repair_seqs<T: Transactable + ReadDoc>(tx: &mut T, now: Timestamp) -> CoreResult<Vec<Uuid>> {
+/// Reassigns colliding `seq` values (see [`seq_collisions`]), records each old
+/// number in the task's `previous_seqs`, and bumps the counter. Returns the
+/// renumbered tasks as `(id, from, to)`.
+pub fn repair_seqs<T: Transactable + ReadDoc>(
+    tx: &mut T,
+    now: Timestamp,
+) -> CoreResult<Vec<(Uuid, u64, u64)>> {
     let workspace = schema::read_workspace(tx);
     let collisions = seq_collisions(&workspace);
     let mut max = workspace.task_seq;
-    for (id, seq) in &collisions {
-        let mut task = workspace.tasks[id].clone();
-        task.seq = *seq;
+    let mut renumbered = Vec::with_capacity(collisions.len());
+    for (id, seq) in collisions {
+        let mut task = workspace.tasks[&id].clone();
+        renumbered.push((id, task.seq, seq));
+        task.previous_seqs.push(task.seq);
+        task.seq = seq;
         task.updated = now;
         schema::write_task(tx, &task)?;
-        max = max.max(*seq);
+        max = max.max(seq);
     }
-    if !collisions.is_empty() {
+    if !renumbered.is_empty() {
         schema::set_task_seq_counter(tx, max)?;
     }
-    Ok(collisions.into_iter().map(|(id, _)| id).collect())
+    Ok(renumbered)
 }
 
 // ---------- entries ----------
@@ -761,13 +769,38 @@ mod tests {
         .unwrap();
         assert_eq!(earlier.seq, later.seq);
         a.merge(&mut b).unwrap();
+        let mut other = a.fork();
         let changed = repair_seqs(&mut a, now() + Duration::seconds(10)).unwrap();
-        assert_eq!(changed, vec![later.id]);
+        assert_eq!(changed, vec![(later.id, 2, 3)]);
         let workspace = schema::read_workspace(&a);
         assert_eq!(workspace.tasks[&earlier.id].seq, 2);
         assert_eq!(workspace.tasks[&later.id].seq, 3);
+        assert_eq!(workspace.tasks[&later.id].previous_seqs, vec![2]);
+        assert!(workspace.tasks[&earlier.id].previous_seqs.is_empty());
+        let view = crate::model::View {
+            workspace: workspace.clone(),
+            ..crate::model::View::default()
+        };
+        let holder = view.resolve_task("#2").unwrap();
+        assert_eq!(holder.id, earlier.id);
+        let shown = view.task_view_for_key(holder, "2");
+        assert_eq!(shown.renumbered_from.len(), 1);
+        assert_eq!(
+            (shown.renumbered_from[0].id, shown.renumbered_from[0].to),
+            (later.id, 3)
+        );
+        assert!(
+            view.task_view_for_key(holder, &earlier.id.to_string())
+                .renumbered_from
+                .is_empty()
+        );
         assert_eq!(workspace.task_seq, 3);
         assert!(repair_seqs(&mut a, now()).unwrap().is_empty());
+        // Both devices repairing the same collision keep one old number.
+        assert_eq!(repair_seqs(&mut other, now()).unwrap(), changed);
+        a.merge(&mut other).unwrap();
+        let task = &schema::read_workspace(&a).tasks[&later.id];
+        assert_eq!((task.seq, task.previous_seqs.clone()), (3, vec![2]));
     }
 
     #[test]

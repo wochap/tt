@@ -17,7 +17,8 @@ Events reach two consumers:
 |------|------|
 | `project.created` / `project.updated` / `project.deleted` | project record added, changed, removed |
 | `tag.created` / `tag.updated` / `tag.deleted` | tag record added, changed, removed |
-| `task.created` / `task.updated` / `task.deleted` | task added, any field changed (including a `seq` repair after sync), removed |
+| `task.created` / `task.updated` / `task.deleted` | task added, any field changed, removed |
+| `task.renumbered` | a `seq` collision repair after sync moved the task to a new number (`from`, `to` are set); emitted instead of `task.updated`, which follows only if other fields changed too |
 | `entry.started` | new entry with `end: null`, or a stopped entry made running again |
 | `entry.created` | new entry that already has an end (time edit table, split, import) |
 | `entry.stopped` | `end` went from `null` to a time |
@@ -63,6 +64,9 @@ Fields:
 - `task`: the entry's task (entry events) or the task itself (task events),
   with project and tags resolved. For `task.deleted` it is the last known state.
 - `previous_task`: `entry.moved` only.
+- `from` / `to`: `task.renumbered` only, the old and new short ids. The task
+  also lists every number it held before in `previous_seqs` (omitted when
+  empty), so `tt task show <old>` can point to it.
 - `project` / `tag`: project and tag events only, the full record.
 - `running`: always present, every running entry after the change, ordered by
   start. A status bar can render from this field alone.

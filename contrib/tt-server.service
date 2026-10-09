@@ -3,8 +3,12 @@
 #   useradd --system --home /var/lib/tt-server --shell /usr/sbin/nologin tt-server
 #   install -Dm755 target/release/tt-server /usr/local/bin/tt-server
 #   install -Dm644 contrib/tt-server.service /etc/systemd/system/tt-server.service
-#   sudo -u tt-server tt-server --db /var/lib/tt-server/server.db user add alice
 #   systemctl daemon-reload && systemctl enable --now tt-server.service
+#   sudo -u tt-server tt-server --db /var/lib/tt-server/server.db user add alice
+#
+# ExecStartPre creates the root (named after the host) on the first start;
+# later starts find it and continue (`init` exits 4). Use
+# `tt-server init --name <name>` by hand first for another name.
 #
 # TLS here: put the key pair in /etc/tt-server/ readable by the tt-server
 # user and keep the TLS flags. Behind a reverse proxy on this host instead:
@@ -23,6 +27,7 @@ Group=tt-server
 StateDirectory=tt-server
 StateDirectoryMode=0700
 Environment=TT_SERVER_LOG=info
+ExecStartPre=/bin/sh -c '/usr/local/bin/tt-server --db /var/lib/tt-server/server.db init; s=$$?; [ $$s -eq 0 ] || [ $$s -eq 4 ]'
 ExecStart=/usr/local/bin/tt-server --db /var/lib/tt-server/server.db serve \
     --listen 0.0.0.0:8443 \
     --tls-cert /etc/tt-server/fullchain.pem \

@@ -5,7 +5,7 @@ import { ClientProvider, SessionProvider } from "@/data/react";
 import { SessionControlContext } from "@/data/session-control";
 import { clearCaches } from "@/lib/pwa";
 import { useThemeSync } from "@/lib/theme";
-import { clearAuth, loadAuth, onAuthChange, revoke, saveAuth } from "@/sync/auth";
+import { clearAuth, loadAuth, onAuthChange, refreshMe, revoke, saveAuth, updateAuth } from "@/sync/auth";
 import { SyncClient } from "@/sync/client";
 import type { Auth } from "@/sync/protocol";
 
@@ -42,6 +42,18 @@ export function App() {
   useEffect(() => {
     void SyncClient.start(loadAuth()).then(setClient);
   }, []);
+
+  // Refresh user and server names once per session; offline keeps the stored ones.
+  const session = auth?.token;
+  useEffect(() => {
+    const current = loadAuth();
+    if (!session || current?.token !== session) return;
+    void refreshMe(current).then((next) => {
+      if (!next || JSON.stringify(next) === JSON.stringify(current)) return;
+      updateAuth(next);
+      setAuth(next);
+    });
+  }, [session]);
 
   // Sign-in or sign-out in another tab: follow it.
   useEffect(() => onAuthChange(() => location.reload()), []);

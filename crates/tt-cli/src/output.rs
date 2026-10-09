@@ -62,6 +62,18 @@ pub fn task_detail(task: &Value, tz: Tz) -> String {
     out.push_str(&format!("id:      {}\n", s(task, "id")));
     out.push_str(&format!("created: {}\n", time(tz, &task["created"])));
     out.push_str(&format!("updated: {}\n", time(tz, &task["updated"])));
+    if let Some(seqs) = task["previous_seqs"].as_array().filter(|s| !s.is_empty()) {
+        let seqs: Vec<String> = seqs.iter().map(|seq| format!("#{seq}")).collect();
+        out.push_str(&format!("previously: {}\n", seqs.join(", ")));
+    }
+    for hint in task["renumbered_from"].as_array().into_iter().flatten() {
+        out.push_str(&format!(
+            "note: {:?} was renumbered from #{} to #{}\n",
+            s(hint, "title"),
+            hint["from"],
+            hint["to"]
+        ));
+    }
     let description = s(task, "description");
     if !description.is_empty() {
         out.push_str(&format!("\n{description}\n"));

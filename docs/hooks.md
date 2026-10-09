@@ -31,6 +31,9 @@ one needs no restart.
 - **never blocking**: hooks run after the change is committed. The command
   that caused the event has already returned. A slow hook delays only the
   later hooks of the same event.
+- **renumbering**: when two devices created the same `#seq` offline, the
+  repair after sync fires `task.renumbered` (stdin carries `from` and `to`)
+  rather than `task.updated`; a hook keyed on task numbers should listen for it.
 - **filtering is the hook's job**: use `TT_EVENT`, `TT_ORIGIN`, or `jq` on stdin.
   Remote changes (from another device) fire hooks too; check
   `TT_ORIGIN=local` when a hook should only react to this machine.

@@ -49,6 +49,7 @@ const taskJson = (t: Task) => ({
   ...(t.project !== undefined ? { project: t.project } : {}),
   metadata: Object.fromEntries(Object.entries(t.metadata).sort(([a], [b]) => compare(a, b))),
   state: t.state,
+  ...(t.previousSeqs?.length ? { previous_seqs: t.previousSeqs } : {}),
   created: rfc3339(t.created),
   updated: rfc3339(t.updated),
 });

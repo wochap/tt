@@ -41,6 +41,14 @@ export interface Op {
   changes: RecordChange[];
 }
 
+/** A task moved off a colliding number (local repair or a merged remote one). */
+export interface Renumbering {
+  id: Uuid;
+  from: number;
+  to: number;
+  title: string;
+}
+
 export type LoadState = "loading" | "ready" | "error";
 
 export interface Snapshot {
@@ -76,6 +84,7 @@ export class TtStore {
   #locations = new Map<Uuid, number>();
   #snapshot: Snapshot = { state: "loading", view: EMPTY_VIEW, years: [], canUndo: false, canRedo: false };
   readonly #listeners = new Set<() => void>();
+  readonly #renumberListeners = new Set<(changes: Renumbering[]) => void>();
   #undo: Op[] = [];
   #redo: Op[] = [];
   #rebuildQueued = false;
@@ -96,6 +105,12 @@ export class TtStore {
   };
 
   getSnapshot = (): Snapshot => this.#snapshot;
+
+  /** Calls `listener` with the renumberings each document change brings. */
+  onRenumber = (listener: (changes: Renumbering[]) => void): (() => void) => {
+    this.#renumberListeners.add(listener);
+    return () => this.#renumberListeners.delete(listener);
+  };
 
   #emit(patch: Partial<Snapshot>): void {
     this.#snapshot = { ...this.#snapshot, ...patch };
@@ -216,12 +231,14 @@ export class TtStore {
       }
     }
     this.#locations = locations;
+    const renumbered = renumberings(this.#snapshot.view.workspace.tasks, workspace.tasks);
     this.#emit({
       state: "ready",
       error: undefined,
       view: { workspace, entries },
       years: [...this.#years.keys()].sort((a, b) => a - b),
     });
+    if (renumbered.length) for (const listener of this.#renumberListeners) listener(renumbered);
   }
 
   #scheduleRepair(): void {
@@ -366,4 +383,16 @@ export class TtStore {
   get view(): View {
     return this.#snapshot.view;
   }
+}
+
+/** Tasks whose `previousSeqs` grew by their old seq between two reads. */
+function renumberings(before: Map<Uuid, Task>, after: Map<Uuid, Task>): Renumbering[] {
+  const out: Renumbering[] = [];
+  for (const task of after.values()) {
+    const old = before.get(task.id);
+    const seqs = task.previousSeqs ?? [];
+    if (!old || old.seq === task.seq || seqs.length <= (old.previousSeqs ?? []).length) continue;
+    if (seqs.at(-1) === old.seq) out.push({ id: task.id, from: old.seq, to: task.seq, title: task.title });
+  }
+  return out.sort((a, b) => a.to - b.to);
 }

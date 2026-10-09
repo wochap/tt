@@ -5,10 +5,15 @@ documents, authenticates users with passwords and bearer tokens, relays
 sync between a user's devices over the automerge-repo websocket protocol,
 makes sure one user never sees another's documents, and serves the web app.
 
+Every server has one **root**: a private Automerge *registry* document that
+holds all accounts. A fresh database has no root (state `NeedsDecision`)
+until `tt-server init` creates one (state `Ready`).
+
 ## Quick start
 
 ```sh
 cargo build --release -p tt-server
+tt-server --db /var/lib/tt-server/server.db init --name laptop-a   # once
 # accounts are created on the server host; there is no public sign-up
 tt-server --db /var/lib/tt-server/server.db user add alice     # prompts for a password
 tt-server --db /var/lib/tt-server/server.db serve \
@@ -19,7 +24,8 @@ tt login https://tt.example.com --username alice
 tt status          # sync: connected
 ```
 
-`contrib/tt-server.service` is a hardened systemd unit for the same setup.
+`contrib/tt-server.service` is a hardened systemd unit for the same setup;
+it runs `init` before the first start.
 
 ### Web app
 
@@ -40,20 +46,68 @@ IndexedDB) and syncs over `/sync` with the ticket flow below.
 ## Commands
 
 All commands take `--db <path>` (or `TT_SERVER_DB`; default `./server.db`).
-They work on the file directly, so they can run while the server is up.
+Next to the database live `server.key` (the server's ed25519 key, mode
+0600), `server.db.lock`, and, while `serve` runs, `admin.sock`.
 
 | Command | Effect |
 | --- | --- |
-| `serve` | Serve the API, `/sync`, and the web bundle (flags below). |
-| `user add <name>` | Prompt for a password (twice; from a non-terminal stdin: one line), store its argon2id hash, create the user's index and workspace documents and owner ACL rows. Exit 4 if the name exists (nothing changes). Names: 1-64 of `a-z A-Z 0-9 - _ .`; passwords: at least 8 characters. |
+| `serve` | Serve the API, `/sync`, the web bundle, and the admin socket (flags below). Without a root it runs in limited mode (below). |
+| `init [--name <name>]` | Create the root: the registry document and the `server` row. The name defaults to the host name and is shown by the API and the web app. Exit 4 if a root exists (nothing changes). |
+| `user add <name>` | Prompt for a password (twice; from a non-terminal stdin: one line), store its argon2id hash in a new registry account, and create the user's index and workspace documents. Exit 4 if a non-deleted account has the name (nothing changes). Names: 1-64 of `a-z A-Z 0-9 - _ .`; passwords: at least 8 characters. |
 | `user passwd <name>` | Change a password. Existing tokens stay valid; revoke them with `token revoke --user`. |
-| `user ls` | List accounts with id and index document. |
+| `user rename <name> <new-name>` | Rename an account. Exit 4 if another account owns `<new-name>`. |
+| `user rename --id <id> <new-name>` | Rename by account id: the way to rename a *conflicted* account that shares its name with an older one. |
+| `user del <name>` | Delete an account: it becomes a tombstone (`deleted` time) in the registry, its tokens are revoked and its websockets closed; its documents are kept. The name is free again afterwards. |
+| `user ls` | List accounts with id, creation time, state (`active`, `conflicted (rename it)`, `deleted <time>`) and index document. |
 | `token ls` | List tokens: id (first 12 hex characters of the stored hash), user, created, last used, revoked. |
 | `token revoke <id>` | Revoke one token (give at least 6 characters of its id). |
 | `token revoke --user <name>` | Revoke every live token of a user. |
 
 Exit codes: 0 success, 1 failure (including refusing to serve without
-TLS), 2 unknown user/token or invalid input, 4 duplicate account.
+TLS, a database in use by another `serve`, and a database of an older
+format), 2 unknown user/token or invalid input, 3 no root yet (run
+`init`), 4 duplicate account or a second `init`.
+
+### Admin socket
+
+`serve` takes an exclusive `flock` on `server.db.lock` and listens on
+`admin.sock` (mode 0600, newline-delimited JSON-RPC 2.0; methods `init`,
+`user.add`, `user.passwd`, `user.rename`, `user.del`, `user.ls`, `token.ls`,
+`token.revoke`). Every admin command first tries to take the lock: if it
+gets it, no server is running and it writes the database directly; if the
+lock is held, it sends the change to the running server over the socket.
+So admin commands work while the server is up, take effect at once (a new
+user can log in immediately, a revoked token's websockets close
+immediately), and never lose a concurrent registry write. Passwords are
+hashed by the command before they are sent; the socket never carries a
+plaintext password. Two direct commands wait for each other on the lock.
+A second `serve` on the same database exits 1 (`… is in use by another
+tt-server process`).
+
+### Limited mode (no root)
+
+`serve` on a database without a root keeps running and logs that
+`tt-server init` (create a new root) or `tt-server peer join` (join an
+existing server, in a later version) is needed. It serves `GET /api/health`
+(`state: "NeedsDecision"`), a "not set up" page for every non-API path, and
+the admin socket; every other `/api/*` route and `/sync` answer 503 with
+`{"error": "… tt-server init … tt-server peer join …", "state":
+"NeedsDecision"}`. Running `tt-server init` while it serves (through the
+admin socket) switches it to `Ready` without a restart.
+
+### Upgrading from a registry-less version
+
+Databases written before the registry (accounts in SQLite tables) are
+refused by every command with exit code 1 and left unchanged; there is no
+migration. Stop the server, move the old `server.db` aside, then:
+
+```sh
+tt-server --db server.db init --name <name>
+tt-server --db server.db user add <name>      # for each user
+tt-server --db server.db serve …
+```
+
+and run `tt login` again on each daemon and sign in again in the web app.
 
 ### `serve` flags
 
@@ -95,18 +149,53 @@ take `Authorization: Bearer <token>` and answer 401 (with
 
 | Endpoint | Auth | Response |
 | --- | --- | --- |
-| `GET /api/health` | – | `{ok:true, version, sessions}` |
-| `POST /api/login` `{username, password}` | – | `{token, index_doc, user:{id,name}}`; 401 `invalid username or password` (same for unknown users); 429 after 5 attempts per minute from one IP. |
-| `GET /api/me` | bearer | `{user:{id,name}, index_doc}` |
+| `GET /api/health` | – | `{ok:true, version, sessions, state, server:{id,name}}`; `state` is `Ready` or `NeedsDecision` (then `name` is null). |
+| `POST /api/login` `{username, password}` | – | `{token, index_doc, user:{id,name}, server:{id,name}}`; 401 `invalid username or password` (same for unknown and deleted users); 409 `{"error":"account_conflict"}` when the password matches a conflicted account (below); 429 after 5 attempts per minute from one IP. |
+| `GET /api/me` | bearer | `{user:{id,name}, index_doc, server:{id,name}}` |
 | `POST /api/logout` | bearer | `{ok:true}`; revokes the token and closes its websockets. |
 | `POST /api/ws-ticket` | bearer | `{ticket, expires_in:60}`: single-use, 60 s. |
-| `GET /api/export` | bearer | The core JSON export (`docs/export.md`) of the caller's workspace and entries, read only from documents the caller's ACL grants. |
+| `GET /api/export` | bearer | The core JSON export (`docs/export.md`) of the caller's workspace and entries, read only from documents the caller owns (below). |
 | `GET /sync?ticket=<ticket>` | ticket or bearer header | Websocket upgrade (below). |
 | other `/api/*` | – | 404 |
 
 `index_doc` is the bs58check id of the user's index document. `tt login`
 stores it with the token and user id, and a fresh device bootstraps
-everything from it.
+everything from it. `server.id` is the server's id: lowercase base32 (26
+characters) of the first 16 bytes of SHA-256 of its ed25519 public key;
+displays use the first 8 characters.
+
+## Registry
+
+The registry document is the server's root. It is private: it is never
+announced or sent to a client, and a client that asks for it gets
+`doc-unavailable`.
+
+```
+{ kind: "tt-registry", version: 1,
+  users: { <uuid>: {
+      index_doc, workspace_doc, created,      // written once
+      name:     { value, at },                // versioned field
+      password: { hash, at },                 // argon2id PHC string
+      deleted:  <ms> | absent } } }
+```
+
+Tokens, websocket tickets, rate limits and the login audit stay in the local
+SQLite tables and are never written to the registry. Concurrent edits (from
+servers sharing a root, in a later version) resolve the same way on every
+server, whatever order they merge in:
+
+- **Password, name:** the value with the latest change time wins; equal
+  times: the greater hash/name. Clock skew decides between servers.
+- **Deletion** is final: a set `deleted` time is never cleared and wins
+  against any concurrent edit. Keys are never removed.
+- **Duplicate names:** among non-deleted accounts with one name, the one
+  created first (equal times: lower id) owns it. The others are
+  *conflicted*: `user ls` flags them, login with their password answers 409
+  `account_conflict` (only after the correct password, so it reveals
+  nothing), and `user rename --id <id> <new-name>` unblocks them.
+
+When an account becomes deleted, by `user del` or a merged change, the
+server revokes its tokens and closes its websockets.
 
 ## Sync
 
@@ -130,20 +219,21 @@ send `Authorization: Bearer` on the upgrade instead.
 the user comes from the ticket or token, never from the client, and two
 devices of one user never collide.
 
-**Visibility.** The `acl` table maps documents to users with a role
-(`owner`, `writer`, `reader`; only owners exist today). A connection sees
-exactly the documents its user has a row for: anything else is answered
-`doc-unavailable` without sync data, and the attempt is logged. Readers may
-fetch but not push changes.
+**Visibility.** Access is derived from the registry and the indexes: a
+user owns its index document and every document that index lists, and a
+connection sees exactly what its user owns. Anything else is answered
+`doc-unavailable` without sync data, and the attempt is logged. When two
+users' indexes list the same document, only the account created first has
+access and the conflict is logged; listing another user's document gains
+nothing. Deleted accounts own nothing.
 
 **New documents.** A client may create documents (for example the
 `entries-2027` document on the first entry of a new year). The server
 accepts a document it has never seen only when the user's index document
-lists it; the user then becomes its owner. Because the index edit often
-arrives a moment after the new document, the document's frames are held for
-up to 10 s while the index syncs. A document still unlisted after that is
-discarded and the connection closed with a protocol `error`. A document
-someone else owns can never be claimed.
+lists it. Because the index edit often arrives a moment after the new
+document, the document's frames are held for up to 10 s while the index
+syncs. A document still unlisted after that is discarded and the connection
+closed with a protocol `error`.
 
 **Storage.** Documents live in the `documents` table of the same SQLite file
 (WAL, `synchronous=FULL`), are loaded on first use, are written after every
@@ -198,14 +288,15 @@ login are never pushed.
   length 8.
 - **Tokens.** 32 random bytes from the OS RNG, base64url, returned once at
   login; only the SHA-256 is stored. Long-lived until revoked
-  (`tt logout`, `tt-server token revoke`). Revocation takes effect on the
-  next request; open websockets for the token are closed immediately
-  (logout) or within 5 s (revoked from the CLI, which polls the database).
+  (`tt logout`, `tt-server token revoke`, `tt-server user del`). Revocation
+  takes effect on the next request; open websockets for the token are
+  closed immediately (logout, or the CLI through the admin socket), or
+  within 5 s when the CLI wrote the database directly while no server ran.
 - **Login rate limit.** 5 attempts per minute per client IP (sliding
   window); the sixth gets 429. Use `--behind-proxy` behind a reverse proxy,
   otherwise every client shares the proxy's address.
 - **Audit.** Every login attempt (time, IP, user name, outcome, reason:
-  `ok`, `invalid credentials`, `rate limited`) goes to the `login_audit`
+  `ok`, `invalid credentials`, `account conflict`, `rate limited`) goes to the `login_audit`
   table. Refused cross-user document requests and discarded pushes are
   logged as warnings.
 - **Ticket flow.** Browsers cannot set headers on websockets, so `/sync`
@@ -214,10 +305,11 @@ login are never pushed.
   use (a second upgrade with it gets 401), and refused if the token was
   revoked in between. The long-lived token is never accepted in a URL.
 - **Isolation.** Peer identity comes from the server, not the client.
-  Every inbound sync/request is checked against the ACL before the
+  Every inbound sync/request is checked against the derived access before the
   repository sees it, and every outbound message is checked again; new
   documents are accepted only through the index rule above.
-- **Files.** `server.db` is created with mode 0600; run as a dedicated user
+- **Files.** `server.db`, `server.key` and `admin.sock` are mode 0600 (the
+  socket's permissions are its only credential); run as a dedicated user
   (`contrib/tt-server.service` uses `StateDirectoryMode=0700`, `UMask=0077`).
   Back it up with `sqlite3 server.db ".backup …"` or per user with
   `GET /api/export`.

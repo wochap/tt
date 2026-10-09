@@ -62,6 +62,50 @@ pub fn get_time<D: ReadDoc>(doc: &D, obj: &ObjId, key: &str) -> Option<DateTime<
     get_i64(doc, obj, key).and_then(from_millis)
 }
 
+/// Integer list items, skipping non-integers.
+pub fn get_i64_list<D: ReadDoc>(doc: &D, obj: &ObjId, key: &str) -> Vec<i64> {
+    let Some(Some((Value::Object(ObjType::List), list))) = doc.get(obj, key).ok() else {
+        return Vec::new();
+    };
+    (0..doc.length(&list))
+        .filter_map(|index| match doc.get(&list, index).ok()?? {
+            (Value::Scalar(scalar), _) => match scalar.as_ref() {
+                ScalarValue::Int(value) => Some(*value),
+                ScalarValue::Uint(value) => i64::try_from(*value).ok(),
+                ScalarValue::F64(value) => Some(*value as i64),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// Writes an integer list, appending when the stored list is a prefix of
+/// `values` (so concurrent appends merge) and replacing it otherwise. An empty
+/// list is not created.
+pub fn put_i64_list<T: Transactable + ReadDoc>(
+    tx: &mut T,
+    obj: &ObjId,
+    key: &str,
+    values: &[i64],
+) -> AmResult<()> {
+    let current = get_i64_list(tx, obj, key);
+    if current == values {
+        return Ok(());
+    }
+    let (list, start) = match tx.get(obj, key)? {
+        Some((Value::Object(ObjType::List), list)) if values.starts_with(&current) => {
+            (list, current.len())
+        }
+        _ if values.is_empty() => return delete_if_present(tx, obj, key),
+        _ => (tx.put_object(obj, key, ObjType::List)?, 0),
+    };
+    for (index, value) in values.iter().enumerate().skip(start) {
+        tx.insert(&list, index, *value)?;
+    }
+    Ok(())
+}
+
 pub fn keys<D: ReadDoc>(doc: &D, obj: &ObjId) -> Vec<String> {
     doc.keys(obj).collect()
 }

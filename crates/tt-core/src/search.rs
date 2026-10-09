@@ -79,6 +79,7 @@ mod tests {
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                 .collect::<BTreeMap<_, _>>(),
             state: TaskState::Open,
+            previous_seqs: Vec::new(),
             created: Utc::now(),
             updated: Utc::now(),
         };

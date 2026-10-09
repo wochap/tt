@@ -28,6 +28,7 @@ import {
   formatDuration,
   formatElapsed,
   highlightRuns,
+  renumberedFrom,
   resolveTask,
   entryYear,
   indexSetYear,
@@ -99,10 +100,24 @@ describe("schema", () => {
     });
     let merged = A.merge(a, b);
     expect([...readWorkspace(merged).tasks.values()].map((t) => t.seq)).toEqual([1, 1]);
+    const other = A.clone(merged);
+    let renumbered: ReturnType<typeof repairSeqs> = [];
     merged = A.change(merged, (d) => {
-      expect(repairSeqs(d, NOW + 2)).toHaveLength(1);
+      renumbered = repairSeqs(d, NOW + 2);
     });
-    expect([...readWorkspace(merged).tasks.values()].map((t) => t.seq).sort()).toEqual([1, 2]);
+    const later = [...readWorkspace(b).tasks.values()][0]!;
+    expect(renumbered).toEqual([{ id: later.id, from: 1, to: 2 }]);
+    const tasks = readWorkspace(merged).tasks;
+    expect([...tasks.values()].map((t) => t.seq).sort()).toEqual([1, 2]);
+    expect(tasks.get(later.id)!.previousSeqs).toEqual([1]);
+    expect([...tasks.values()].find((t) => t.seq === 1)!.previousSeqs).toBeUndefined();
+    const view = { workspace: readWorkspace(merged), entries: new Map() };
+    expect(resolveTask(view, "#1").title).toBe("A");
+    expect(renumberedFrom(view, 1)).toEqual([{ id: later.id, title: "B", from: 1, to: 2 }]);
+    // Both devices repairing the same collision keep one old number.
+    const repaired = A.change(other, (d) => void repairSeqs(d, NOW + 3));
+    merged = A.merge(merged, repaired);
+    expect(readWorkspace(merged).tasks.get(later.id)!.previousSeqs).toEqual([1]);
   });
 
   it("rejects empty titles", () => {

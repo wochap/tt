@@ -243,6 +243,7 @@ mod tests {
             project: None,
             metadata: Default::default(),
             state: TaskState::Open,
+            previous_seqs: Vec::new(),
             created: t(0, 0),
             updated: t(0, 0),
         };

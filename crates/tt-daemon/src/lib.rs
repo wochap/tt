@@ -206,8 +206,19 @@ async fn initialize(daemon: Arc<Daemon>) {
                     error!(%error, "could not record the new index document in config");
                 }
             }
-            info!(index = %init.engine.index_id().to_bs58check(), "workspace ready");
-            *daemon.engine.write().await = Some(Arc::new(Mutex::new(init.engine)));
+            let mut installed = daemon.engine.write().await;
+            // The startup load and a reload right after `tt login` can both
+            // load the same index; keep the engine that is already serving
+            // so commands it ran are not hidden behind a stale view.
+            let index = init.engine.index_id();
+            if let Some(current) = installed.as_ref()
+                && current.lock().await.index_id() == index
+            {
+                return;
+            }
+            info!(index = %index.to_bs58check(), "workspace ready");
+            *installed = Some(Arc::new(Mutex::new(init.engine)));
+            drop(installed);
             daemon.readiness.send_replace(Readiness::Ready);
         }
         Err(error) => {

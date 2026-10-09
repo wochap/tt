@@ -75,7 +75,12 @@ export function TaskDetailPage() {
           <CaretLeft size={11} /> Tasks
         </Link>
         <span className="text-faint">/</span>
-        <span className="font-mono">#{task.seq}</span>
+        <span className="font-mono text-fg">#{task.seq}</span>
+        {task.previousSeqs?.map((n) => (
+          <span key={n} className="text-[11.5px] text-faint">
+            previously <span className="font-mono">#{n}</span>
+          </span>
+        ))}
         <span className="ml-auto flex items-center gap-[6px]">
           <button type="button" aria-label="Previous task" className="tt-icon-btn size-6" disabled={index <= 0} onClick={() => step(-1)}>
             <CaretLeft size={11} />

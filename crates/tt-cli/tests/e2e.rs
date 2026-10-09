@@ -342,6 +342,19 @@ fn two_daemons_sync_through_node_server() {
     wait_for("A to sync #2", Duration::from_secs(15), || {
         sync_progress_done(&a)
     });
+    let log = a.path("renumbered.log");
+    a.script(
+        "config/tt/hooks/task.renumbered",
+        &format!(
+            "printf '%s ' \"$TT_EVENT\" >> {log}; cat >> {log}",
+            log = log.display()
+        ),
+    );
+    let watch = a.watch(&["--event", "task.*"]);
+    assert_eq!(
+        watch.next(Duration::from_secs(10)).unwrap()["type"],
+        "snapshot"
+    );
     b.set("server.url", &url);
     let unique = |env: &Env| {
         let tasks = env.json(&["task", "ls", "--state", "all"]);
@@ -374,5 +387,30 @@ fn two_daemons_sync_through_node_server() {
     };
     assert_eq!(by_title("Offline on B"), 2, "earlier-created task keeps #2");
     assert_eq!(by_title("Online on A"), 3);
+
+    // A emits task.renumbered (not task.updated) and runs its hook.
+    let event = watch.expect("task.renumbered");
+    assert_eq!(
+        (event["from"].clone(), event["to"].clone()),
+        (2.into(), 3.into())
+    );
+    assert_eq!(event["task"]["title"], "Online on A");
+    assert_eq!(event["task"]["previous_seqs"], serde_json::json!([2]));
+    drop(watch);
+    wait_for("task.renumbered hook", Duration::from_secs(10), || {
+        std::fs::read_to_string(&log).is_ok_and(|text| text.starts_with("task.renumbered {"))
+    });
+
+    // The old number shows its current holder, with a hint to the moved task.
+    let shown = a.json(&["task", "show", "2"]);
+    assert_eq!(shown["title"], "Offline on B");
+    assert_eq!(shown["renumbered_from"][0]["title"], "Online on A");
+    assert_eq!(shown["renumbered_from"][0]["to"], 3);
+    let text = a.ok(&["task", "show", "2"]);
+    assert!(
+        text.contains("note: \"Online on A\" was renumbered from #2 to #3"),
+        "{text}"
+    );
+    assert!(a.ok(&["task", "show", "3"]).contains("previously: #2"));
     drop(server);
 }

@@ -30,7 +30,8 @@ entries-YYYY { schema, kind:"entries", year,
 - `seq` is allocated as `max(counters.taskSeq, max seq) + 1` in the same change
   that creates the task. When two offline devices allocate the same number,
   the daemon that sees the merge renumbers the later-created task (by
-  `created`, then id) and emits `task.updated`.
+  `created`, then id), appends its old number to the task's `previous_seqs`
+  list, and emits `task.renumbered`.
 - Time entries refer to tasks by uuid only; renaming a task changes every
   report and listing at once.
 

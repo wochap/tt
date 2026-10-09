@@ -41,7 +41,7 @@ test("offline reload renders local data and shows Offline", async ({ page, baseU
     await expect(page.getByTestId("sync-status")).toHaveAttribute("data-state", "offline");
     // Local writes still work offline and are counted as queued.
     await createTask(page, "Queued while offline");
-    await expect(page.getByTestId("sync-status")).toContainText(/queued/);
+    await expect(page.getByTestId("sync-status")).toContainText(/saved here/);
     proxy.setDown(false);
     await expect(page.getByTestId("sync-status")).toHaveAttribute("data-state", "synced", { timeout: 45_000 });
   } finally {
@@ -178,7 +178,7 @@ test("logout shows unsynced changes before wiping", async ({ page, baseURL }) =>
     await expect(page.getByTestId("sync-status")).toHaveAttribute("data-state", "synced");
     proxy.setDown(true);
     await createTask(page, "Unsynced task");
-    await expect(page.getByTestId("sync-status")).toContainText(/queued/);
+    await expect(page.getByTestId("sync-status")).toContainText(/saved here/);
     await page.getByRole("link", { name: "Settings" }).click();
     await page.getByRole("button", { name: "Log out and wipe local data" }).click();
     await expect(page.getByTestId("logout-unsynced")).toContainText(/\d+ unsynced change/);

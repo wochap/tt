@@ -2,27 +2,23 @@
 //! protocol through [`WsJsServer`](automerge_repo::transport::WsJsServer).
 //!
 //! Every inbound frame passes a per-session gate before the repository sees
-//! it. The gate refreshes the ACL cache from the database (so the
-//! repository's synchronous policy answers correctly) and applies the
-//! new-document rule:
+//! it. The gate re-reads the user's index into the access index when a
+//! document is not yet granted (so the repository's synchronous policy
+//! answers correctly) and applies the new-document rule:
 //!
-//! - a document the user holds a role on passes (readers may not push
-//!   changes);
-//! - a document owned by someone else passes and the repository answers
-//!   `doc-unavailable`; the attempt is logged;
-//! - an unknown document asked for with `request` passes and is answered
+//! - a document the user owns (its index, or one its index lists) passes;
+//! - a document owned by someone else, or the registry, passes and the
+//!   repository answers `doc-unavailable`; the attempt is logged;
+//! - an unlisted document asked for with `request` passes and is answered
 //!   `doc-unavailable`;
-//! - an unknown document pushed with `sync` is accepted only once the user's
-//!   index document lists it: the user becomes its owner and the held frames
-//!   are released in order. The index edit usually travels on the same
-//!   connection a moment later, so frames wait up to `pending_timeout`;
-//!   after that they are discarded and the connection is closed with a
-//!   protocol `error`.
+//! - an unlisted document pushed with `sync` is accepted only once the
+//!   user's index document lists it; the held frames are then released in
+//!   order. The index edit usually travels on the same connection a moment
+//!   later, so frames wait up to `pending_timeout`; after that they are
+//!   discarded and the connection is closed with a protocol `error`.
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use anyhow::Result;
-use automerge::sync::Message as SyncMessage;
 use automerge_repo::{DocumentId, protocol::WireMessage};
 use axum::{
     extract::{
@@ -40,11 +36,11 @@ use tokio::{
 use tracing::{debug, info, warn};
 
 use crate::{
-    acl::Access,
+    access::Access,
     api::{ApiError, authenticate, bearer},
     app::{App, SERVER_PEER_ID, Session},
     auth::{random_hex, secret_hash},
-    db::UserRecord,
+    registry::Account,
 };
 
 const FRAME_QUEUE: usize = 256;
@@ -67,7 +63,10 @@ pub(crate) async fn upgrade(
     let granted = if let Some(ticket) = query.get("ticket") {
         let hash = secret_hash(ticket);
         match app.db.run(move |db| db.consume_ticket(&hash)).await {
-            Ok(Some(grant)) => Ok((grant.user, grant.token_hash)),
+            Ok(Some(grant)) => match app.view().active(&grant.user_id) {
+                Some(user) => Ok((user.clone(), grant.token_hash)),
+                None => Err(ApiError::unauthorized()),
+            },
             Ok(None) => Err(ApiError::unauthorized()),
             Err(error) => Err(error.into()),
         }
@@ -86,7 +85,7 @@ pub(crate) async fn upgrade(
     }
 }
 
-async fn session(app: Arc<App>, socket: WebSocket, user: UserRecord, token_hash: String) {
+async fn session(app: Arc<App>, socket: WebSocket, user: Account, token_hash: String) {
     let close = Arc::new(Notify::new());
     let id = app.register(Session {
         token_hash,
@@ -137,7 +136,7 @@ struct Held {
 
 struct Gate {
     app: Arc<App>,
-    user: UserRecord,
+    user: Account,
     /// The client's `senderId`, from its `join`.
     wire_id: Option<String>,
     outgoing: mpsc::Sender<Vec<u8>>,
@@ -201,12 +200,10 @@ impl Gate {
                 self.wire_id = Some(sender_id);
                 self.forward(frame).await
             }
-            WireMessage::Sync {
-                document_id, data, ..
-            } => self.document(document_id, false, &data, frame).await,
-            WireMessage::Request {
-                document_id, data, ..
-            } => self.document(document_id, true, &data, frame).await,
+            WireMessage::Sync { document_id, .. } => self.document(document_id, false, frame).await,
+            WireMessage::Request { document_id, .. } => {
+                self.document(document_id, true, frame).await
+            }
             _ => self.forward(frame).await,
         }
     }
@@ -215,79 +212,51 @@ impl Gate {
         &mut self,
         id: DocumentId,
         request: bool,
-        data: &[u8],
         frame: Vec<u8>,
     ) -> Result<(), Reject> {
         if let Some(held) = self.pending.get_mut(&id) {
             held.frames.push(frame);
             return Ok(());
         }
-        match self.app.acl.access(id, &self.user.id).await? {
-            Access::Granted(role) => {
-                if !request && !role.may_write() && carries_changes(data) {
-                    warn!(user = %self.user.name, document = %id.to_bs58check(), "write to a read-only document");
-                    return Err(Reject(format!(
-                        "document {} is read-only for this user",
-                        id.to_bs58check()
-                    )));
-                }
-                self.forward(frame).await
-            }
+        match self.app.access_for(id, &self.user.id).await? {
+            Access::Granted => self.forward(frame).await,
             Access::Foreign => {
                 warn!(
                     user = %self.user.name,
                     document = %id.to_bs58check(),
-                    "refused another user's document"
+                    "refused a document the user does not own"
                 );
                 self.forward(frame).await
             }
-            Access::Unknown if request => self.forward(frame).await,
-            Access::Unknown => {
-                let listed = self
-                    .app
-                    .index_listing(&self.user.index_doc)
-                    .await?
-                    .contains(&id);
-                if listed {
-                    self.claim(id).await?;
-                    self.forward(frame).await
-                } else {
-                    self.pending.insert(
-                        id,
-                        Held {
-                            deadline: Instant::now() + self.app.options.pending_timeout,
-                            frames: vec![frame],
-                        },
-                    );
-                    Ok(())
-                }
+            Access::Unlisted if request => self.forward(frame).await,
+            Access::Unlisted => {
+                self.pending.insert(
+                    id,
+                    Held {
+                        deadline: Instant::now() + self.app.options.pending_timeout,
+                        frames: vec![frame],
+                    },
+                );
+                Ok(())
             }
         }
-    }
-
-    async fn claim(&self, id: DocumentId) -> Result<(), Reject> {
-        match self.app.acl.claim(id, &self.user.id).await? {
-            Access::Granted(_) => {
-                info!(user = %self.user.name, document = %id.to_bs58check(), "accepted new document");
-            }
-            _ => {
-                warn!(user = %self.user.name, document = %id.to_bs58check(), "new document already owned by another user");
-            }
-        }
-        Ok(())
     }
 
     /// Releases held documents the index now lists.
     async fn release(&mut self) -> Result<(), Reject> {
-        let listing = self.app.index_listing(&self.user.index_doc).await?;
-        let ready: Vec<DocumentId> = self
+        self.app.refresh_listing(&self.user.id).await?;
+        let ready: Vec<(DocumentId, Access)> = self
             .pending
             .keys()
-            .filter(|id| listing.contains(id))
-            .copied()
+            .map(|id| (*id, self.app.access.access(*id, &self.user.id)))
+            .filter(|(_, access)| *access != Access::Unlisted)
             .collect();
-        for id in ready {
-            self.claim(id).await?;
+        for (id, access) in ready {
+            if access == Access::Granted {
+                info!(user = %self.user.name, document = %id.to_bs58check(), "accepted new document");
+            } else {
+                warn!(user = %self.user.name, document = %id.to_bs58check(), "new document is owned by another user");
+            }
             if let Some(held) = self.pending.remove(&id) {
                 for frame in held.frames {
                     self.forward(frame).await?;
@@ -326,10 +295,4 @@ impl Gate {
             let _ = self.outgoing.send(frame).await;
         }
     }
-}
-
-/// Whether a sync payload carries changes (rather than only heads, needs,
-/// and bloom filters).
-fn carries_changes(data: &[u8]) -> bool {
-    SyncMessage::decode(data).map_or(true, |message| !message.changes.is_empty())
 }

@@ -1,5 +1,6 @@
-//! Sync endpoint: identity, per-user isolation, the new-document rule,
-//! revocation closing sessions, restart persistence, and the export.
+//! Sync endpoint: identity, per-user isolation derived from the indexes,
+//! the new-document rule, the private registry, revocation and deletion
+//! closing sessions, restart persistence, and the export.
 
 mod common;
 
@@ -14,7 +15,7 @@ use common::{Client, TestServer, eventually, get, post};
 use serde_json::json;
 use tokio::time::timeout;
 use tt_core::schema;
-use tt_server::{acl::Role, db::Db};
+use tt_server::{UserRef, admin};
 
 async fn text(handle: &DocHandle, key: &'static str) -> Option<String> {
     handle
@@ -36,8 +37,21 @@ async fn put(handle: &DocHandle, key: &'static str, value: &'static str) {
         .unwrap();
 }
 
-fn acl(server: &TestServer, doc: DocumentId) -> Vec<(String, Role)> {
-    Db::open(&server.db()).unwrap().acl_rows(doc).unwrap()
+fn owner(server: &TestServer, doc: DocumentId) -> Option<String> {
+    server.server().app().owner_of(doc)
+}
+
+/// Asks for `id` and expects `doc-unavailable`.
+async fn refused(client: &Client, id: &str) {
+    let handle = client
+        .repo
+        .find(DocumentId::parse_any(id).unwrap())
+        .await
+        .unwrap();
+    let result = timeout(Duration::from_secs(10), handle.ready())
+        .await
+        .expect("answered within 10 s");
+    assert!(result.is_err(), "must not receive {id}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -88,11 +102,11 @@ async fn users_sync_their_own_workspace_and_never_see_others() {
     // Bob's own workspace still works.
     b.find_ready(&bob.workspace_doc).await;
     assert_eq!(
-        acl(
+        owner(
             &server,
             DocumentId::parse_any(&alice.workspace_doc).unwrap()
         ),
-        vec![(alice.id.clone(), Role::Owner)]
+        Some(alice.id.clone())
     );
 
     // The export only contains the caller's data.
@@ -132,7 +146,7 @@ async fn new_yearly_entries_document_is_accepted_once_the_index_lists_it() {
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(150)).await;
-    assert!(acl(&server, entries.id()).is_empty(), "held until listed");
+    assert_eq!(owner(&server, entries.id()), None, "held until listed");
     let id = entries.id().to_bs58check();
     index
         .change(move |tx| {
@@ -141,8 +155,8 @@ async fn new_yearly_entries_document_is_accepted_once_the_index_lists_it() {
         .await
         .unwrap();
 
-    eventually("owner ACL row for the new document", 10, || async {
-        acl(&server, entries.id()) == vec![(alice.id.clone(), Role::Owner)]
+    eventually("alice owns the new document", 10, || async {
+        owner(&server, entries.id()) == Some(alice.id.clone())
     })
     .await;
     eventually("server stores the new document", 10, || async {
@@ -199,7 +213,7 @@ async fn unlisted_push_is_discarded_and_the_connection_closed() {
     .await
     .expect("connection closed")
     .unwrap();
-    assert!(acl(&server, rogue.id()).is_empty());
+    assert_eq!(owner(&server, rogue.id()), None);
     assert!(
         !server
             .server()
@@ -221,8 +235,10 @@ async fn revocation_closes_open_websockets() {
     let login = server.login("alice").await;
     let client = Client::connect(&server, &login, "device").await;
     client.find_ready(&alice.workspace_doc).await;
-    let tokens = tt_server::admin::list_tokens(&server.db()).unwrap();
-    tt_server::admin::revoke_token(&server.db(), tokens[0].id()).unwrap();
+    let tokens = admin::list_tokens(&server.db()).await.unwrap();
+    admin::revoke_token(&server.db(), tokens[0].id())
+        .await
+        .unwrap();
     client
         .wait_state("rejected", |state| {
             matches!(state, ConnectionState::Rejected(_))
@@ -290,4 +306,100 @@ async fn restart_loses_nothing_and_idle_documents_are_evicted() {
         text(&workspace, "note").await.as_deref(),
         Some("before restart")
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn registry_and_documents_listed_by_another_index_stay_private() {
+    let server = TestServer::start(|_| {}).await;
+    let alice = server.add_user("alice").await;
+    let bob = server.add_user("bob").await;
+    let bob_login = server.login("bob").await;
+    let b = Client::connect(&server, &bob_login, "bob-device").await;
+
+    // The registry is never sent to a client.
+    let registry = server.server().app().root().unwrap().registry_doc;
+    refused(&b, &registry).await;
+
+    // Bob lists Alice's workspace in his own index: still refused.
+    let index = b.find_ready(&bob.index_doc).await;
+    let stolen = alice.workspace_doc.clone();
+    index
+        .change(move |tx| {
+            schema::index_set_year(tx, 2030, &stolen).map_err(|e| Error::Change(e.to_string()))
+        })
+        .await
+        .unwrap();
+    let listed = DocumentId::parse_any(&alice.workspace_doc).unwrap();
+    eventually("the server sees bob's index edit", 10, || async {
+        match server
+            .server()
+            .repo()
+            .open_document(DocumentId::parse_any(&bob.index_doc).unwrap())
+            .await
+        {
+            Ok(handle) => handle
+                .read(schema::read_index)
+                .await
+                .is_ok_and(|view| view.entries.values().any(|id| *id == alice.workspace_doc)),
+            Err(_) => false,
+        }
+    })
+    .await;
+    let other = Client::connect(&server, &bob_login, "bob-device-2").await;
+    refused(&other, &alice.workspace_doc).await;
+    assert_eq!(
+        owner(&server, listed),
+        Some(alice.id.clone()),
+        "alice keeps it"
+    );
+    // Bob's export does not include it either.
+    let (status, body) = get(&server.base(), "/api/export", Some(&bob_login.token)).await;
+    assert_eq!((status, body["tasks"].clone()), (200, json!([])));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_an_account_closes_its_websockets_and_rejects_its_token() {
+    let server =
+        TestServer::start(|options| options.revocation_poll = Duration::from_secs(3600)).await;
+    let bob = server.add_user("bob").await;
+    let login = server.login("bob").await;
+    let client = Client::connect(&server, &login, "device").await;
+    client.find_ready(&bob.workspace_doc).await;
+    admin::delete_user(&server.db(), &UserRef::Name("bob".into()))
+        .await
+        .unwrap();
+    client
+        .wait_state("rejected", |state| {
+            matches!(state, ConnectionState::Rejected(_))
+        })
+        .await;
+    assert_eq!(
+        get(&server.base(), "/api/me", Some(&login.token)).await.0,
+        401
+    );
+    eventually("sessions closed", 5, || async {
+        server.server().app().user_sessions(&bob.id) == 0
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn revoking_through_the_socket_closes_sessions_without_polling() {
+    // The poller would take an hour: only the socket path can be this fast.
+    let server =
+        TestServer::start(|options| options.revocation_poll = Duration::from_secs(3600)).await;
+    let alice = server.add_user("alice").await;
+    let login = server.login("alice").await;
+    let client = Client::connect(&server, &login, "device").await;
+    client.find_ready(&alice.workspace_doc).await;
+    let tokens = admin::list_tokens(&server.db()).await.unwrap();
+    assert_eq!(tokens[0].user_name, "alice");
+    admin::revoke_token(&server.db(), tokens[0].id())
+        .await
+        .unwrap();
+    client
+        .wait_state("rejected", |state| {
+            matches!(state, ConnectionState::Rejected(_))
+        })
+        .await;
 }

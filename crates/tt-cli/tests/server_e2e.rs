@@ -45,6 +45,7 @@ fn two_users_and_two_devices_through_tt_server() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("server.db");
     let (server, url) = runtime.block_on(async {
+        admin::init(&db, Some("e2e")).await.unwrap();
         admin::add_user(&db, "alice", PASSWORD).await.unwrap();
         admin::add_user(&db, "bob", PASSWORD).await.unwrap();
         let mut options = ServerOptions::new(&db);
@@ -54,7 +55,8 @@ fn two_users_and_two_devices_through_tt_server() {
         let address = server.spawn_http(listener);
         (server, format!("http://{address}"))
     });
-    let alice_index = admin::list_users(&db)
+    let alice_index = runtime
+        .block_on(admin::list_users(&db))
         .unwrap()
         .into_iter()
         .find(|user| user.name == "alice")
@@ -126,7 +128,9 @@ fn two_users_and_two_devices_through_tt_server() {
     assert_eq!(status.as_u16(), 401);
 
     // Revoked on the server: the daemon stops and asks for a login.
-    admin::revoke_user_tokens(&db, "alice").unwrap();
+    runtime
+        .block_on(admin::revoke_user_tokens(&db, "alice"))
+        .unwrap();
     wait_for("A to require login", Duration::from_secs(20), || {
         a.json(&["status"])["sync"]["state"] == "login_required"
     });
@@ -181,6 +185,9 @@ fn private_ca_through_login_ca_cert() {
     std::fs::write(&cert, leaf.pem()).unwrap();
     std::fs::write(&key, leaf_key.serialize_pem()).unwrap();
 
+    runtime
+        .block_on(admin::init(&db, Some("private-ca")))
+        .unwrap();
     runtime
         .block_on(admin::add_user(&db, "alice", PASSWORD))
         .unwrap();

@@ -1,9 +1,14 @@
-import { NavLink } from "react-router";
+import { useState } from "react";
+import { NavLink, useNavigate } from "react-router";
 
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
-import { useSession } from "@/data/react";
+import { useNow, useSession, useSyncStatus } from "@/data/react";
 import { MOD, cn } from "@/lib/utils";
+import { serverName } from "@/sync/protocol";
 
+import { LogoutDialog } from "../settings/SettingsPage.tsx";
+import { syncLabel } from "./SyncStatus.tsx";
 import { useUi } from "./ui-state.tsx";
 
 export const NAV = [
@@ -19,9 +24,8 @@ export function initials(name: string): string {
   return name.slice(0, 2).toLowerCase();
 }
 
-/** 44 px bar: brand, route tabs (1–3), command button (⌘K), avatar. */
+/** 44 px bar: brand, route tabs (1–3), command button (⌘K), account menu. */
 export function TopBar() {
-  const { auth } = useSession();
   const { openPalette } = useUi();
   return (
     <header className="flex h-11 flex-none items-center gap-[18px] border-b bg-mantle px-[14px]">
@@ -48,14 +52,56 @@ export function TopBar() {
           <span>Search or run a command…</span>
           <Kbd>{MOD}K</Kbd>
         </button>
-        <div
-          title={auth.user.name}
-          className="flex size-[26px] items-center justify-center rounded-full bg-s0 text-[11px] text-sub1"
-        >
-          {initials(auth.user.name)}
-        </div>
+        <AccountMenu />
       </div>
     </header>
+  );
+}
+
+/** Frame 5.2: avatar menu naming the user and the server they sync with. */
+export function AccountMenu() {
+  const { auth } = useSession();
+  const status = useSyncStatus();
+  const now = useNow(5000);
+  const navigate = useNavigate();
+  const { setShortcutsOpen } = useUi();
+  const [logout, setLogout] = useState(false);
+  const name = serverName(auth);
+  const { text, dot } = syncLabel(status, now);
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label={`${auth.user.name} on ${name}`}
+          className="flex size-[26px] items-center justify-center rounded-full bg-s0 text-[11px] text-sub1 outline-none hover:text-fg focus-visible:shadow-[0_0_0_2px_var(--color-accent)]"
+        >
+          {initials(auth.user.name)}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-[220px]">
+          <div className="mb-1 flex flex-col gap-[3px] border-b border-s0 px-[9px] pb-[9px] pt-2" data-testid="account-identity">
+            <span>
+              <span className="font-medium">{auth.user.name}</span> <span className="text-muted">on</span>{" "}
+              <span className="font-medium">{name}</span>
+            </span>
+            <span className="flex items-center gap-[6px] text-[11px] text-muted">
+              <span className={cn("size-[6px] flex-none rounded-full", dot)} />
+              {text}
+            </span>
+          </div>
+          <DropdownMenuItem onSelect={() => void navigate("/settings")}>
+            Settings
+            <Kbd className="ml-auto">,</Kbd>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setShortcutsOpen(true)}>
+            Keyboard shortcuts
+            <Kbd className="ml-auto">?</Kbd>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setLogout(true)}>Sign out</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <LogoutDialog open={logout} onOpenChange={setLogout} pending={status.pending} />
+    </>
   );
 }
 

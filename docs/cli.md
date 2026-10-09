@@ -124,6 +124,8 @@ Options:
 ```text
 Show one task with its entries
 
+A short id shows the task holding it now; tasks renumbered away from it after a sync collision are noted (JSON: `renumbered_from`).
+
 Usage: tt task show [OPTIONS] <TASK>
 
 Arguments:
@@ -135,7 +137,7 @@ Options:
           JSON output (stable schema: uuids, seqs, UTC timestamps, durations in seconds)
 
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
 
   -V, --version
           Print version

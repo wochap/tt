@@ -243,7 +243,7 @@ function HourSelect({ value, onChange, min = 0, max = 24, label }: { value: numb
   );
 }
 
-function LogoutDialog({ open, onOpenChange, pending }: { open: boolean; onOpenChange: (open: boolean) => void; pending: number }) {
+export function LogoutDialog({ open, onOpenChange, pending }: { open: boolean; onOpenChange: (open: boolean) => void; pending: number }) {
   const { logout } = useSessionControl();
   const [busy, setBusy] = useState(false);
   return (

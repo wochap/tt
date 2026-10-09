@@ -45,8 +45,18 @@ export interface Task {
   project?: Uuid;
   metadata: Record<string, string>;
   state: TaskState;
+  /** Numbers held before seq collisions renumbered the task, oldest first; absent when empty. */
+  previousSeqs?: number[];
   created: Millis;
   updated: Millis;
+}
+
+/** A task renumbered away from a short id: it held `from` and now holds `to`. */
+export interface RenumberedFrom {
+  id: Uuid;
+  title: string;
+  from: number;
+  to: number;
 }
 
 export interface Entry {
@@ -127,7 +137,18 @@ export function taskBySeq(view: View, seq: number): Task | undefined {
   return undefined;
 }
 
-/** Resolves `#12`, `12`, a full uuid, or a unique uuid prefix (≥ 4 hex). */
+/** Tasks whose `previousSeqs` contain `seq`, ordered by their current seq. */
+export function renumberedFrom(view: View, seq: number): RenumberedFrom[] {
+  return [...view.workspace.tasks.values()]
+    .filter((task) => task.seq !== seq && (task.previousSeqs ?? []).includes(seq))
+    .map((task) => ({ id: task.id, title: task.title, from: seq, to: task.seq }))
+    .sort((a, b) => a.to - b.to || compare(a.id, b.id));
+}
+
+/**
+ * Resolves `#12`, `12`, a full uuid, or a unique uuid prefix (≥ 4 hex). A short
+ * id resolves to the task currently holding it (see `renumberedFrom`).
+ */
 export function resolveTask(view: View, key: string): Task {
   const text = key.trim();
   const seqText = text.startsWith("#") ? text.slice(1) : text;

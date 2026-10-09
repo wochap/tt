@@ -7,6 +7,7 @@ import { useSnapshot, useSyncStatus } from "@/data/react";
 import { useKeys } from "@/lib/keys";
 import { usePhone } from "@/lib/media";
 
+import { RenumberNotices } from "../tasks/RenumberToast.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
 import { RunningStrip } from "./RunningStrip.tsx";
 import { ShortcutSheet } from "./ShortcutSheet.tsx";
@@ -23,6 +24,7 @@ export function AppShell() {
         <CommandPalette />
         <ShortcutSheet />
         <Toaster />
+        <RenumberNotices />
       </TooltipProvider>
     </UiProvider>
   );

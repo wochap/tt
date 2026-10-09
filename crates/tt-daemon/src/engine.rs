@@ -596,8 +596,8 @@ impl Engine {
         struct P {
             task: String,
         }
-        let P { task } = params(p)?;
-        let task = self.task(&task)?;
+        let P { task: key } = params(p)?;
+        let task = self.task(&key)?;
         self.ensure_range(None).await?;
         let now = Utc::now();
         let mut entries: Vec<_> = self
@@ -609,7 +609,7 @@ impl Engine {
             .collect();
         entries.sort_by_key(|entry| entry.start);
         let total: i64 = entries.iter().map(|entry| entry.duration).sum();
-        let mut value = self.task_json(&task);
+        let mut value = json!(self.view.task_view_for_key(&task, &key));
         value["entries"] = json!(entries);
         value["total"] = json!(total);
         Ok(value)

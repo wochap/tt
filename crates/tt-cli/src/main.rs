@@ -202,6 +202,9 @@ enum TaskCmd {
         project: Option<String>,
     },
     /// Show one task with its entries
+    ///
+    /// A short id shows the task holding it now; tasks renumbered away from it
+    /// after a sync collision are noted (JSON: `renumbered_from`).
     Show { task: String },
     /// Edit in $EDITOR as markdown with YAML frontmatter
     Edit { task: String },

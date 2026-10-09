@@ -364,6 +364,7 @@ mod tests {
             project: None,
             metadata: [("ticket".into(), "A-1".into())].into(),
             state: TaskState::Open,
+            previous_seqs: Vec::new(),
             created: now,
             updated: now,
         };

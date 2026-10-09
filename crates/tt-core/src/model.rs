@@ -95,6 +95,9 @@ pub struct Task {
     pub metadata: BTreeMap<String, String>,
     #[serde(default)]
     pub state: TaskState,
+    /// Numbers this task held before seq collisions renumbered it, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_seqs: Vec<u64>,
     pub created: Timestamp,
     pub updated: Timestamp,
 }
@@ -172,8 +175,22 @@ pub struct TaskView {
     pub project: Option<ProjectRef>,
     pub tags: Vec<TagRef>,
     pub metadata: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_seqs: Vec<u64>,
+    /// Tasks that held the looked-up number before a seq repair moved them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub renumbered_from: Vec<RenumberedFrom>,
     pub created: Timestamp,
     pub updated: Timestamp,
+}
+
+/// A task renumbered away from a short id: it held `from` and now holds `to`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RenumberedFrom {
+    pub id: Uuid,
+    pub title: String,
+    pub from: u64,
+    pub to: u64,
 }
 
 /// An entry with its task resolved and its duration in seconds.
@@ -230,6 +247,8 @@ impl View {
             project: task.project.and_then(|id| self.project_ref(id)),
             tags,
             metadata: task.metadata.clone(),
+            previous_seqs: task.previous_seqs.clone(),
+            renumbered_from: Vec::new(),
             created: task.created,
             updated: task.updated,
         }
@@ -273,15 +292,59 @@ impl View {
     }
 
     /// Resolves `#12`, `12`, a full uuid, or a unique uuid prefix (≥ 4 hex).
+    /// A short id resolves to the task currently holding it, never to a task
+    /// renumbered away from it (see [`View::renumbered_from`]).
     pub fn resolve_task(&self, key: &str) -> Result<&Task, CoreError> {
         let key = key.trim();
-        let seq_text = key.strip_prefix('#').unwrap_or(key);
-        if let Ok(seq) = seq_text.parse::<u64>()
+        let seq = short_seq(key);
+        if let Some(seq) = seq
             && let Some(task) = self.workspace.tasks.values().find(|task| task.seq == seq)
         {
             return Ok(task);
         }
-        resolve_by_id(key, &self.workspace.tasks, "task")
+        resolve_by_id(key, &self.workspace.tasks, "task").map_err(|error| {
+            let hints = seq.map(|seq| self.renumbered_from(seq)).unwrap_or_default();
+            match (error, hints.is_empty()) {
+                (CoreError::NotFound(what), false) => CoreError::NotFound(format!(
+                    "{what} ({})",
+                    hints
+                        .iter()
+                        .map(|hint| format!("{:?} is now #{}", hint.title, hint.to))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+                (error, _) => error,
+            }
+        })
+    }
+
+    /// Tasks whose `previous_seqs` contain `seq`, ordered by their current seq.
+    #[must_use]
+    pub fn renumbered_from(&self, seq: u64) -> Vec<RenumberedFrom> {
+        let mut hints: Vec<_> = self
+            .workspace
+            .tasks
+            .values()
+            .filter(|task| task.seq != seq && task.previous_seqs.contains(&seq))
+            .map(|task| RenumberedFrom {
+                id: task.id,
+                title: task.title.clone(),
+                from: seq,
+                to: task.seq,
+            })
+            .collect();
+        hints.sort_by_key(|hint| (hint.to, hint.id));
+        hints
+    }
+
+    /// [`View::task_view`] with `renumbered_from` hints when `key` is a short id.
+    #[must_use]
+    pub fn task_view_for_key(&self, task: &Task, key: &str) -> TaskView {
+        let mut view = self.task_view(task);
+        if let Some(seq) = short_seq(key.trim()).filter(|seq| *seq == task.seq) {
+            view.renumbered_from = self.renumbered_from(seq);
+        }
+        view
     }
 
     /// Resolves a full entry uuid or a unique prefix (≥ 4 hex).
@@ -336,6 +399,11 @@ impl View {
     pub fn short_entry_id(&self, id: Uuid) -> String {
         short_id(id, self.entries.keys().copied())
     }
+}
+
+/// `#12` or `12` as a task seq.
+fn short_seq(key: &str) -> Option<u64> {
+    key.strip_prefix('#').unwrap_or(key).parse().ok()
 }
 
 /// Shortest prefix of `id`'s simple hex form (at least 8) unique among `all`.

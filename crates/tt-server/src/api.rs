@@ -6,12 +6,12 @@ use std::{
     sync::Arc,
 };
 
-use automerge_repo::DocumentId;
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, FromRequestParts, State},
+    extract::{ConnectInfo, FromRequestParts, Request, State},
     http::{HeaderMap, StatusCode, header, request::Parts},
-    response::{IntoResponse, Response},
+    middleware::{self, Next},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
 use serde::Deserialize;
@@ -21,10 +21,11 @@ use tracing::{info, warn};
 use tt_core::{Entry, View, Workspace, export, schema};
 
 use crate::{
-    acl::Access,
-    app::App,
+    access::Access,
+    app::{App, NOT_SET_UP, RootState},
     auth::{random_secret, secret_hash, verify_password},
-    db::{UserRecord, now_ms},
+    db::now_ms,
+    registry::Account,
 };
 
 /// JSON error body `{"error": "..."}` with a status.
@@ -45,6 +46,11 @@ impl ApiError {
     pub fn unauthorized() -> Self {
         Self::new(StatusCode::UNAUTHORIZED, "unauthorized")
     }
+    /// 503 while the server has no root.
+    #[must_use]
+    pub fn not_set_up() -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, NOT_SET_UP)
+    }
 }
 
 impl From<anyhow::Error> for ApiError {
@@ -56,7 +62,12 @@ impl From<anyhow::Error> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let mut response = (self.status, Json(json!({"error": self.message}))).into_response();
+        let body = if self.status == StatusCode::SERVICE_UNAVAILABLE {
+            json!({"error": self.message, "state": RootState::NeedsDecision})
+        } else {
+            json!({"error": self.message})
+        };
+        let mut response = (self.status, Json(body)).into_response();
         if self.status == StatusCode::UNAUTHORIZED {
             response
                 .headers_mut()
@@ -70,7 +81,7 @@ type ApiResult<T> = Result<T, ApiError>;
 
 /// A request authenticated with `Authorization: Bearer <token>`.
 pub struct AuthUser {
-    pub user: UserRecord,
+    pub user: Account,
     pub token_hash: String,
 }
 
@@ -87,8 +98,11 @@ pub(crate) fn bearer(headers: &HeaderMap) -> Option<&str> {
 pub(crate) async fn authenticate(app: &App, token: &str) -> ApiResult<AuthUser> {
     let token_hash = secret_hash(token);
     let lookup = token_hash.clone();
-    let user = app.db.run(move |db| db.token_user(&lookup)).await?;
-    user.map(|user| AuthUser { user, token_hash })
+    let user_id = app.db.run(move |db| db.token_user(&lookup)).await?;
+    // Deleted (or unknown) accounts are refused even with a live token.
+    user_id
+        .and_then(|id| app.view().active(&id).cloned())
+        .map(|user| AuthUser { user, token_hash })
         .ok_or_else(ApiError::unauthorized)
 }
 
@@ -141,7 +155,34 @@ pub fn router(app: Arc<App>) -> Router {
         ),
         None => router.fallback(api_not_found),
     };
-    router.with_state(app)
+    router
+        .layer(middleware::from_fn_with_state(app.clone(), root_gate))
+        .with_state(app)
+}
+
+/// Shown instead of the web app while the server has no root.
+const NOT_SET_UP_PAGE: &str = "<!doctype html>
+<html lang=\"en\"><meta charset=\"utf-8\"><title>tt: not set up</title>
+<body style=\"font-family: system-ui, sans-serif; max-width: 36rem; margin: 4rem auto; padding: 0 1rem\">
+<h1>This tt server is not set up yet</h1>
+<p>On the server host, run <code>tt-server init --name &lt;name&gt;</code> to create a new server,
+or <code>tt-server peer join</code> to join an existing one. This page reloads into the app once it is ready.</p>
+</body></html>";
+
+/// In `NeedsDecision` only `/api/health` and the not-set-up page are served;
+/// every other API route and `/sync` answer 503.
+async fn root_gate(State(app): State<Arc<App>>, request: Request, next: Next) -> Response {
+    if app.state() == RootState::Ready {
+        return next.run(request).await;
+    }
+    let path = request.uri().path();
+    if path == "/api/health" {
+        next.run(request).await
+    } else if path.starts_with("/api/") || path == "/api" || path == "/sync" {
+        ApiError::not_set_up().into_response()
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, Html(NOT_SET_UP_PAGE)).into_response()
+    }
 }
 
 async fn api_not_found() -> ApiError {
@@ -153,6 +194,8 @@ async fn health(State(app): State<Arc<App>>) -> Json<Value> {
         "ok": true,
         "version": env!("CARGO_PKG_VERSION"),
         "sessions": app.session_count(),
+        "state": app.state(),
+        "server": app.server_json(),
     }))
 }
 
@@ -182,21 +225,43 @@ async fn login(
             "too many login attempts; wait a minute",
         ));
     }
-    let name = request.username.clone();
-    let user = app.db.run(move |db| db.user_by_name(&name)).await?;
-    let stored = user.as_ref().map(|user| user.password_hash.clone());
+    // Every non-deleted account with the name, the owner first. The owner
+    // logs in; a conflicted account with a matching password gets 409, which
+    // needs the right password and so reveals nothing about which names exist.
+    let candidates: Vec<Account> = app
+        .view()
+        .named(&request.username)
+        .into_iter()
+        .cloned()
+        .collect();
     let password = request.password.clone();
-    let verified =
-        tokio::task::spawn_blocking(move || verify_password(stored.as_deref(), &password))
-            .await
-            .map_err(anyhow::Error::from)?;
-    let Some(user) = user.filter(|_| verified) else {
-        audit(false, "invalid credentials").await?;
-        warn!(%ip, username = %request.username, "login failed");
-        return Err(ApiError::new(
-            StatusCode::UNAUTHORIZED,
-            "invalid username or password",
-        ));
+    let hashes: Vec<String> = candidates.iter().map(|a| a.password_hash.clone()).collect();
+    let matched = tokio::task::spawn_blocking(move || {
+        if hashes.is_empty() {
+            let _ = verify_password(None, &password);
+            return None;
+        }
+        hashes
+            .iter()
+            .position(|hash| verify_password(Some(hash), &password))
+    })
+    .await
+    .map_err(anyhow::Error::from)?;
+    let user = match matched {
+        Some(0) => candidates[0].clone(),
+        Some(_) => {
+            audit(false, "account conflict").await?;
+            warn!(%ip, username = %request.username, "login to a conflicted account");
+            return Err(ApiError::new(StatusCode::CONFLICT, "account_conflict"));
+        }
+        None => {
+            audit(false, "invalid credentials").await?;
+            warn!(%ip, username = %request.username, "login failed");
+            return Err(ApiError::new(
+                StatusCode::UNAUTHORIZED,
+                "invalid username or password",
+            ));
+        }
     };
     let token = random_secret();
     let (token_hash, user_id) = (secret_hash(&token), user.id.clone());
@@ -209,13 +274,15 @@ async fn login(
         "token": token,
         "index_doc": user.index_doc,
         "user": {"id": user.id, "name": user.name},
+        "server": app.server_json(),
     })))
 }
 
-async fn me(auth: AuthUser) -> Json<Value> {
+async fn me(State(app): State<Arc<App>>, auth: AuthUser) -> Json<Value> {
     Json(json!({
         "user": {"id": auth.user.id, "name": auth.user.name},
         "index_doc": auth.user.index_doc,
+        "server": app.server_json(),
     }))
 }
 
@@ -242,18 +309,14 @@ async fn ws_ticket(State(app): State<Arc<App>>, auth: AuthUser) -> ApiResult<Jso
     })))
 }
 
-/// The core JSON export of the caller's workspace and entries, read from the
-/// documents the caller's index lists and the ACL grants.
+/// The core JSON export of the caller's workspace and entries: the
+/// documents the caller's index lists and the caller owns.
 async fn export_json(State(app): State<Arc<App>>, auth: AuthUser) -> ApiResult<Json<Value>> {
-    let mut ids = app.index_listing(&auth.user.index_doc).await?;
-    if ids.is_empty()
-        && let Ok(workspace) = DocumentId::parse_any(&auth.user.workspace_doc)
-    {
-        ids.push(workspace);
-    }
+    app.refresh_listing(&auth.user.id).await?;
+    let ids = app.access.owned(&auth.user.id);
     let mut view = View::default();
     for id in ids {
-        if !matches!(app.acl.access(id, &auth.user.id).await?, Access::Granted(_)) {
+        if app.access.access(id, &auth.user.id) != Access::Granted {
             continue;
         }
         let Some(handle) = app.stored(id).await? else {

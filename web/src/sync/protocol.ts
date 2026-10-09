@@ -1,12 +1,25 @@
 // Control messages between a tab and the repo worker. Repo traffic itself
 // runs over a separate MessageChannel per tab (MessageChannelNetworkAdapter).
 
+/** The server's own identity; `id` is 26 base32 characters, shown as 8. */
+export interface ServerIdentity {
+  id: string;
+  name: string;
+}
+
 export interface Auth {
   /** Origin of tt-server, e.g. `https://tt.example.net` (no trailing slash). */
   server: string;
   token: string;
   indexDoc: string;
   user: { id: string; name: string };
+  /** From login, refreshed by `/api/me`; missing in sessions from older builds. */
+  identity?: ServerIdentity;
+}
+
+/** The server's name for labels, or its host before the name is known. */
+export function serverName(auth: Pick<Auth, "server" | "identity">): string {
+  return auth.identity?.name ?? new URL(auth.server).host;
 }
 
 export type SyncState =

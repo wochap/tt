@@ -16,5 +16,6 @@ pub mod time;
 
 pub use error::{CoreError, CoreResult};
 pub use model::{
-    Entry, EntryView, Index, Project, Tag, Task, TaskState, TaskView, View, Workspace,
+    Entry, EntryView, Index, Project, RenumberedFrom, Tag, Task, TaskState, TaskView, View,
+    Workspace,
 };

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "tt server: accounts, tokens, per-user ACL, automerge-repo websocket sync, web hosting"
+description = "tt server: registry of accounts, tokens, per-user access, automerge-repo websocket sync, web hosting"
 
 [lib]
 name = "tt_server"
@@ -27,6 +27,7 @@ clap.workspace = true
 dialoguer.workspace = true
 futures-util.workspace = true
 rand_core.workspace = true
+ring.workspace = true
 rusqlite.workspace = true
 rustls.workspace = true
 serde.workspace = true

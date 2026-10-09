@@ -147,6 +147,8 @@ mod tests {
             previous_task: None,
             project: None,
             tag: None,
+            from: None,
+            to: None,
             running: Vec::new(),
         }
     }

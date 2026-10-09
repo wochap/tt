@@ -234,18 +234,30 @@ export function seqCollisions(workspace: Workspace): [Uuid, number][] {
   return losers.map((task) => [task.id, next++]);
 }
 
-/** Reassigns colliding seqs and bumps the counter; returns renumbered ids. */
-export function repairSeqs(root: Doc, now: Millis): Uuid[] {
+/** A task moved off a colliding number by `repairSeqs`. */
+export interface Renumbering {
+  id: Uuid;
+  from: number;
+  to: number;
+}
+
+/**
+ * Reassigns colliding seqs, records each old number in the task's
+ * `previousSeqs`, and bumps the counter; returns the renumberings.
+ */
+export function repairSeqs(root: Doc, now: Millis): Renumbering[] {
   const workspace = readWorkspace(root);
   const collisions = seqCollisions(workspace);
   let max = workspace.taskSeq;
+  const renumbered: Renumbering[] = [];
   for (const [id, seq] of collisions) {
     const task = workspace.tasks.get(id)!;
-    writeTask(root, { ...task, seq, updated: now });
+    renumbered.push({ id, from: task.seq, to: seq });
+    writeTask(root, { ...task, seq, previousSeqs: [...(task.previousSeqs ?? []), task.seq], updated: now });
     max = Math.max(max, seq);
   }
   if (collisions.length) setTaskSeqCounter(root, max);
-  return collisions.map(([id]) => id);
+  return renumbered;
 }
 
 // ---------- entries ----------
