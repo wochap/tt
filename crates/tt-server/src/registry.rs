@@ -1,4 +1,5 @@
-//! The registry document: the server's root, holding every account.
+//! The registry document: the server's root, holding every account and
+//! every member server.
 //!
 //! ```text
 //! { kind: "tt-registry", version: 1,
@@ -6,14 +7,20 @@
 //!       index_doc, workspace_doc, created,   // written once
 //!       name:     { value, at },             // versioned field
 //!       password: { hash, at },              // versioned field
-//!       deleted:  <ms> | absent } } }
+//!       deleted:  <ms> | absent } },
+//!   servers: { <server_id>: {
+//!       pubkey, added_by, added_at,          // written once (pubkey: hex)
+//!       name: { value, at } } },             // versioned field
+//!   revoked: { <server_id>: { by, at } } }   // append-only
 //! ```
 //!
 //! Merges must resolve the same way on every server whatever order changes
 //! arrive in, so readers never trust Automerge's choice among conflicting
 //! values: a versioned field is a whole map written under one key, and the
 //! reader takes every conflicting value (`get_all`) and keeps the greatest
-//! `(at, value)`. `deleted` is final: any value present means deleted.
+//! `(at, value)`. `deleted` is final: any value present means deleted, and
+//! so is an entry in `revoked`, which lives outside `servers` so that no
+//! concurrent edit of a member's entry can undo it.
 //! Nothing ever removes a key. Strings are scalars, never `Text`.
 
 use std::collections::BTreeMap;
@@ -34,6 +41,8 @@ pub fn init<T: Transactable + ReadDoc>(tx: &mut T) -> AmResult<()> {
     tx.put(ROOT, "kind", KIND_REGISTRY)?;
     tx.put(ROOT, "version", VERSION)?;
     tx.put_object(ROOT, "users", ObjType::Map)?;
+    tx.put_object(ROOT, "servers", ObjType::Map)?;
+    tx.put_object(ROOT, "revoked", ObjType::Map)?;
     Ok(())
 }
 
@@ -53,11 +62,15 @@ pub struct NewAccount {
     pub created: i64,
 }
 
-fn users<T: Transactable + ReadDoc>(tx: &mut T) -> AmResult<ObjId> {
-    match get_map(tx, &ROOT, "users") {
-        Some(users) => Ok(users),
-        None => tx.put_object(ROOT, "users", ObjType::Map),
+fn top<T: Transactable + ReadDoc>(tx: &mut T, key: &str) -> AmResult<ObjId> {
+    match get_map(tx, &ROOT, key) {
+        Some(map) => Ok(map),
+        None => tx.put_object(ROOT, key, ObjType::Map),
     }
+}
+
+fn users<T: Transactable + ReadDoc>(tx: &mut T) -> AmResult<ObjId> {
+    top(tx, "users")
 }
 
 fn account<T: Transactable + ReadDoc>(tx: &mut T, id: &str) -> AmResult<ObjId> {
@@ -125,6 +138,111 @@ pub fn delete_account<T: Transactable + ReadDoc>(tx: &mut T, id: &str, at: i64) 
     Ok(())
 }
 
+/// A server joining the membership.
+#[derive(Clone, Debug)]
+pub struct NewServer {
+    pub id: String,
+    pub name: String,
+    pub pubkey: Vec<u8>,
+    pub added_by: String,
+    pub added_at: i64,
+}
+
+#[must_use]
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
+/// Adds a member, or refreshes the name of an existing one (same key).
+pub fn add_server<T: Transactable + ReadDoc>(tx: &mut T, server: &NewServer) -> AmResult<()> {
+    let servers = top(tx, "servers")?;
+    if let Some(obj) = get_map(tx, &servers, &server.id) {
+        return put_versioned(tx, &obj, "name", "value", &server.name, server.added_at);
+    }
+    let obj = tx.put_object(&servers, server.id.as_str(), ObjType::Map)?;
+    tx.put(&obj, "pubkey", hex(&server.pubkey))?;
+    tx.put(&obj, "added_by", server.added_by.as_str())?;
+    tx.put(&obj, "added_at", server.added_at)?;
+    put_versioned(tx, &obj, "name", "value", &server.name, server.added_at)
+}
+
+pub fn set_server_name<T: Transactable + ReadDoc>(
+    tx: &mut T,
+    id: &str,
+    name: &str,
+    at: i64,
+) -> AmResult<()> {
+    let servers = top(tx, "servers")?;
+    let obj = get_map(tx, &servers, id)
+        .ok_or_else(|| AutomergeError::InvalidObjId(format!("no server {id}")))?;
+    put_versioned(tx, &obj, "name", "value", name, at)
+}
+
+/// Revokes a member, for good: the entry is written once and never removed.
+pub fn revoke_server<T: Transactable + ReadDoc>(
+    tx: &mut T,
+    id: &str,
+    by: &str,
+    at: i64,
+) -> AmResult<()> {
+    let revoked = top(tx, "revoked")?;
+    if tx.get(&revoked, id)?.is_none() {
+        let obj = tx.put_object(&revoked, id, ObjType::Map)?;
+        tx.put(&obj, "by", by)?;
+        tx.put(&obj, "at", at)?;
+    }
+    Ok(())
+}
+
+/// A revocation: who revoked the member, and when.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Revocation {
+    pub by: String,
+    pub at: i64,
+}
+
+/// One member server as every server resolves it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerEntry {
+    pub id: String,
+    pub name: String,
+    pub name_changed_at: i64,
+    /// Hex of the raw 32-byte ed25519 public key.
+    pub pubkey: String,
+    pub added_by: String,
+    pub added_at: i64,
+    pub revoked: Option<Revocation>,
+}
+
+impl ServerEntry {
+    #[must_use]
+    pub fn is_revoked(&self) -> bool {
+        self.revoked.is_some()
+    }
+
+    /// The raw public key.
+    #[must_use]
+    pub fn public_key(&self) -> Option<Vec<u8>> {
+        unhex(&self.pubkey)
+    }
+
+    /// `name (id prefix)`.
+    #[must_use]
+    pub fn display(&self) -> String {
+        format!("{} ({})", self.name, crate::identity::id_prefix(&self.id))
+    }
+}
+
 /// One account as every server resolves it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
@@ -189,6 +307,62 @@ fn deleted<D: ReadDoc>(doc: &D, obj: &ObjId) -> Option<i64> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RegistryView {
     accounts: BTreeMap<String, Account>,
+    servers: BTreeMap<String, ServerEntry>,
+}
+
+/// Every revocation of `id` merged: the earliest wins, and any value at all
+/// means revoked.
+fn revocation<D: ReadDoc>(doc: &D, revoked: &ObjId, id: &str) -> Option<Revocation> {
+    doc.get_all(revoked, id)
+        .ok()?
+        .into_iter()
+        .map(|(value, obj)| match value {
+            Value::Object(ObjType::Map) => Revocation {
+                by: get_string(doc, &obj, "by").unwrap_or_default(),
+                at: get_i64(doc, &obj, "at").unwrap_or(0),
+            },
+            _ => Revocation {
+                by: String::new(),
+                at: 0,
+            },
+        })
+        .min_by(|a, b| (a.at, &a.by).cmp(&(b.at, &b.by)))
+}
+
+fn read_servers<D: ReadDoc>(doc: &D) -> BTreeMap<String, ServerEntry> {
+    let mut servers = BTreeMap::new();
+    let Some(map) = get_map(doc, &ROOT, "servers") else {
+        return servers;
+    };
+    let revoked = get_map(doc, &ROOT, "revoked");
+    for id in doc.keys(&map).collect::<Vec<_>>() {
+        let Some(obj) = get_map(doc, &map, &id) else {
+            continue;
+        };
+        let read = || {
+            let (name, name_changed_at) = versioned(doc, &obj, "name", "value")?;
+            Some(ServerEntry {
+                id: id.clone(),
+                name,
+                name_changed_at,
+                pubkey: get_string(doc, &obj, "pubkey")?,
+                added_by: get_string(doc, &obj, "added_by").unwrap_or_default(),
+                added_at: get_i64(doc, &obj, "added_at").unwrap_or(0),
+                revoked: revoked
+                    .as_ref()
+                    .and_then(|revoked| revocation(doc, revoked, &id)),
+            })
+        };
+        // An entry whose key does not hash to its id is never a member.
+        if let Some(entry) = read().filter(|entry| {
+            entry
+                .public_key()
+                .is_some_and(|key| crate::identity::server_id(&key) == entry.id)
+        }) {
+            servers.insert(id, entry);
+        }
+    }
+    servers
 }
 
 /// Reads the registry. Accounts missing write-once fields (a partial merge
@@ -222,7 +396,10 @@ pub fn read<D: ReadDoc>(doc: &D) -> RegistryView {
             }
         }
     }
-    let mut view = RegistryView { accounts };
+    let mut view = RegistryView {
+        accounts,
+        servers: read_servers(doc),
+    };
     view.flag_conflicts();
     view
 }
@@ -277,6 +454,30 @@ impl RegistryView {
     #[must_use]
     pub fn owner(&self, name: &str) -> Option<&Account> {
         self.named(name).into_iter().next()
+    }
+
+    /// Every member server, revoked ones included, by name then id.
+    #[must_use]
+    pub fn servers(&self) -> Vec<&ServerEntry> {
+        let mut all: Vec<&ServerEntry> = self.servers.values().collect();
+        all.sort_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)));
+        all
+    }
+
+    /// A member server by id, revoked or not.
+    #[must_use]
+    pub fn server(&self, id: &str) -> Option<&ServerEntry> {
+        self.servers.get(id)
+    }
+
+    /// Whether `pubkey` belongs to a member that is not revoked.
+    #[must_use]
+    pub fn is_trusted(&self, pubkey: &[u8]) -> bool {
+        self.servers
+            .get(&crate::identity::server_id(pubkey))
+            .is_some_and(|entry| {
+                !entry.is_revoked() && entry.public_key().as_deref() == Some(pubkey)
+            })
     }
 
     /// Every account, deleted ones included, by name then creation.
@@ -425,5 +626,98 @@ mod tests {
         let view = read(&merged);
         assert_eq!(view.owner("bob").unwrap().id, "id-b");
         assert!(!view.get("id-b").unwrap().conflicted);
+    }
+
+    fn new_server(seed: u8, name: &str) -> NewServer {
+        let pubkey = vec![seed; 32];
+        NewServer {
+            id: crate::identity::server_id(&pubkey),
+            name: name.into(),
+            pubkey,
+            added_by: "origin".into(),
+            added_at: 100,
+        }
+    }
+
+    #[test]
+    fn members_round_trip_and_trust_follows_revocation() {
+        let mut doc = AutoCommit::new();
+        init(&mut doc).unwrap();
+        let laptop = new_server(1, "laptop-a");
+        add_server(&mut doc, &laptop).unwrap();
+        let view = read(&doc);
+        let entry = view.server(&laptop.id).unwrap();
+        assert_eq!(entry.name, "laptop-a");
+        assert_eq!(entry.public_key().unwrap(), laptop.pubkey);
+        assert!(view.is_trusted(&laptop.pubkey));
+        assert!(!view.is_trusted(&[2; 32]), "unknown key");
+        revoke_server(&mut doc, &laptop.id, "origin", 200).unwrap();
+        let view = read(&doc);
+        assert!(!view.is_trusted(&laptop.pubkey));
+        assert_eq!(
+            view.server(&laptop.id).unwrap().revoked,
+            Some(Revocation {
+                by: "origin".into(),
+                at: 200
+            })
+        );
+        // Re-adding a revoked member does not bring it back.
+        add_server(&mut doc, &laptop).unwrap();
+        assert!(!read(&doc).is_trusted(&laptop.pubkey));
+    }
+
+    #[test]
+    fn an_entry_whose_key_does_not_match_its_id_is_ignored() {
+        let mut doc = AutoCommit::new();
+        init(&mut doc).unwrap();
+        let mut forged = new_server(1, "forged");
+        forged.id = new_server(2, "other").id;
+        add_server(&mut doc, &forged).unwrap();
+        let view = read(&doc);
+        assert!(view.servers().is_empty());
+        assert!(!view.is_trusted(&[1; 32]));
+        assert!(!view.is_trusted(&[2; 32]));
+    }
+
+    #[test]
+    fn revocation_wins_over_a_concurrent_rename() {
+        let mut origin = AutoCommit::new();
+        init(&mut origin).unwrap();
+        let c = new_server(3, "laptop-c");
+        add_server(&mut origin, &c).unwrap();
+        let (mut a, mut b) = (origin.fork(), origin.fork());
+        revoke_server(&mut a, &c.id, "server-a", 1000).unwrap();
+        set_server_name(&mut b, &c.id, "renamed", 2000).unwrap();
+        // B also re-adds C concurrently, rewriting its whole entry.
+        let mut readded = c.clone();
+        readded.added_at = 3000;
+        add_server(&mut b, &readded).unwrap();
+        let view = merge_both(a, b);
+        let entry = view.server(&c.id).unwrap();
+        assert!(entry.is_revoked());
+        assert_eq!(entry.name, "laptop-c", "the later rename at 3000 wins");
+        assert!(!view.is_trusted(&c.pubkey));
+
+        // Revoked on both sides concurrently: the earlier revocation is kept.
+        let (mut a, mut b) = (origin.fork(), origin.fork());
+        revoke_server(&mut a, &c.id, "server-a", 1000).unwrap();
+        revoke_server(&mut b, &c.id, "server-b", 900).unwrap();
+        let view = merge_both(a, b);
+        assert_eq!(
+            view.server(&c.id).unwrap().revoked.as_ref().unwrap().by,
+            "server-b"
+        );
+    }
+
+    #[test]
+    fn registries_without_member_maps_read_and_accept_members() {
+        let mut doc = AutoCommit::new();
+        doc.put(ROOT, "kind", KIND_REGISTRY).unwrap();
+        doc.put_object(ROOT, "users", ObjType::Map).unwrap();
+        assert!(read(&doc).servers().is_empty());
+        let laptop = new_server(1, "laptop-a");
+        add_server(&mut doc, &laptop).unwrap();
+        revoke_server(&mut doc, &new_server(9, "x").id, "a", 1).unwrap();
+        assert!(read(&doc).is_trusted(&laptop.pubkey));
     }
 }

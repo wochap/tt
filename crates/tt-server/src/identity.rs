@@ -1,9 +1,12 @@
-//! Server identity: an ed25519 key pair in `server.key` (the raw 32-byte
-//! seed, mode 0600) next to `server.db`, and the `server_id` derived from its
-//! public key. The identity exists before and independently of the root.
+//! Server identity: an ed25519 key pair in `server.key` (PKCS#8 DER, mode
+//! 0600) next to `server.db`, and the `server_id` derived from its public
+//! key. The identity exists before and independently of the root, lives
+//! outside the database so `tt-server reset` keeps it, and is replaced only
+//! by `reset --new-identity`.
 //!
-//! `ring` provides Ed25519 already (through rustls) and builds a key pair
-//! from a raw seed, so no extra crate is needed.
+//! `ring` provides Ed25519 already (through rustls), so no extra crate is
+//! needed. Key files of the first format (the raw 32-byte seed) are
+//! rewritten as PKCS#8 on load.
 
 use std::{
     io::Write,
@@ -11,15 +14,21 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use rand_core::{OsRng, RngCore};
-use ring::signature::{Ed25519KeyPair, KeyPair};
+use ring::{
+    rand::SystemRandom,
+    signature::{Ed25519KeyPair, KeyPair},
+};
 use sha2::{Digest, Sha256};
 
 pub const KEY_FILE: &str = "server.key";
 const SEED_LEN: usize = 32;
+/// PKCS#8 v1 wrapping of a raw Ed25519 seed (RFC 8410).
+const PKCS8_V1_PREFIX: [u8; 16] = [
+    0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+];
 
 pub struct Identity {
-    seed: [u8; SEED_LEN],
+    pkcs8: Vec<u8>,
     public: Vec<u8>,
     server_id: String,
 }
@@ -41,37 +50,65 @@ pub fn key_path(db: &Path) -> PathBuf {
         .join(KEY_FILE)
 }
 
+/// Refuses a key file that group or others can access.
+fn check_mode(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(path)
+            .with_context(|| format!("reading {}", path.display()))?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            bail!(
+                "{} is accessible by group or others (mode {:o}); run `chmod 600 {}`",
+                path.display(),
+                mode & 0o777,
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
 impl Identity {
-    fn from_seed(seed: [u8; SEED_LEN]) -> Result<Self> {
-        let pair = Ed25519KeyPair::from_seed_unchecked(&seed)
-            .map_err(|error| anyhow::anyhow!("invalid ed25519 seed: {error}"))?;
+    fn from_pkcs8(pkcs8: Vec<u8>, path: &Path) -> Result<Self> {
+        let pair = Ed25519KeyPair::from_pkcs8_maybe_unchecked(&pkcs8).map_err(|error| {
+            anyhow::anyhow!("{} is not an ed25519 key: {error}", path.display())
+        })?;
         let public = pair.public_key().as_ref().to_vec();
         let server_id = server_id(&public);
         Ok(Self {
-            seed,
+            pkcs8,
             public,
             server_id,
         })
     }
 
-    /// Reads `path`, or creates it with a fresh seed when it does not exist.
+    /// Reads `path`, or creates it with a fresh key when it does not exist.
+    /// A key file readable by group or others is refused.
     pub fn load_or_create(path: &Path) -> Result<Self> {
         match std::fs::read(path) {
             Ok(bytes) => {
-                let Ok(seed) = <[u8; SEED_LEN]>::try_from(bytes.as_slice()) else {
-                    bail!(
-                        "{} is not a tt-server key ({} bytes, expected {SEED_LEN})",
-                        path.display(),
-                        bytes.len()
-                    );
-                };
-                Self::from_seed(seed)
+                check_mode(path)?;
+                if bytes.len() == SEED_LEN {
+                    // First format: the raw seed. Rewrite it as PKCS#8.
+                    let mut pkcs8 = PKCS8_V1_PREFIX.to_vec();
+                    pkcs8.extend_from_slice(&bytes);
+                    let identity = Self::from_pkcs8(pkcs8, path)?;
+                    std::fs::remove_file(path)
+                        .with_context(|| format!("replacing {}", path.display()))?;
+                    write_private(path, &identity.pkcs8)?;
+                    return Ok(identity);
+                }
+                Self::from_pkcs8(bytes, path)
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let mut seed = [0_u8; SEED_LEN];
-                OsRng.fill_bytes(&mut seed);
-                write_private(path, &seed)?;
-                Self::from_seed(seed)
+                let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new())
+                    .map_err(|_| anyhow::anyhow!("generating an ed25519 key failed"))?;
+                let pkcs8 = pkcs8.as_ref().to_vec();
+                write_private(path, &pkcs8)?;
+                Self::from_pkcs8(pkcs8, path)
             }
             Err(error) => Err(error).with_context(|| format!("reading {}", path.display())),
         }
@@ -88,10 +125,16 @@ impl Identity {
         &self.public
     }
 
-    /// The key pair, for signing (`server-identity-link`).
+    /// The private key as PKCS#8 DER (for TLS certificates).
+    #[must_use]
+    pub fn pkcs8(&self) -> &[u8] {
+        &self.pkcs8
+    }
+
+    /// The key pair, for signing.
     pub fn key_pair(&self) -> Result<Ed25519KeyPair> {
-        Ed25519KeyPair::from_seed_unchecked(&self.seed)
-            .map_err(|error| anyhow::anyhow!("invalid ed25519 seed: {error}"))
+        Ed25519KeyPair::from_pkcs8_maybe_unchecked(&self.pkcs8)
+            .map_err(|error| anyhow::anyhow!("invalid ed25519 key: {error}"))
     }
 }
 
@@ -127,7 +170,9 @@ pub fn server_id(public_key: &[u8]) -> String {
     base32(&Sha256::digest(public_key)[..16])
 }
 
-fn base32(bytes: &[u8]) -> String {
+/// Lowercase RFC 4648 base32 without padding.
+#[must_use]
+pub fn base32(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
     let mut out = String::with_capacity(bytes.len().div_ceil(5) * 8);
     let (mut buffer, mut bits) = (0_u32, 0_u32);
@@ -143,6 +188,35 @@ fn base32(bytes: &[u8]) -> String {
         out.push(ALPHABET[((buffer << (5 - bits)) & 31) as usize] as char);
     }
     out
+}
+
+/// Decodes [`base32`] (case-insensitive); `None` on invalid input.
+#[must_use]
+pub fn base32_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() * 5 / 8);
+    let (mut buffer, mut bits) = (0_u32, 0_u32);
+    for c in text.bytes() {
+        let value = match c.to_ascii_lowercase() {
+            c @ b'a'..=b'z' => c - b'a',
+            c @ b'2'..=b'7' => c - b'2' + 26,
+            _ => return None,
+        };
+        buffer = (buffer << 5) | u32::from(value);
+        bits += 5;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+            buffer &= (1 << bits) - 1;
+        }
+    }
+    // Leftover bits must be zero padding, at most 4 of them.
+    (bits < 5 && buffer == 0).then_some(out)
+}
+
+/// The first characters of a server id, shown next to its name.
+#[must_use]
+pub fn id_prefix(server_id: &str) -> &str {
+    &server_id[..server_id.len().min(8)]
 }
 
 /// The host name, the default server name.
@@ -179,17 +253,65 @@ mod tests {
     }
 
     #[test]
+    fn base32_decodes_what_it_encodes() {
+        for bytes in [
+            &b""[..],
+            b"f",
+            b"fo",
+            b"foo",
+            b"foobar",
+            &[0xff; 16],
+            &[0; 37],
+        ] {
+            assert_eq!(base32_decode(&base32(bytes)).unwrap(), bytes);
+        }
+        assert_eq!(base32_decode("MZXW6").unwrap(), b"foo");
+        assert!(base32_decode("mzxw1").is_none());
+        assert!(base32_decode("mzxw7").is_none(), "non-zero padding bits");
+    }
+
+    #[test]
     fn key_round_trips_through_the_key_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(KEY_FILE);
         let created = Identity::load_or_create(&path).unwrap();
-        assert_eq!(std::fs::read(&path).unwrap().len(), SEED_LEN);
+        assert_eq!(std::fs::read(&path).unwrap(), created.pkcs8());
         let loaded = Identity::load_or_create(&path).unwrap();
         assert_eq!(loaded.public_key(), created.public_key());
         let signature = loaded.key_pair().unwrap().sign(b"tt");
         UnparsedPublicKey::new(&ED25519, created.public_key())
             .verify(b"tt", signature.as_ref())
             .expect("a signature from the reloaded key verifies");
+    }
+
+    #[test]
+    fn a_raw_seed_key_file_is_rewritten_as_pkcs8_with_the_same_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(KEY_FILE);
+        write_private(&path, &[7_u8; SEED_LEN]).unwrap();
+        let pair = Ed25519KeyPair::from_seed_unchecked(&[7_u8; SEED_LEN]).unwrap();
+        let identity = Identity::load_or_create(&path).unwrap();
+        assert_eq!(identity.public_key(), pair.public_key().as_ref());
+        assert_eq!(std::fs::read(&path).unwrap().len(), 48);
+        let again = Identity::load_or_create(&path).unwrap();
+        assert_eq!(again.server_id(), identity.server_id());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_key_file_readable_by_others_is_refused_by_name() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(KEY_FILE);
+        Identity::load_or_create(&path).unwrap();
+        for mode in [0o640, 0o604, 0o660] {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+            let error = Identity::load_or_create(&path).unwrap_err().to_string();
+            assert!(error.contains(&path.display().to_string()), "{error}");
+            assert!(error.contains("group or others"), "{error}");
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        Identity::load_or_create(&path).unwrap();
     }
 
     #[test]
@@ -214,6 +336,11 @@ mod tests {
             assert_eq!(mode & 0o777, 0o600);
         }
         std::fs::write(&path, b"short").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
         assert!(Identity::load_or_create(&path).is_err());
     }
 }

@@ -12,8 +12,11 @@ pub mod app;
 pub mod auth;
 pub mod db;
 pub mod identity;
+pub mod peer;
 pub mod registry;
 pub mod serve;
 mod sync;
+pub mod tls;
+pub mod transport;
 
 pub use app::{App, RootState, Server, ServerOptions, UserRef};

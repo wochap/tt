@@ -1,5 +1,7 @@
 //! `tt-server serve`: TLS (rustls) or, behind a local reverse proxy, plain
-//! HTTP; graceful shutdown on SIGINT/SIGTERM.
+//! HTTP for clients; the peer listener (its own mutual TLS, whatever the
+//! client listener does) and seed dialing; graceful shutdown on
+//! SIGINT/SIGTERM.
 
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
@@ -59,11 +61,19 @@ async fn signal() {
     }
 }
 
+/// Peer links: an optional listener and seed addresses to dial.
+#[derive(Debug, Default)]
+pub struct Peers {
+    pub listener: Option<std::net::TcpListener>,
+    pub seeds: Vec<String>,
+}
+
 /// Serves until a signal, then closes sessions and flushes the repository.
 pub async fn run(
     mut options: ServerOptions,
     listener: std::net::TcpListener,
     transport: Transport,
+    peers: Peers,
 ) -> Result<()> {
     listener.set_nonblocking(true)?;
     let listen = listener.local_addr()?;
@@ -74,7 +84,16 @@ pub async fn run(
         warn!(dir = %dir.display(), "--web-dir has no index.html; not serving the web app");
         options.web_dir = None;
     }
-    let server = Server::open(options.clone()).await?;
+    let mut server = Server::open(options.clone()).await?;
+    if let Some(peer_listener) = peers.listener {
+        peer_listener.set_nonblocking(true)?;
+        let peer_listen =
+            server.spawn_peer_listener(tokio::net::TcpListener::from_std(peer_listener)?);
+        info!(%peer_listen, "accepting peer links");
+    }
+    for seed in peers.seeds {
+        server.add_peer(seed);
+    }
     let service = server
         .router()
         .into_make_service_with_connect_info::<SocketAddr>();

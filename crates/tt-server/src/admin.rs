@@ -1,4 +1,4 @@
-//! Administration on the server host (`tt-server init|user|token`).
+//! Administration on the server host (`tt-server init|user|token|peer|reset`).
 //!
 //! `serve` holds an exclusive `flock` on `server.db.lock`. A command first
 //! tries to take that lock: when it gets it, no server is running and the
@@ -8,6 +8,10 @@
 //! write of the server is lost and the change takes effect at once. While
 //! another direct command holds the lock (no socket answers), the command
 //! waits for it. Passwords are hashed here, before anything is sent.
+//!
+//! `peer invite` without a running server needs `--listen`: it serves the
+//! peer listener itself until the code is used or expires. `reset` only
+//! runs with the server stopped.
 
 use std::{
     fs::File,
@@ -27,8 +31,10 @@ use crate::{
     admin_socket::{self, WireError},
     app::{App, ServerOptions, UserRef},
     auth::{MIN_PASSWORD_LEN, hash_password},
-    db::{RootRecord, TokenRecord},
-    registry::Account,
+    db::{Db, RootRecord, TokenRecord},
+    identity::key_path,
+    peer::{INVITE_TTL, Invitation, JoinReport},
+    registry::{Account, ServerEntry},
 };
 
 /// How long a command waits for a lock held by another direct command.
@@ -50,6 +56,10 @@ pub enum AdminError {
     AlreadyInitialized,
     #[error("{}", crate::app::NOT_SET_UP)]
     NotSetUp,
+    #[error("no member server matches {0:?}")]
+    NoSuchServer(String),
+    #[error("this server is joining another server; wait until the join completes")]
+    Joining,
 }
 
 impl AdminError {
@@ -59,7 +69,7 @@ impl AdminError {
     pub const fn exit_code(&self) -> u8 {
         match self {
             Self::Duplicate(_) | Self::AlreadyInitialized => 4,
-            Self::NotSetUp => 3,
+            Self::NotSetUp | Self::Joining => 3,
             _ => 2,
         }
     }
@@ -246,4 +256,144 @@ pub async fn revoke_user_tokens(db: &Path, name: &str) -> Result<usize> {
         json!({"user": UserRef::Name(name.into())}),
     )
     .await
+}
+
+// ---------- peers ----------
+
+pub async fn list_servers(db: &Path) -> Result<Vec<ServerEntry>> {
+    typed(db, "peer.ls", json!({})).await
+}
+
+/// Revokes a member by name or id prefix.
+pub async fn revoke_server(db: &Path, target: &str) -> Result<ServerEntry> {
+    typed(db, "peer.revoke", json!({"target": target})).await
+}
+
+pub async fn rename_server(db: &Path, target: &str, new_name: &str) -> Result<ServerEntry> {
+    typed(
+        db,
+        "peer.rename",
+        json!({"target": target, "new_name": new_name}),
+    )
+    .await
+}
+
+/// This server's id (no root needed).
+pub async fn server_id(db: &Path) -> Result<String> {
+    let value = call(db, "server.id", json!({})).await?;
+    Ok(value.as_str().unwrap_or_default().to_owned())
+}
+
+/// Joins (or is joined by) the inviter of `code`; returns once the root is
+/// stored on the side that adopts it.
+pub async fn join(db: &Path, code: &str, name: Option<&str>) -> Result<JoinReport> {
+    typed(db, "peer.join", json!({"code": code, "name": name})).await
+}
+
+/// Creates an invite code. Through a running server the call returns at
+/// once. Without one, `listen` is required: the command serves the peer
+/// listener there, hands the code to `show`, and waits until the code is
+/// used (and a resulting join completes) or expires.
+pub async fn invite(
+    db: &Path,
+    addr: Option<&str>,
+    listen: Option<std::net::SocketAddr>,
+    name: Option<&str>,
+    show: impl FnOnce(&Invitation),
+) -> Result<bool> {
+    let params = json!({"addr": addr, "name": name});
+    let deadline = Instant::now() + LOCK_WAIT;
+    loop {
+        if let Some(lock) = DbLock::try_acquire(db)? {
+            let Some(listen) = listen else {
+                return Err(AdminError::Invalid(
+                    "no tt-server is running on this database: pass --listen <addr:port> to accept the join from this command, or start `tt-server serve --peer-listen`".into(),
+                )
+                .into());
+            };
+            let listener = tokio::net::TcpListener::bind(listen)
+                .await
+                .with_context(|| format!("binding {listen}"))?;
+            let app = App::open(ServerOptions::new(db)).await?;
+            let bound = listener.local_addr()?;
+            let advertised = if bound.ip().is_unspecified() {
+                format!("{}:{}", crate::identity::host_name(), bound.port())
+            } else {
+                bound.to_string()
+            };
+            app.set_peer_address(advertised);
+            let server = tokio::spawn(app.clone().serve_peers(listener));
+            let result = async {
+                let invitation: Invitation = serde_json::from_value(
+                    admin_socket::dispatch(&app, "peer.invite", params).await?,
+                )?;
+                show(&invitation);
+                Ok::<bool, anyhow::Error>(app.wait_paired(INVITE_TTL).await)
+            }
+            .await;
+            server.abort();
+            let closed = app.close().await;
+            drop(lock);
+            let paired = result?;
+            closed?;
+            return Ok(paired);
+        }
+        if let Ok(stream) = UnixStream::connect(&admin_socket::socket_path(db)).await {
+            let invitation: Invitation =
+                serde_json::from_value(request(stream, "peer.invite", params).await?)?;
+            show(&invitation);
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Err(anyhow!(
+                "{} is locked by another tt-server process",
+                db.display()
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+// ---------- reset ----------
+
+/// Finishes a recorded reset: deletes every document, the root, tokens,
+/// tickets, invite secrets and peer state, and with `--new-identity` the key
+/// file, then drops the intent. Runs before anything else reads the
+/// database; `true` when there was a reset to finish.
+pub(crate) fn complete_reset(db: &Db, key: &Path) -> Result<bool> {
+    let Some(new_identity) = db.reset_intent()? else {
+        return Ok(false);
+    };
+    db.reset_documents()?;
+    if new_identity {
+        match std::fs::remove_file(key) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("removing {}", key.display()));
+            }
+        }
+    }
+    db.finish_reset()?;
+    Ok(true)
+}
+
+/// Abandons the root and all data (accounts, documents, tokens, peer
+/// state); keeps the key pair unless `new_identity`. Write-ahead: an
+/// interrupted reset completes on the next start. The server must be
+/// stopped.
+pub async fn reset(db: &Path, new_identity: bool) -> Result<()> {
+    let Some(lock) = DbLock::try_acquire(db)? else {
+        return Err(AdminError::Invalid(format!(
+            "{} is in use by a running tt-server; stop it before resetting",
+            db.display()
+        ))
+        .into());
+    };
+    let database = Db::open(db)?;
+    database.begin_reset(new_identity)?;
+    complete_reset(&database, &key_path(db))?;
+    drop(database);
+    drop(lock);
+    Ok(())
 }

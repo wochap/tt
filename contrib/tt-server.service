@@ -8,7 +8,14 @@
 #
 # ExecStartPre creates the root (named after the host) on the first start;
 # later starts find it and continue (`init` exits 4). Use
-# `tt-server init --name <name>` by hand first for another name.
+# `tt-server init --name <name>` by hand first for another name. On a server
+# that will join another one (`tt-server peer join <code>`), delete the
+# ExecStartPre line before the first start.
+#
+# Peering: --peer-listen accepts links from member servers (mutual TLS of
+# its own, not through a reverse proxy); open that port in the firewall,
+# e.g. only on the tailnet. Add one `--peer <host:port>` per member this
+# server should dial. Pair with `tt-server peer invite` / `peer join`.
 #
 # TLS here: put the key pair in /etc/tt-server/ readable by the tt-server
 # user and keep the TLS flags. Behind a reverse proxy on this host instead:
@@ -32,7 +39,8 @@ ExecStart=/usr/local/bin/tt-server --db /var/lib/tt-server/server.db serve \
     --listen 0.0.0.0:8443 \
     --tls-cert /etc/tt-server/fullchain.pem \
     --tls-key /etc/tt-server/privkey.pem \
-    --web-dir /usr/local/share/tt-server/web
+    --web-dir /usr/local/share/tt-server/web \
+    --peer-listen 0.0.0.0:8772
 Restart=on-failure
 RestartSec=2
 # Hardening

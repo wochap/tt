@@ -1,6 +1,6 @@
-//! Server state: database, repository, websocket transport, identity, root
-//! and registry view, derived access, login limiter, and the open sync
-//! sessions. [`App`] is also what the admin commands run against, either
+//! Server state: database, repository, transport (client websockets and
+//! peer links), identity, root and registry view, derived access and trust,
+//! login limiter, peering, and the open sync sessions. [`App`] is also what the admin commands run against, either
 //! inside `serve` (through the admin socket) or directly on the database
 //! when no server holds it.
 
@@ -18,26 +18,28 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use automerge_repo::{
     DocHandle, DocumentId, DocumentStatus, Error as RepoError, Repo, RepoConfig, SqliteStorage,
-    transport::WsJsServer,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::{net::TcpListener, sync::Notify, task::JoinHandle};
+use tokio::{
+    net::TcpListener,
+    sync::{Notify, watch},
+    task::JoinHandle,
+};
 use tracing::{info, warn};
 use tt_core::{model::User, schema};
 
 use crate::{
     access::{Access, AccessIndex, DerivedPolicy, Member},
-    admin::{AdminError, DbLock, check_name},
+    admin::{AdminError, DbLock, check_name, complete_reset},
     admin_socket,
     auth::RateLimiter,
-    db::{Db, RootRecord, TokenRecord, now_ms},
+    db::{Db, JoinIntent, RootRecord, TokenRecord, now_ms},
     identity::{Identity, host_name, key_path},
-    registry::{self, Account, NewAccount, RegistryView},
+    peer::Peering,
+    registry::{self, Account, NewAccount, NewServer, RegistryView},
+    transport::ServerTransport,
 };
-
-/// The repository's `senderId`.
-pub const SERVER_PEER_ID: &str = "tt-server";
 
 /// How long `serve` waits for a database lock held by a direct admin
 /// command before giving up.
@@ -68,6 +70,10 @@ pub struct ServerOptions {
     /// Login attempts allowed per IP per `login_window`.
     pub login_limit: usize,
     pub login_window: Duration,
+    /// Delay before redialing a peer after a failed attempt or a drop.
+    pub peer_retry: Duration,
+    /// How long `peer join` waits for the root to be fetched.
+    pub join_timeout: Duration,
 }
 
 impl ServerOptions {
@@ -83,6 +89,8 @@ impl ServerOptions {
             behind_proxy: false,
             login_limit: 5,
             login_window: Duration::from_secs(60),
+            peer_retry: Duration::from_secs(3),
+            join_timeout: Duration::from_secs(30 * 60),
         }
     }
 }
@@ -91,6 +99,8 @@ impl ServerOptions {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RootState {
     NeedsDecision,
+    /// Fetching another server's root (`peer join`); clients are refused.
+    Joining,
     Ready,
 }
 
@@ -127,19 +137,23 @@ pub struct App {
     pub(crate) options: ServerOptions,
     pub(crate) db: Db,
     pub(crate) repo: Repo,
-    pub(crate) transport: Arc<WsJsServer>,
+    pub(crate) transport: Arc<ServerTransport>,
     pub(crate) access: Arc<AccessIndex>,
     pub(crate) limiter: RateLimiter,
+    pub(crate) peering: Peering,
     identity: Identity,
     root: RwLock<Option<Root>>,
+    /// Set while fetching another server's root.
+    joining: RwLock<Option<JoinIntent>>,
+    state: watch::Sender<RootState>,
     view: RwLock<Arc<RegistryView>>,
     /// Serializes registry writes and `init`.
-    writer: tokio::sync::Mutex<()>,
+    pub(crate) writer: tokio::sync::Mutex<()>,
     /// Serializes view rebuilds.
     refreshing: tokio::sync::Mutex<()>,
     sessions: Mutex<HashMap<u64, Session>>,
     next_session: AtomicU64,
-    tasks: Mutex<Vec<JoinHandle<()>>>,
+    pub(crate) tasks: Mutex<Vec<JoinHandle<()>>>,
 }
 
 fn change_error(error: automerge::AutomergeError) -> RepoError {
@@ -155,7 +169,7 @@ fn check_hash(hash: &str) -> Result<()> {
     Ok(())
 }
 
-fn check_server_name(name: &str) -> Result<()> {
+pub(crate) fn check_server_name(name: &str) -> Result<()> {
     if name.trim().is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
         return Err(
             AdminError::Invalid("server names are 1-64 printable characters".into()).into(),
@@ -165,18 +179,22 @@ fn check_server_name(name: &str) -> Result<()> {
 }
 
 impl App {
-    /// Opens the database (refusing old formats), the identity, and the
-    /// repository (documents load lazily), and reads the root if there is
-    /// one. The caller holds the database lock.
+    /// Opens the database (refusing old formats), completes an interrupted
+    /// reset, opens the identity and the repository (documents load
+    /// lazily), and reads the root if there is one, or resumes a join. The
+    /// caller holds the database lock.
     pub(crate) async fn open(options: ServerOptions) -> Result<Arc<Self>> {
         let db = Db::open(&options.db)?;
+        if complete_reset(&db, &key_path(&options.db))? {
+            info!("completed an interrupted reset");
+        }
         let identity = Identity::load_or_create(&key_path(&options.db))?;
         let storage = Arc::new(
             SqliteStorage::open(&options.db)
                 .with_context(|| format!("opening {}", options.db.display()))?,
         );
         let access = AccessIndex::new();
-        let transport = WsJsServer::new(SERVER_PEER_ID);
+        let transport = ServerTransport::new(identity.server_id());
         let repo = Repo::open_with_policy(
             storage.clone(),
             storage,
@@ -206,6 +224,8 @@ impl App {
             }
             None => None,
         };
+        let joining = if root.is_none() { db.joining()? } else { None };
+        let peering = Peering::new(&identity, &access)?;
         let app = Arc::new(Self {
             limiter: RateLimiter::new(options.login_limit, options.login_window),
             options,
@@ -213,8 +233,11 @@ impl App {
             repo,
             transport,
             access,
+            peering,
             identity,
             root: RwLock::new(None),
+            joining: RwLock::new(None),
+            state: watch::Sender::new(RootState::NeedsDecision),
             view: RwLock::new(Arc::default()),
             writer: tokio::sync::Mutex::new(()),
             refreshing: tokio::sync::Mutex::new(()),
@@ -222,18 +245,75 @@ impl App {
             next_session: AtomicU64::new(1),
             tasks: Mutex::new(Vec::new()),
         });
+        app.watch_inventory();
         if let Some(root) = root {
             app.install_root(root).await?;
+        } else if let Some(intent) = joining {
+            info!("resuming an interrupted join");
+            app.resume_join(intent).await?;
         }
         Ok(app)
+    }
+
+    fn publish_state(&self) {
+        self.state.send_replace(self.state());
+    }
+
+    /// Watches the root state.
+    #[must_use]
+    pub fn subscribe_state(&self) -> watch::Receiver<RootState> {
+        self.state.subscribe()
     }
 
     async fn install_root(self: &Arc<Self>, root: Root) -> Result<()> {
         let handle = root.registry.clone();
         self.access.set_registry(Some(handle.id()));
         *self.root.write().unwrap() = Some(root);
+        self.publish_state();
         self.watch_registry(handle);
         self.refresh().await
+    }
+
+    /// Installs the registry being fetched: the closure and trust follow it
+    /// as it arrives, but the server stays `Joining`.
+    pub(crate) async fn install_joining(
+        self: &Arc<Self>,
+        intent: JoinIntent,
+        registry: DocHandle,
+    ) -> Result<()> {
+        let record = RootRecord {
+            server_id: self.identity.server_id().to_owned(),
+            name: intent.name.clone(),
+            registry_doc: intent.registry_doc.clone(),
+            created: now_ms(),
+        };
+        *self.joining.write().unwrap() = Some(intent);
+        self.install_root(Root { record, registry }).await
+    }
+
+    /// Records the fetched root: from now on the server is `Ready`.
+    pub(crate) async fn finish_join(&self) -> Result<()> {
+        self.repo.flush().await?;
+        let Some(intent) = self.joining.read().unwrap().clone() else {
+            return Ok(());
+        };
+        let record = RootRecord {
+            server_id: self.identity.server_id().to_owned(),
+            name: intent.name.clone(),
+            registry_doc: intent.registry_doc.clone(),
+            created: now_ms(),
+        };
+        let row = record.clone();
+        self.db.run(move |db| db.finish_join(&row)).await?;
+        if let Some(root) = self.root.write().unwrap().as_mut() {
+            root.record = record;
+        }
+        *self.joining.write().unwrap() = None;
+        self.access.set_joining(None);
+        self.refresh().await?;
+        self.publish_state();
+        info!(name = %intent.name, registry = %intent.registry_doc, "joined; the root is stored");
+        Ok(())
     }
 
     /// Rebuilds the view on every registry change, local or merged.
@@ -273,21 +353,38 @@ impl App {
                 self.revoke_account(account).await?;
             }
         }
+        // Deleted accounts own nothing, but stay in the registry closure.
         let members = view
             .accounts()
             .into_iter()
-            .filter(|account| !account.is_deleted())
             .filter_map(|account| {
                 Some(Member {
                     id: account.id.clone(),
                     created: account.created,
                     index: DocumentId::parse_any(&account.index_doc).ok()?,
+                    active: !account.is_deleted(),
                 })
             })
             .collect();
         for member in self.access.set_members(members) {
             let listing = self.index_listing(member.index).await?;
             self.access.set_listing(&member.id, listing);
+        }
+        // Trust: non-revoked members other than this server. Links to
+        // servers no longer trusted close at once.
+        let own = self.identity.server_id();
+        let servers = view
+            .servers()
+            .into_iter()
+            .filter(|entry| !entry.is_revoked() && entry.id != own)
+            .filter_map(|entry| Some((entry.id.clone(), entry.public_key()?)))
+            .collect();
+        self.access.set_servers(servers);
+        for server in self.transport.linked() {
+            if !self.access.is_trusted_server(&server) {
+                info!(server = %crate::identity::id_prefix(&server), "member no longer trusted; closing its link");
+                self.transport.close_link(&server);
+            }
         }
         Ok(())
     }
@@ -309,7 +406,7 @@ impl App {
         Ok(())
     }
 
-    fn registry_handle(&self) -> Option<DocHandle> {
+    pub(crate) fn registry_handle(&self) -> Option<DocHandle> {
         self.root
             .read()
             .unwrap()
@@ -317,7 +414,11 @@ impl App {
             .map(|root| root.registry.clone())
     }
 
-    fn registry(&self) -> Result<DocHandle> {
+    /// The registry of a `Ready` server.
+    pub(crate) fn registry(&self) -> Result<DocHandle> {
+        if self.joining.read().unwrap().is_some() {
+            return Err(AdminError::Joining.into());
+        }
         self.registry_handle()
             .ok_or_else(|| AdminError::NotSetUp.into())
     }
@@ -329,7 +430,9 @@ impl App {
 
     #[must_use]
     pub fn state(&self) -> RootState {
-        if self.root.read().unwrap().is_some() {
+        if self.joining.read().unwrap().is_some() {
+            RootState::Joining
+        } else if self.root.read().unwrap().is_some() {
             RootState::Ready
         } else {
             RootState::NeedsDecision
@@ -350,7 +453,7 @@ impl App {
     pub fn server_json(&self) -> Value {
         json!({
             "id": self.identity.server_id(),
-            "name": self.root().map(|root| root.name),
+            "name": self.root().filter(|_| self.state() == RootState::Ready).map(|root| root.name),
         })
     }
 
@@ -399,6 +502,13 @@ impl App {
             session.close.notify_one();
         }
         let _ = self.transport.close().await;
+    }
+
+    /// The repository peer id this server announces (`srv:<server id>`).
+    #[must_use]
+    pub fn peer_id(&self) -> automerge_repo::PeerId {
+        use automerge_repo::network::NetworkTransport;
+        self.transport.local_peer()
     }
 
     /// Number of open sync sessions (for tests and health).
@@ -477,14 +587,29 @@ impl App {
     /// crash in between leaves an unreferenced document that is ignored.
     pub async fn init(self: &Arc<Self>, name: Option<String>) -> Result<RootRecord> {
         let _writer = self.writer.lock().await;
+        if self.joining.read().unwrap().is_some() {
+            return Err(AdminError::Joining.into());
+        }
         if self.root.read().unwrap().is_some() {
             return Err(AdminError::AlreadyInitialized.into());
         }
         let name = name.unwrap_or_else(host_name);
         check_server_name(&name)?;
+        // This server is the first member.
+        let first = NewServer {
+            id: self.identity.server_id().to_owned(),
+            name: name.clone(),
+            pubkey: self.identity.public_key().to_vec(),
+            added_by: self.identity.server_id().to_owned(),
+            added_at: now_ms(),
+        };
         let registry = self
             .repo
-            .create_with(|tx| registry::init(tx).map_err(change_error))
+            .create_with(move |tx| {
+                registry::init(tx)
+                    .and_then(|()| registry::add_server(tx, &first))
+                    .map_err(change_error)
+            })
             .await?;
         self.repo.flush().await?;
         let record = RootRecord {
@@ -518,7 +643,7 @@ impl App {
     }
 
     /// Applies one registry change and waits until the view reflects it.
-    async fn write_registry(
+    pub(crate) async fn write_registry(
         &self,
         change: impl FnOnce(
             &mut automerge::transaction::Transaction<'_>,
@@ -764,9 +889,12 @@ impl Server {
             tokio::spawn(app.clone().poll_revocations()),
             tokio::spawn(admin_socket::serve(app.clone(), listener)),
         ];
-        if app.state() == RootState::NeedsDecision {
-            warn!("{NOT_SET_UP}");
+        match app.state() {
+            RootState::NeedsDecision => warn!("{NOT_SET_UP}"),
+            RootState::Ready => app.register_self().await?,
+            RootState::Joining => {}
         }
+        app.dial_known().await?;
         Ok(Self {
             app,
             tasks,
@@ -787,6 +915,29 @@ impl Server {
 
     pub fn router(&self) -> axum::Router {
         crate::api::router(self.app.clone())
+    }
+
+    /// Accepts peer links and pairings on `listener` in the background and
+    /// advertises its address in invite codes (the host name when it binds
+    /// every interface).
+    pub fn spawn_peer_listener(&mut self, listener: TcpListener) -> SocketAddr {
+        let address = listener
+            .local_addr()
+            .expect("bound listener has an address");
+        let advertised = if address.ip().is_unspecified() {
+            format!("{}:{}", host_name(), address.port())
+        } else {
+            address.to_string()
+        };
+        self.app.set_peer_address(advertised);
+        self.tasks
+            .push(tokio::spawn(self.app.clone().serve_peers(listener)));
+        address
+    }
+
+    /// Keeps a link to the member at `addr` (a `--peer` seed).
+    pub fn add_peer(&self, addr: impl Into<String>) {
+        self.app.dial(addr.into());
     }
 
     /// Serves plain HTTP on `listener` in the background.

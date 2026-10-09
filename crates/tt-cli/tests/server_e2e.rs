@@ -200,6 +200,7 @@ fn private_ca_through_login_ca_cert() {
         ServerOptions::new(&db),
         listener,
         serve::Transport::Tls { cert, key },
+        serve::Peers::default(),
     ));
     let extra = tt_daemon::tls::load_extra_roots(&ca_pem).unwrap();
     let agent = tt_daemon::tls::ureq_agent(&extra, Duration::from_secs(10));

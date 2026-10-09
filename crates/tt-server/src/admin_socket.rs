@@ -2,7 +2,8 @@
 //! served by `serve` in the database directory (mode 0600: the file
 //! permissions are the credential). Methods: `init`, `user.add`,
 //! `user.passwd`, `user.rename`, `user.del`, `user.ls`, `token.ls`,
-//! `token.revoke`. Password hashes arrive already hashed; the socket never
+//! `token.revoke`, `server.id`, `peer.ls`, `peer.revoke`, `peer.rename`,
+//! `peer.invite`, `peer.join`. Password hashes arrive already hashed; the socket never
 //! carries a plaintext password. [`dispatch`] is also what direct admin
 //! commands run, so both paths share one implementation.
 
@@ -101,6 +102,8 @@ impl WireError {
             AdminError::Duplicate(name) => (CONFLICT, "duplicate", name.clone()),
             AdminError::AlreadyInitialized => (CONFLICT, "already_initialized", String::new()),
             AdminError::NotSetUp => (UNAVAILABLE, "not_set_up", String::new()),
+            AdminError::Joining => (UNAVAILABLE, "joining", String::new()),
+            AdminError::NoSuchServer(name) => (NOT_FOUND, "no_such_server", name.clone()),
             AdminError::NoSuchUser(name) => (NOT_FOUND, "no_such_user", name.clone()),
             AdminError::NoSuchToken(id) => (NOT_FOUND, "no_such_token", id.clone()),
             AdminError::AmbiguousToken(id) => (INVALID_PARAMS, "ambiguous_token", id.clone()),
@@ -120,6 +123,8 @@ impl WireError {
             Some("duplicate") => AdminError::Duplicate(value),
             Some("already_initialized") => AdminError::AlreadyInitialized,
             Some("not_set_up") => AdminError::NotSetUp,
+            Some("joining") => AdminError::Joining,
+            Some("no_such_server") => AdminError::NoSuchServer(value),
             Some("no_such_user") => AdminError::NoSuchUser(value),
             Some("no_such_token") => AdminError::NoSuchToken(value),
             Some("ambiguous_token") => AdminError::AmbiguousToken(value),
@@ -187,6 +192,25 @@ struct UserParams {
     user: UserRef,
 }
 #[derive(Deserialize)]
+struct PeerParams {
+    target: String,
+}
+#[derive(Deserialize)]
+struct PeerRenameParams {
+    target: String,
+    new_name: String,
+}
+#[derive(Deserialize)]
+struct InviteParams {
+    addr: Option<String>,
+    name: Option<String>,
+}
+#[derive(Deserialize)]
+struct JoinParams {
+    code: String,
+    name: Option<String>,
+}
+#[derive(Deserialize)]
 struct RevokeParams {
     id: Option<String>,
     user: Option<UserRef>,
@@ -228,6 +252,24 @@ pub(crate) async fn dispatch(app: &Arc<App>, method: &str, raw: Value) -> Result
                     );
                 }
             }
+        }
+        "server.id" => json!(app.identity().server_id()),
+        "peer.ls" => serde_json::to_value(app.servers()?)?,
+        "peer.revoke" => {
+            let p: PeerParams = params(raw)?;
+            serde_json::to_value(app.revoke_server(&p.target).await?)?
+        }
+        "peer.rename" => {
+            let p: PeerRenameParams = params(raw)?;
+            serde_json::to_value(app.rename_server(&p.target, &p.new_name).await?)?
+        }
+        "peer.invite" => {
+            let p: InviteParams = params(raw)?;
+            serde_json::to_value(app.invite(p.addr, p.name).await?)?
+        }
+        "peer.join" => {
+            let p: JoinParams = params(raw)?;
+            serde_json::to_value(app.join(&p.code, p.name).await?)?
         }
         other => return Err(anyhow::anyhow!("unknown method {other:?}")),
     };

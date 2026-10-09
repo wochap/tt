@@ -38,7 +38,7 @@ use tracing::{debug, info, warn};
 use crate::{
     access::Access,
     api::{ApiError, authenticate, bearer},
-    app::{App, SERVER_PEER_ID, Session},
+    app::{App, Session},
     auth::{random_hex, secret_hash},
     registry::Account,
 };
@@ -118,6 +118,7 @@ async fn session(app: Arc<App>, socket: WebSocket, user: Account, token_hash: St
     let reader = tokio::spawn(gate.run(stream, close));
     if let Err(error) = app
         .transport
+        .clients()
         .serve_frames(incoming, outgoing, Some(identity))
         .await
     {
@@ -287,7 +288,7 @@ impl Gate {
     async fn reject(&mut self, reason: String) {
         self.pending.clear();
         let error = WireMessage::Error {
-            sender_id: SERVER_PEER_ID.into(),
+            sender_id: self.app.peer_id().to_string(),
             target_id: self.wire_id.clone(),
             message: reason,
         };

@@ -1,4 +1,5 @@
-//! `tt-server`: serve, and administer accounts on the server host.
+//! `tt-server`: serve, and administer accounts and member servers on the
+//! server host.
 
 use std::{
     io::IsTerminal,
@@ -11,7 +12,7 @@ use std::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
-use tt_server::{ServerOptions, UserRef, admin, admin::AdminError, serve};
+use tt_server::{ServerOptions, UserRef, admin, admin::AdminError, identity::id_prefix, serve};
 
 #[derive(Parser)]
 #[command(name = "tt-server", version, about = "tt sync server")]
@@ -39,6 +40,49 @@ enum Cmd {
     /// Manage login tokens
     #[command(subcommand)]
     Token(TokenCmd),
+    /// Manage member servers: pair, list, revoke, rename
+    #[command(subcommand)]
+    Peer(PeerCmd),
+    /// Delete the root and all data (accounts, documents, tokens, peer
+    /// state), keeping the server key, so the server can join another root.
+    /// The server must be stopped.
+    Reset {
+        /// Also replace the server key (a new server id)
+        #[arg(long)]
+        new_identity: bool,
+        /// Do not ask for confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum PeerCmd {
+    /// Print a one-time code (valid 10 minutes) another server passes to `peer join`
+    Invite {
+        /// Peer address put into the code [default: the --peer-listen address]
+        #[arg(long)]
+        addr: Option<String>,
+        /// Without a running server: accept the join on this address, then exit
+        #[arg(long)]
+        listen: Option<SocketAddr>,
+        /// This server's name, if it adopts the joining server's root [default: the host name]
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Pair with the server that printed CODE (the side without a root adopts the other's)
+    Join {
+        code: String,
+        /// This server's name, if it adopts the inviter's root [default: the host name]
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// List member servers
+    Ls,
+    /// Revoke a member server (by name, or id prefix when names repeat)
+    Revoke { server: String },
+    /// Rename a member server
+    Rename { server: String, new_name: String },
 }
 
 #[derive(clap::Args)]
@@ -64,6 +108,12 @@ struct ServeArgs {
     /// Seconds before an idle document is flushed and dropped from memory
     #[arg(long, default_value_t = 600)]
     idle_evict_secs: u64,
+    /// Accept links from member servers here (mutual TLS, no proxy needed)
+    #[arg(long)]
+    peer_listen: Option<SocketAddr>,
+    /// A member server's peer address (host:port) to dial; repeatable
+    #[arg(long = "peer", value_name = "HOST:PORT")]
+    peers: Vec<String>,
 }
 
 #[derive(Subcommand)]
@@ -192,6 +242,93 @@ async fn user(db: &Path, command: UserCmd) -> Result<()> {
     Ok(())
 }
 
+async fn peer(db: &Path, command: PeerCmd) -> Result<()> {
+    match command {
+        PeerCmd::Invite { addr, listen, name } => {
+            let waits = listen.is_some();
+            let paired = admin::invite(db, addr.as_deref(), listen, name.as_deref(), |invite| {
+                println!("{}", invite.code);
+                eprintln!(
+                    "valid until {} for one `tt-server peer join` against {}",
+                    time(invite.expires),
+                    invite.addr
+                );
+                if waits {
+                    eprintln!("waiting for the other server…");
+                }
+            })
+            .await?;
+            if !paired {
+                return Err(AdminError::Invalid("the invite code expired unused".into()).into());
+            }
+            if waits {
+                eprintln!("paired");
+            }
+        }
+        PeerCmd::Join { code, name } => {
+            let report = admin::join(db, &code, name.as_deref()).await?;
+            match report.outcome.as_str() {
+                "joined" => println!(
+                    "joined {}; this server now holds root {}",
+                    report.inviter, report.registry_doc
+                ),
+                "adopted" => println!("{} adopted this server's root", report.inviter),
+                _ => println!("{} and this server now list each other", report.inviter),
+            }
+        }
+        PeerCmd::Ls => {
+            let own = admin::server_id(db).await?;
+            for server in admin::list_servers(db).await? {
+                let state = match &server.revoked {
+                    Some(revoked) => format!("revoked {}", time(revoked.at)),
+                    None if server.id == own => "this server".into(),
+                    None => "member".into(),
+                };
+                println!(
+                    "{:<32} {}  added {}  {}",
+                    server.display(),
+                    server.id,
+                    time(server.added_at),
+                    state
+                );
+            }
+        }
+        PeerCmd::Revoke { server } => {
+            let entry = admin::revoke_server(db, &server).await?;
+            println!(
+                "revoked {}; rotate the passwords it held (`tt-server user passwd`)",
+                entry.display()
+            );
+        }
+        PeerCmd::Rename { server, new_name } => {
+            let entry = admin::rename_server(db, &server, &new_name).await?;
+            println!("renamed {} to {}", id_prefix(&entry.id), entry.name);
+        }
+    }
+    Ok(())
+}
+
+fn confirm_reset(new_identity: bool, yes: bool) -> Result<bool> {
+    if yes {
+        return Ok(true);
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(AdminError::Invalid(
+            "reset deletes all data; pass --yes to confirm without a terminal".into(),
+        )
+        .into());
+    }
+    let what = if new_identity {
+        "Delete the root, every account, document and token, and the server key?"
+    } else {
+        "Delete the root, every account, document and token (the server key is kept)?"
+    };
+    Ok(dialoguer::Confirm::new()
+        .with_prompt(what)
+        .default(false)
+        .interact()?)
+}
+
 async fn token(db: &Path, command: TokenCmd) -> Result<()> {
     match command {
         TokenCmd::Ls => {
@@ -260,7 +397,16 @@ fn main() -> ExitCode {
                 options.idle_eviction = Duration::from_secs(args.idle_evict_secs.max(1));
                 let listener = std::net::TcpListener::bind(args.listen)
                     .map_err(|error| anyhow::anyhow!("binding {}: {error}", args.listen))?;
-                serve::run(options, listener, transport)
+                let peers = serve::Peers {
+                    listener: match args.peer_listen {
+                        Some(addr) => Some(std::net::TcpListener::bind(addr).map_err(|error| {
+                            anyhow::anyhow!("binding --peer-listen {addr}: {error}")
+                        })?),
+                        None => None,
+                    },
+                    seeds: args.peers,
+                };
+                serve::run(options, listener, transport, peers)
                     .await
                     .map(|()| None)
             }
@@ -274,6 +420,19 @@ fn main() -> ExitCode {
             }
             Cmd::User(command) => user(&cli.db, command).await.map(|()| None),
             Cmd::Token(command) => token(&cli.db, command).await.map(|()| None),
+            Cmd::Peer(command) => peer(&cli.db, command).await.map(|()| None),
+            Cmd::Reset { new_identity, yes } => {
+                if !confirm_reset(new_identity, yes)? {
+                    eprintln!("nothing changed");
+                    return Ok(Some(1));
+                }
+                admin::reset(&cli.db, new_identity).await?;
+                let id = admin::server_id(&cli.db).await?;
+                println!(
+                    "reset; server id {id}. Run `tt-server init` or `tt-server peer join` next"
+                );
+                Ok(None)
+            }
         }
     });
     match result {

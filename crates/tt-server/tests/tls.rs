@@ -23,10 +23,17 @@ async fn serves_tls_and_the_client_verifies_certificates() {
     let db = dir.path().join("server.db");
     tt_server::admin::init(&db, Some("tls")).await.unwrap();
     let options = ServerOptions::new(&db);
+    // The peer listener runs next to the TLS client listener.
+    let peer_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let peer_addr = peer_listener.local_addr().unwrap();
     let server = tokio::spawn(serve::run(
         options,
         listener,
         serve::Transport::Tls { cert, key },
+        serve::Peers {
+            listener: Some(peer_listener),
+            seeds: Vec::new(),
+        },
     ));
     let url = format!("wss://localhost:{port}/sync");
 
@@ -61,6 +68,22 @@ async fn serves_tls_and_the_client_verifies_certificates() {
         Err(tungstenite::Error::Http(response)) => assert_eq!(response.status().as_u16(), 401),
         other => panic!("expected 401 over TLS, got {other:?}"),
     }
+
+    // The peer port answers with the server's own key (pairing protocol, so
+    // a non-member gets through the handshake).
+    let other = tempfile::tempdir().unwrap();
+    let identity =
+        tt_server::identity::Identity::load_or_create(&other.path().join("server.key")).unwrap();
+    let config = tt_server::tls::PeerTls::new(&identity)
+        .unwrap()
+        .client(tt_server::tls::ALPN_PAIR, Arc::new(|_: &[u8]| true))
+        .unwrap();
+    let tcp = tokio::net::TcpStream::connect(peer_addr).await.unwrap();
+    let (_, key) = tt_server::tls::connect(tcp, config).await.unwrap();
+    assert_eq!(
+        tt_server::identity::server_id(&key),
+        tt_server::admin::server_id(&db).await.unwrap()
+    );
 
     // The stock client uses the webpki roots: a self-signed certificate is
     // rejected (proving `wss://` is compiled in and verifying).
@@ -126,6 +149,7 @@ async fn ws_client_trusts_a_private_ca_through_its_tls_config() {
         options,
         listener,
         serve::Transport::Tls { cert, key },
+        serve::Peers::default(),
     ));
     let url = format!("wss://localhost:{port}/sync");
 

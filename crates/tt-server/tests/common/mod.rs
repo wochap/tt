@@ -22,6 +22,8 @@ pub struct TestServer {
     pub dir: tempfile::TempDir,
     pub server: Option<Server>,
     pub addr: SocketAddr,
+    /// The peer listener, once [`TestServer::listen_peers`] ran.
+    pub peer_addr: Option<SocketAddr>,
 }
 
 impl TestServer {
@@ -53,10 +55,20 @@ impl TestServer {
         Self::open_in(dir, configure).await
     }
 
+    /// Starts on `dir` as it is (no `init`), e.g. to resume a join.
+    pub async fn reopen(
+        dir: tempfile::TempDir,
+        configure: impl FnOnce(&mut ServerOptions),
+    ) -> Self {
+        Self::open_in(dir, configure).await
+    }
+
     async fn open_in(dir: tempfile::TempDir, configure: impl FnOnce(&mut ServerOptions)) -> Self {
         let mut options = ServerOptions::new(dir.path().join("server.db"));
         options.pending_timeout = Duration::from_millis(500);
         options.revocation_poll = Duration::from_millis(100);
+        options.peer_retry = Duration::from_millis(100);
+        options.join_timeout = Duration::from_secs(30);
         configure(&mut options);
         let mut server = Server::open(options).await.unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -65,7 +77,53 @@ impl TestServer {
             dir,
             server: Some(server),
             addr,
+            peer_addr: None,
         }
+    }
+
+    /// Starts the peer listener on a random local port.
+    pub async fn listen_peers(&mut self) -> SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = self.server.as_mut().unwrap().spawn_peer_listener(listener);
+        self.peer_addr = Some(addr);
+        addr
+    }
+
+    pub fn app(&self) -> &std::sync::Arc<tt_server::App> {
+        self.server().app()
+    }
+
+    pub fn server_id(&self) -> String {
+        self.app().identity().server_id().to_owned()
+    }
+
+    /// Waits until this server has a link to `other`.
+    pub async fn wait_linked(&self, other: &TestServer, seconds: u64) {
+        let id = other.server_id();
+        let mut links = self.app().subscribe_links();
+        timeout(
+            Duration::from_secs(seconds),
+            links.wait_for(|linked| linked.contains(&id)),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "no link to {id} within {seconds} s: {:?}",
+                self.app().linked_servers()
+            )
+        })
+        .unwrap();
+    }
+
+    /// An invite code from this server (through its admin socket).
+    pub async fn invite(&self) -> String {
+        let mut code = String::new();
+        admin::invite(&self.db(), None, None, None, |invitation| {
+            code = invitation.code.clone();
+        })
+        .await
+        .unwrap();
+        code
     }
 
     /// Stops the server and returns its directory for a restart.
@@ -263,4 +321,75 @@ where
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("timed out waiting for {what}");
+}
+
+/// A TCP forwarder in front of a peer listener that the test can cut.
+pub struct Proxy {
+    pub addr: SocketAddr,
+    /// Connections still allowed; negative means unlimited.
+    budget: Arc<std::sync::atomic::AtomicI64>,
+    connections: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    accept: tokio::task::JoinHandle<()>,
+}
+
+impl Proxy {
+    pub async fn start(target: SocketAddr, budget: i64) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let budget = Arc::new(std::sync::atomic::AtomicI64::new(budget));
+        let connections: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>> = Arc::default();
+        let (left, open) = (budget.clone(), connections.clone());
+        let accept = tokio::spawn(async move {
+            loop {
+                let Ok((mut inbound, _)) = listener.accept().await else {
+                    return;
+                };
+                let allowed = left
+                    .fetch_update(
+                        std::sync::atomic::Ordering::SeqCst,
+                        std::sync::atomic::Ordering::SeqCst,
+                        |n| match n {
+                            0 => None,
+                            n if n < 0 => Some(n),
+                            n => Some(n - 1),
+                        },
+                    )
+                    .is_ok();
+                if !allowed {
+                    continue;
+                }
+                open.lock().unwrap().push(tokio::spawn(async move {
+                    if let Ok(mut outbound) = tokio::net::TcpStream::connect(target).await {
+                        let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                    }
+                }));
+            }
+        });
+        Self {
+            addr,
+            budget,
+            connections,
+            accept,
+        }
+    }
+
+    /// Lets every connection through from now on.
+    pub fn open(&self) {
+        self.budget.store(-1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Refuses new connections and cuts the open ones.
+    pub fn cut(&self) {
+        self.budget.store(0, std::sync::atomic::Ordering::SeqCst);
+        for connection in self.connections.lock().unwrap().drain(..) {
+            connection.abort();
+        }
+    }
+}
+
+impl Drop for Proxy {
+    fn drop(&mut self) {
+        self.accept.abort();
+        self.cut();
+    }
 }

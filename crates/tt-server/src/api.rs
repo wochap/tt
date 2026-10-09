@@ -33,6 +33,7 @@ use crate::{
 pub struct ApiError {
     status: StatusCode,
     message: String,
+    state: RootState,
 }
 
 impl ApiError {
@@ -40,16 +41,25 @@ impl ApiError {
         Self {
             status,
             message: message.into(),
+            state: RootState::NeedsDecision,
         }
     }
     #[must_use]
     pub fn unauthorized() -> Self {
         Self::new(StatusCode::UNAUTHORIZED, "unauthorized")
     }
-    /// 503 while the server has no root.
+    /// 503 while the server has no root, or is still fetching one.
     #[must_use]
-    pub fn not_set_up() -> Self {
-        Self::new(StatusCode::SERVICE_UNAVAILABLE, NOT_SET_UP)
+    pub fn not_ready(state: RootState) -> Self {
+        let message = if state == RootState::Joining {
+            JOINING
+        } else {
+            NOT_SET_UP
+        };
+        Self {
+            state,
+            ..Self::new(StatusCode::SERVICE_UNAVAILABLE, message)
+        }
     }
 }
 
@@ -63,7 +73,7 @@ impl From<anyhow::Error> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let body = if self.status == StatusCode::SERVICE_UNAVAILABLE {
-            json!({"error": self.message, "state": RootState::NeedsDecision})
+            json!({"error": self.message, "state": self.state})
         } else {
             json!({"error": self.message})
         };
@@ -169,17 +179,22 @@ const NOT_SET_UP_PAGE: &str = "<!doctype html>
 or <code>tt-server peer join</code> to join an existing one. This page reloads into the app once it is ready.</p>
 </body></html>";
 
-/// In `NeedsDecision` only `/api/health` and the not-set-up page are served;
-/// every other API route and `/sync` answer 503.
+/// Answered while a join fetches the root.
+const JOINING: &str =
+    "this server is joining another server and fetching its data; try again in a moment";
+
+/// In `NeedsDecision` and `Joining` only `/api/health` and the not-set-up
+/// page are served; every other API route and `/sync` answer 503.
 async fn root_gate(State(app): State<Arc<App>>, request: Request, next: Next) -> Response {
-    if app.state() == RootState::Ready {
+    let state = app.state();
+    if state == RootState::Ready {
         return next.run(request).await;
     }
     let path = request.uri().path();
     if path == "/api/health" {
         next.run(request).await
     } else if path.starts_with("/api/") || path == "/api" || path == "/sync" {
-        ApiError::not_set_up().into_response()
+        ApiError::not_ready(state).into_response()
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, Html(NOT_SET_UP_PAGE)).into_response()
     }

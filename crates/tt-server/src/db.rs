@@ -1,6 +1,7 @@
-//! `server.db`: the root record, tokens, tickets, and the login audit log,
-//! next to the `documents`/`control` tables owned by `SqliteStorage` in the
-//! same file. Accounts live in the registry document, not here; nothing in
+//! `server.db`: the root record, tokens, tickets, the login audit log, and
+//! the peering state (invite secrets, the join and reset intents, learned
+//! peer addresses), next to the `documents`/`control` tables owned by
+//! `SqliteStorage` in the same file. Accounts live in the registry document, not here; nothing in
 //! these tables is ever replicated.
 //!
 //! Every record is keyed by text: user ids are UUIDs, documents are bs58check
@@ -50,6 +51,41 @@ const SCHEMA: &str = "
         username TEXT NOT NULL,
         success INTEGER NOT NULL,
         reason TEXT NOT NULL
+    );";
+
+/// The tables `SqliteStorage` creates, as it creates them; a reset may run
+/// before storage ever opened the file.
+const STORAGE_TABLES: &str = "
+    CREATE TABLE IF NOT EXISTS documents (key TEXT PRIMARY KEY, bytes BLOB NOT NULL);
+    CREATE TABLE IF NOT EXISTS control (key TEXT PRIMARY KEY, bytes BLOB NOT NULL);";
+
+/// Peering tables, added to version 2 databases in place (older binaries
+/// ignore them).
+const PEERING_SCHEMA: &str = "
+    CREATE TABLE IF NOT EXISTS invites (
+        secret_hash TEXT PRIMARY KEY,
+        created INTEGER NOT NULL,
+        expires INTEGER NOT NULL,
+        used INTEGER,
+        name TEXT
+    );
+    CREATE TABLE IF NOT EXISTS joining (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        registry_doc TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        source_addr TEXT,
+        name TEXT NOT NULL,
+        started INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS reset_intent (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        new_identity INTEGER NOT NULL,
+        started INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS peer_addresses (
+        addr TEXT PRIMARY KEY,
+        server_id TEXT,
+        added INTEGER NOT NULL
     );";
 
 #[must_use]
@@ -103,6 +139,36 @@ pub struct AuditRecord {
     pub username: String,
     pub success: bool,
     pub reason: String,
+}
+
+/// A join in progress: recorded before anything is fetched, removed in the
+/// transaction that records the root.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JoinIntent {
+    /// The registry document being fetched.
+    pub registry_doc: String,
+    /// The server it is fetched from.
+    pub source_id: String,
+    /// Where to dial it, when this side dials.
+    pub source_addr: Option<String>,
+    /// This server's name once joined.
+    pub name: String,
+    pub started: i64,
+}
+
+/// Why an invite secret cannot be used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InviteState {
+    Valid,
+    Expired,
+    /// Already used, or never issued here.
+    Invalid,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InviteRecord {
+    pub state: InviteState,
+    pub name: Option<String>,
 }
 
 /// Outcome of consuming a websocket ticket.
@@ -188,6 +254,7 @@ impl Db {
                 tx.commit()
             })?;
         }
+        db.with(|connection| connection.execute_batch(PEERING_SCHEMA))?;
         Ok(db)
     }
 
@@ -239,6 +306,221 @@ impl Db {
                     params![root.server_id, root.name, root.registry_doc, root.created],
                 )
                 .map(|changed| changed == 1)
+        })
+    }
+
+    // ---------- joining ----------
+
+    pub fn joining(&self) -> Result<Option<JoinIntent>> {
+        self.with(|connection| {
+            connection
+                .query_row(
+                    "SELECT registry_doc, source_id, source_addr, name, started
+                     FROM joining WHERE id = 1",
+                    [],
+                    |row| {
+                        Ok(JoinIntent {
+                            registry_doc: row.get(0)?,
+                            source_id: row.get(1)?,
+                            source_addr: row.get(2)?,
+                            name: row.get(3)?,
+                            started: row.get(4)?,
+                        })
+                    },
+                )
+                .optional()
+        })
+    }
+
+    /// Records the join intent; `false` (nothing written) when the server
+    /// has a root or is already joining.
+    pub fn begin_join(&self, intent: &JoinIntent) -> Result<bool> {
+        let intent = intent.clone();
+        self.with(move |connection| {
+            let tx = connection.transaction()?;
+            let rooted: bool =
+                tx.query_row("SELECT EXISTS (SELECT 1 FROM server)", [], |row| row.get(0))?;
+            if rooted {
+                return Ok(false);
+            }
+            let changed = tx.execute(
+                "INSERT INTO joining (id, registry_doc, source_id, source_addr, name, started)
+                 VALUES (1, ?1, ?2, ?3, ?4, ?5) ON CONFLICT (id) DO NOTHING",
+                params![
+                    intent.registry_doc,
+                    intent.source_id,
+                    intent.source_addr,
+                    intent.name,
+                    intent.started
+                ],
+            )?;
+            tx.commit()?;
+            Ok(changed == 1)
+        })
+    }
+
+    /// Records the root and drops the join intent in one transaction.
+    pub fn finish_join(&self, root: &RootRecord) -> Result<()> {
+        let root = root.clone();
+        self.with(move |connection| {
+            let tx = connection.transaction()?;
+            tx.execute(
+                "INSERT INTO server (id, server_id, name, registry_doc, created)
+                 VALUES (1, ?1, ?2, ?3, ?4)",
+                params![root.server_id, root.name, root.registry_doc, root.created],
+            )?;
+            tx.execute("DELETE FROM joining", [])?;
+            tx.commit()
+        })
+    }
+
+    // ---------- invites ----------
+
+    /// Stores an invite secret's hash; `name` is the name this server takes
+    /// if it adopts the joiner's root.
+    pub fn insert_invite(&self, secret_hash: &str, expires: i64, name: Option<&str>) -> Result<()> {
+        let (secret_hash, name) = (secret_hash.to_owned(), name.map(str::to_owned));
+        self.with(move |connection| {
+            let now = now_ms();
+            connection.execute(
+                "DELETE FROM invites WHERE expires < ?1 - 86400000",
+                params![now],
+            )?;
+            connection
+                .execute(
+                    "INSERT INTO invites (secret_hash, created, expires, name) VALUES (?1, ?2, ?3, ?4)",
+                    params![secret_hash, now, expires, name],
+                )
+                .map(|_| ())
+        })
+    }
+
+    /// An issued invite and whether it could be used now, without using it.
+    pub fn invite(&self, secret_hash: &str) -> Result<Option<InviteRecord>> {
+        let secret_hash = secret_hash.to_owned();
+        self.with(move |connection| {
+            let row: Option<(i64, Option<i64>, Option<String>)> = connection
+                .query_row(
+                    "SELECT expires, used, name FROM invites WHERE secret_hash = ?1",
+                    params![secret_hash],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+            Ok(row.map(|(expires, used, name)| InviteRecord {
+                state: match used {
+                    Some(_) => InviteState::Invalid,
+                    None if expires <= now_ms() => InviteState::Expired,
+                    None => InviteState::Valid,
+                },
+                name,
+            }))
+        })
+    }
+
+    pub fn invite_state(&self, secret_hash: &str) -> Result<InviteState> {
+        Ok(self
+            .invite(secret_hash)?
+            .map_or(InviteState::Invalid, |invite| invite.state))
+    }
+
+    /// Marks an unused, unexpired invite used; returns what it was before.
+    pub fn consume_invite(&self, secret_hash: &str) -> Result<InviteState> {
+        let hash = secret_hash.to_owned();
+        let consumed = self.with(move |connection| {
+            connection.execute(
+                "UPDATE invites SET used = ?1
+                 WHERE secret_hash = ?2 AND used IS NULL AND expires > ?1",
+                params![now_ms(), hash],
+            )
+        })?;
+        if consumed == 1 {
+            Ok(InviteState::Valid)
+        } else {
+            match self.invite_state(secret_hash)? {
+                InviteState::Valid => Ok(InviteState::Invalid),
+                other => Ok(other),
+            }
+        }
+    }
+
+    // ---------- peer addresses ----------
+
+    /// Remembers an address to dial (from an invite code).
+    pub fn add_peer_address(&self, addr: &str, server_id: Option<&str>) -> Result<()> {
+        let (addr, server_id) = (addr.to_owned(), server_id.map(str::to_owned));
+        self.with(move |connection| {
+            connection
+                .execute(
+                    "INSERT INTO peer_addresses (addr, server_id, added) VALUES (?1, ?2, ?3)
+                     ON CONFLICT (addr) DO UPDATE SET server_id = excluded.server_id",
+                    params![addr, server_id, now_ms()],
+                )
+                .map(|_| ())
+        })
+    }
+
+    pub fn peer_addresses(&self) -> Result<Vec<String>> {
+        self.with(|connection| {
+            let mut statement =
+                connection.prepare("SELECT addr FROM peer_addresses ORDER BY added")?;
+            statement.query_map([], |row| row.get(0))?.collect()
+        })
+    }
+
+    // ---------- reset ----------
+
+    /// Records the reset intent (write-ahead).
+    pub fn begin_reset(&self, new_identity: bool) -> Result<()> {
+        self.with(move |connection| {
+            connection
+                .execute(
+                    "INSERT INTO reset_intent (id, new_identity, started) VALUES (1, ?1, ?2)
+                     ON CONFLICT (id) DO UPDATE SET new_identity = max(new_identity, excluded.new_identity)",
+                    params![new_identity, now_ms()],
+                )
+                .map(|_| ())
+        })
+    }
+
+    /// The outstanding reset intent: `Some(new_identity)`.
+    pub fn reset_intent(&self) -> Result<Option<bool>> {
+        self.with(|connection| {
+            connection
+                .query_row(
+                    "SELECT new_identity FROM reset_intent WHERE id = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()
+        })
+    }
+
+    /// Deletes every document snapshot (the bulk of a reset).
+    pub fn reset_documents(&self) -> Result<()> {
+        self.with(|connection| {
+            connection.execute_batch(STORAGE_TABLES)?;
+            connection.execute("DELETE FROM documents", []).map(|_| ())
+        })
+    }
+
+    /// Deletes the root, control rows, tokens, tickets, invite secrets, peer
+    /// state and the join intent, and the reset intent with them.
+    pub fn finish_reset(&self) -> Result<()> {
+        self.with(|connection| {
+            connection.execute_batch(STORAGE_TABLES)?;
+            let tx = connection.transaction()?;
+            tx.execute_batch(
+                "DELETE FROM documents;
+                 DELETE FROM control;
+                 DELETE FROM server;
+                 DELETE FROM tickets;
+                 DELETE FROM tokens;
+                 DELETE FROM invites;
+                 DELETE FROM joining;
+                 DELETE FROM peer_addresses;
+                 DELETE FROM reset_intent;",
+            )?;
+            tx.commit()
         })
     }
 
@@ -473,7 +755,19 @@ mod tests {
             })
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
-        assert_eq!(tables, ["login_audit", "server", "tickets", "tokens"]);
+        assert_eq!(
+            tables,
+            [
+                "invites",
+                "joining",
+                "login_audit",
+                "peer_addresses",
+                "reset_intent",
+                "server",
+                "tickets",
+                "tokens"
+            ]
+        );
     }
 
     #[test]
@@ -508,5 +802,52 @@ mod tests {
         assert_eq!(db.revoke_user_tokens("alice").unwrap(), ["h2"]);
         assert_eq!(db.token_user("h3").unwrap().as_deref(), Some("bob"));
         assert_eq!(db.token_user("h2").unwrap(), None);
+    }
+
+    #[test]
+    fn invites_are_single_use_and_expire() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("server.db")).unwrap();
+        db.insert_invite("live", now_ms() + 60_000, Some("cloud"))
+            .unwrap();
+        db.insert_invite("old", now_ms() - 1, None).unwrap();
+        assert_eq!(
+            db.invite("live").unwrap().unwrap().name.as_deref(),
+            Some("cloud")
+        );
+        assert_eq!(db.invite_state("live").unwrap(), InviteState::Valid);
+        assert_eq!(db.consume_invite("live").unwrap(), InviteState::Valid);
+        assert_eq!(db.consume_invite("live").unwrap(), InviteState::Invalid);
+        assert_eq!(db.consume_invite("old").unwrap(), InviteState::Expired);
+        assert_eq!(db.consume_invite("never").unwrap(), InviteState::Invalid);
+    }
+
+    #[test]
+    fn join_intent_is_refused_with_a_root_and_finishes_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("server.db")).unwrap();
+        let intent = JoinIntent {
+            registry_doc: "reg".into(),
+            source_id: "src".into(),
+            source_addr: Some("a:1".into()),
+            name: "b".into(),
+            started: 1,
+        };
+        assert!(db.begin_join(&intent).unwrap());
+        assert!(!db.begin_join(&intent).unwrap(), "one join at a time");
+        assert_eq!(db.joining().unwrap(), Some(intent.clone()));
+        let root = RootRecord {
+            server_id: "me".into(),
+            name: "b".into(),
+            registry_doc: "reg".into(),
+            created: 2,
+        };
+        db.finish_join(&root).unwrap();
+        assert_eq!(db.joining().unwrap(), None);
+        assert_eq!(db.root().unwrap(), Some(root));
+        assert!(
+            !db.begin_join(&intent).unwrap(),
+            "a rooted server never joins"
+        );
     }
 }
