@@ -29,3 +29,14 @@ When `--web-dir` is set the server SHALL serve its files at `/` with SPA fallbac
 #### Scenario: Plain HTTP by mistake
 - **WHEN** `serve` starts with no TLS flags and no `--insecure-http`
 - **THEN** it exits with code 1 and a message explaining both options
+
+### Requirement: Peer listener and seeds
+`tt-server serve` SHALL accept `--peer-listen <addr:port>` to accept peer links and repeatable `--peer <host:port>` seed addresses to dial. Without `--peer-listen` the server SHALL still dial seeds but SHALL accept no inbound peer links. The peer listener SHALL terminate TLS itself and SHALL NOT require a reverse proxy, also when the client listener runs with `--insecure-http`.
+
+#### Scenario: Laptop behind nginx peers directly
+- **WHEN** a server runs `--insecure-http --listen 127.0.1.1:8771 --peer-listen 0.0.0.0:8772`
+- **THEN** clients reach it through the proxy and members link to port 8772 with mutual TLS
+
+#### Scenario: Seed only
+- **WHEN** a server runs with `--peer laptop-a.ts.net:8772` and no `--peer-listen`
+- **THEN** it links outbound to that member and refuses no client traffic

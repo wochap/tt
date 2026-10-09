@@ -37,3 +37,25 @@ Documents SHALL be loaded lazily, flushed to SQLite after each change, and evict
 #### Scenario: Restart loses nothing
 - **WHEN** the server is restarted after clients synced changes
 - **THEN** reconnecting clients observe all previously synced changes
+
+### Requirement: Server peers are distinct from client users
+A server peer's identity SHALL come from its authenticated key, never from the peer id it sends on the wire, and SHALL live in a namespace that no client user identity can produce. A client connection SHALL never be treated as a server peer.
+
+#### Scenario: Client claims a server identity
+- **WHEN** a client connection sends a sender id formatted like a server peer id
+- **THEN** it is still treated as that client's user and sees only that user's documents
+
+#### Scenario: Two servers link at once
+- **WHEN** members B and C both link to A
+- **THEN** A keeps both links and syncs with each independently
+
+### Requirement: Server peers may sync every registry document
+An authenticated, non-revoked server peer SHALL be allowed to request, receive and push the registry document and every document reachable from it. Documents not reachable from the registry SHALL be refused to server peers as well. Access rules for client users SHALL be unchanged.
+
+#### Scenario: Peer requests a user's entries document
+- **WHEN** a member requests an entries document listed in some user's index
+- **THEN** it receives the document
+
+#### Scenario: Peer pushes an unknown document
+- **WHEN** a member sends sync data for a document reachable from no index or the registry
+- **THEN** the data is discarded and the link is closed with a protocol error
