@@ -6,11 +6,15 @@ TBD - created by syncing change server. HTTP surface, static web hosting, deploy
 ## Requirements
 
 ### Requirement: HTTP surface
-The server SHALL expose `GET /api/health`, `GET /api/me`, `POST /api/login`, `POST /api/logout`, `POST /api/ws-ticket`, `GET /api/export` (the core JSON export schema for the authenticated user), and `GET /sync`.
+The server SHALL expose `GET /api/health`, `GET /api/me`, `POST /api/login`, `POST /api/logout`, `POST /api/ws-ticket`, `GET /api/export` (the core JSON export schema for the authenticated user), and `GET /sync`. `GET /api/health` (unauthenticated) and `GET /api/me` SHALL include `server: {id, name}`.
 
 #### Scenario: Export is per user
 - **WHEN** user A calls `/api/export`
-- **THEN** the response contains only documents in A's ACL
+- **THEN** the response contains only A's index document and the documents it lists
+
+#### Scenario: Server identity
+- **WHEN** a client calls `GET /api/health` on server `laptop-a`
+- **THEN** the response includes `server.name` `laptop-a` and its `server.id`
 
 ### Requirement: Static web hosting
 When `--web-dir` is set the server SHALL serve its files at `/` with SPA fallback to `index.html` for unknown non-API paths.

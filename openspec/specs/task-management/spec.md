@@ -6,7 +6,7 @@ TBD - created by syncing change core-and-daemon. Tasks, short ids, fields, edito
 ## Requirements
 
 ### Requirement: Tasks carry a stable short id
-Each task SHALL have a uuid and a per-user monotonic integer `seq` that is never reused, shown as `#<seq>` in all human output and accepted anywhere a task id is expected.
+Each task SHALL have a uuid and a per-user monotonic integer `seq` that is never reused, shown as `#<seq>` in all human output and accepted anywhere a task id is expected. When a sync collision renumbers a task, the task SHALL record its old number in `previous_seqs`. A short id SHALL resolve to the task that currently holds it; when other tasks list that number in `previous_seqs`, human output SHALL say which tasks were renumbered from it and to what, and JSON output SHALL list them as `renumbered_from` hints.
 
 #### Scenario: Done task keeps its number
 - **WHEN** task #12 is marked done and a new task is created
@@ -14,7 +14,11 @@ Each task SHALL have a uuid and a per-user monotonic integer `seq` that is never
 
 #### Scenario: Two offline devices allocate the same seq
 - **WHEN** both devices create a task with seq 20 offline and then sync
-- **THEN** after sync exactly one task has seq 20, the later-created task receives the next free seq, and a `task.updated` event is emitted for it
+- **THEN** after sync exactly one task has seq 20, the later-created task receives the next free seq and lists 20 in `previous_seqs`, and a `task.renumbered` event is emitted for it
+
+#### Scenario: Looking up a renumbered number
+- **WHEN** task "Fix login" was renumbered from #20 to #31 and the user runs `tt task show 20`
+- **THEN** the task holding #20 is shown, with a note that "Fix login" is now #31
 
 ### Requirement: Task fields
 A task SHALL have `title` (required, non-empty), optional markdown `description`, a set of tags, an optional project, a `metadata` map of string keys to string values, a `state` of `open`, `done` or `archived`, and `created`/`updated` timestamps.

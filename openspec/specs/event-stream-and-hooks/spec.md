@@ -6,11 +6,15 @@ TBD - created by syncing change core-and-daemon. Domain events derived from docu
 ## Requirements
 
 ### Requirement: Domain events derived from document changes
-After every document change, local or received through sync, the daemon SHALL emit typed events (`task.created|updated|deleted`, `project.*`, `tag.*`, `entry.started|stopped|updated|moved|deleted`) each carrying a monotonic `seq`, `origin` (`local` or `remote`), the full affected record, the related task with its project and tags, and the list of all currently running entries.
+After every document change, local or received through sync, the daemon SHALL emit typed events (`task.created|updated|deleted|renumbered`, `project.*`, `tag.*`, `entry.started|stopped|updated|moved|deleted`) each carrying a monotonic `seq`, `origin` (`local` or `remote`), the full affected record, the related task with its project and tags, and the list of all currently running entries. `task.renumbered` SHALL additionally carry `from` and `to` short ids, and SHALL be emitted instead of `task.updated` when the only change to a task is its renumbering.
 
 #### Scenario: Remote stop
 - **WHEN** another device stops an entry and the change arrives through sync
 - **THEN** the daemon emits `entry.stopped` with `origin: remote` and the same payload shape as a local stop
+
+#### Scenario: Renumber after sync
+- **WHEN** a seq collision is repaired after sync and task "Fix login" moves from #20 to #31
+- **THEN** the daemon emits one `task.renumbered` event with `from: 20`, `to: 31` and the task record, and runs `task.renumbered` hooks
 
 ### Requirement: Watch stream
 `tt watch` SHALL print one JSON object per line, starting with a `snapshot` event listing all running entries, then every matching event as it happens, and SHALL support filters `--event`, `--task`, `--tag`, `--project` and `--since <seq>` for replay.

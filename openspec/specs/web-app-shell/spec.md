@@ -6,11 +6,19 @@ TBD - created by syncing change web. Login, theming (Mocha/Latte/system), routin
 ## Requirements
 
 ### Requirement: Login and session
-The app SHALL present a login form (username, password, "stay signed in", server endpoint override), call `POST /api/login`, store the token and index document id, and stay usable offline afterward until logout.
+The app SHALL present a login form (username, password, "stay signed in", server endpoint override) titled with the server's name and showing its URL, call `POST /api/login`, store the token, index document id and server identity, and stay usable offline afterward until logout. A 409 `account_conflict` response SHALL show a dedicated error explaining that the account name is also used on another server and must be renamed by the admin, distinct from the wrong-password error.
 
 #### Scenario: Offline after login
 - **WHEN** the user has logged in once and later loads the app without network
 - **THEN** the app renders the timeline from local data and shows sync state "Offline"
+
+#### Scenario: Server name on login
+- **WHEN** the login page loads from server `laptop-a`
+- **THEN** it reads "Sign in to laptop-a" and shows the server URL
+
+#### Scenario: Account conflict
+- **WHEN** login returns 409 `account_conflict`
+- **THEN** the conflict error is shown, not the wrong-password error, and the user stays on the login page
 
 ### Requirement: Theming
 The app SHALL offer Mocha, Latte and System themes implementing the design's token sets, with every small-text color at or above 4.5:1 contrast in both flavors.
@@ -39,3 +47,21 @@ Day, week, month, tasks and reports SHALL render the design's empty states with 
 #### Scenario: New user
 - **WHEN** a user with no tasks opens the timeline
 - **THEN** the empty state offers "Create your first task" and "Start tracking"
+
+### Requirement: Server identity in the shell
+The status bar sync label and its tooltip, the phone header, and the account menu SHALL name the server the app syncs with (for example "Synced · laptop-a", "wochap on laptop-a"), using the identity stored at login so it is shown offline too.
+
+#### Scenario: Offline label
+- **WHEN** the app is offline after logging in to `laptop-a`
+- **THEN** the tooltip says changes sync when laptop-a is reachable
+
+### Requirement: Renumbered task notice
+When the app's local workspace renumbers a task or receives a renumbering through sync, it SHALL show a toast "Task #<from> is now #<to> · <title>" with a View action, collapsing several renumberings into one "<n> tasks renumbered" toast. Task detail SHALL show "previously #<n>" for each entry in the task's `previous_seqs`.
+
+#### Scenario: Single renumber
+- **WHEN** sync renumbers "Fix login" from #20 to #31
+- **THEN** a toast reads "Task #20 is now #31 · Fix login" and its View action opens task #31
+
+#### Scenario: Several renumbers
+- **WHEN** one sync renumbers three tasks
+- **THEN** a single toast reads "3 tasks renumbered" and lists each change when expanded
