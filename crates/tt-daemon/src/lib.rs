@@ -10,6 +10,7 @@ pub mod net;
 pub mod paths;
 pub mod rpc;
 pub mod server;
+pub mod tls;
 
 use std::{
     collections::BTreeSet,
@@ -140,10 +141,7 @@ impl Daemon {
     /// Re-reads config: reconnects sync and switches index if it changed.
     async fn reload(self: &Daemon) -> Result<Value, RpcError> {
         let config = Config::load(&self.paths.config_file()).map_err(RpcError::internal)?;
-        match config.sync_endpoint() {
-            Some(endpoint) => self.transport.connect(endpoint).await,
-            None => self.transport.disconnect().await,
-        }
+        self.transport.apply(config.sync_endpoint()).await;
         let current = match self.engine.read().await.clone() {
             Some(engine) => Some(engine.lock().await.index_id()),
             None => None,
@@ -345,13 +343,13 @@ pub async fn run(spawned: bool) -> Result<i32> {
     )
     .await?;
     let config = Config::load(&paths.config_file())?;
-    match config.sync_endpoint() {
-        Some(endpoint) => {
-            info!(url = %endpoint.base, "sync enabled");
-            transport.connect(endpoint).await;
-        }
-        None => info!("no server configured; running offline"),
+    let endpoint = config.sync_endpoint();
+    match &endpoint {
+        Ok(Some(endpoint)) => info!(url = %endpoint.base, "sync enabled"),
+        Ok(None) => info!("no server configured; running offline"),
+        Err(invalid) => error!(path = %invalid.path, "sync disabled: {invalid}"),
     }
+    transport.apply(endpoint).await;
     let (remote, remote_rx) = mpsc::unbounded_channel();
     let (readiness, _) = watch::channel(Readiness::Loading);
     let daemon = Arc::new(Daemon {

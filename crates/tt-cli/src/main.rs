@@ -154,6 +154,10 @@ enum Cmd {
     /// Stream events as NDJSON (first line: snapshot of running entries)
     Watch(WatchArgs),
     /// Daemon, sync and running entries
+    ///
+    /// Sync states: offline, connecting, connected, disconnected, failed,
+    /// login_required, closed, and ca_cert_invalid (server.ca_cert cannot be
+    /// read or holds no certificate; nothing syncs until it is fixed).
     Status,
     /// Run the daemon in the foreground
     Daemon {
@@ -166,6 +170,10 @@ enum Cmd {
         url: String,
         #[arg(long)]
         username: Option<String>,
+        /// PEM file with an extra CA to trust (private or local CA); its
+        /// absolute path is stored as server.ca_cert
+        #[arg(long, value_name = "PEM")]
+        ca_cert: Option<std::path::PathBuf>,
     },
     /// Revoke the server token and stop syncing; local data stays
     Logout,
@@ -326,6 +334,11 @@ enum ConfigCmd {
     /// Print one key, or the whole file
     Get { key: Option<String> },
     /// Set a key; omit the value to unset
+    ///
+    /// Keys: server.url, server.token, server.ca_cert, user.index_doc, user.id,
+    /// user.name, week_start, snap, tz, editor. server.ca_cert takes a PEM file
+    /// with an extra CA to trust; it is stored as an absolute path and must
+    /// hold at least one certificate.
     Set { key: String, value: Option<String> },
     /// Print the config file path
     Path,
@@ -480,7 +493,11 @@ fn run(cli: Cli) -> CliResult<u8> {
             let tz = ctx.tz;
             ctx.emit(&status, |s| output::status(s, tz));
         }
-        Cmd::Login { url, username } => login(&mut ctx, &url, username)?,
+        Cmd::Login {
+            url,
+            username,
+            ca_cert,
+        } => login(&mut ctx, &url, username, ca_cert.as_deref())?,
         Cmd::Logout => logout(&mut ctx)?,
         Cmd::Config(command) => config_cmd(&mut ctx, command)?,
         Cmd::Daemon { .. } | Cmd::DocsCli => unreachable!("handled above"),
@@ -997,13 +1014,43 @@ fn watch(ctx: &mut Ctx, args: WatchArgs) -> CliResult<u8> {
     }
 }
 
-fn login(ctx: &mut Ctx, url: &str, username: Option<String>) -> CliResult {
+/// A login request error; certificate failures get a `--ca-cert` hint.
+fn login_failure(error: &ureq::Error) -> Failure {
+    let text = error.to_string();
+    if text.contains("UnknownIssuer") {
+        Failure::conflict(format!(
+            "login failed: {text} (use --ca-cert for a private CA; pass the CA certificate, not the server's)"
+        ))
+    } else {
+        Failure::conflict(format!("login failed: {text}"))
+    }
+}
+
+fn login(
+    ctx: &mut Ctx,
+    url: &str,
+    username: Option<String>,
+    ca_cert: Option<&std::path::Path>,
+) -> CliResult {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(Failure::usage(
             "server URL must start with http:// or https://",
         ));
     }
     let base = url.trim_end_matches('/').to_owned();
+    // Validate the CA before prompting, so a bad path never sends a password.
+    let path = ctx.paths.config_file();
+    let (ca_cert, extra_roots) = match ca_cert {
+        Some(ca_cert) => {
+            let absolute = tt_daemon::config::validate_ca_cert(ca_cert)?;
+            let roots = tt_daemon::tls::load_extra_roots(&absolute)?;
+            (Some(absolute.display().to_string()), roots)
+        }
+        None => {
+            let config = Config::load(&path)?;
+            (config.server.ca_cert.clone(), config.extra_roots()?)
+        }
+    };
     let username = match username {
         Some(username) => username,
         None => {
@@ -1028,19 +1075,29 @@ fn login(ctx: &mut Ctx, url: &str, username: Option<String>) -> CliResult {
         line.trim_end_matches(['\n', '\r']).to_owned()
     };
     let endpoint = format!("{base}/api/login");
-    let response: Value = ureq::post(&endpoint)
+    let agent = tt_daemon::tls::ureq_agent(&extra_roots, std::time::Duration::from_secs(30));
+    let mut response = agent
+        .post(&endpoint)
         .send_json(json!({"username": username, "password": password}))
-        .map_err(|e| Failure::conflict(format!("login failed: {e}")))?
+        .map_err(|e| login_failure(&e))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(Failure::conflict(format!(
+            "login failed: http status: {}",
+            status.as_u16()
+        )));
+    }
+    let response: Value = response
         .body_mut()
         .read_json()
         .map_err(|e| Failure::conflict(format!("login response: {e}")))?;
     let token = response["token"]
         .as_str()
         .ok_or_else(|| Failure::conflict("login response has no token"))?;
-    let path = ctx.paths.config_file();
     let mut config = Config::load(&path)?;
     config.server.url = Some(base);
     config.server.token = Some(token.to_owned());
+    config.server.ca_cert = ca_cert;
     if let Some(index) = response["index_doc"].as_str() {
         config.user.index_doc = Some(index.to_owned());
     }
@@ -1067,11 +1124,12 @@ fn logout(ctx: &mut Ctx) -> CliResult {
     };
     let mut revoked = false;
     if let Some(base) = config.server.url.as_deref() {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .timeout_global(Some(std::time::Duration::from_secs(10)))
-            .build()
-            .into();
+        // An unreadable CA still lets the token be dropped locally.
+        let extra_roots = config.extra_roots().unwrap_or_else(|error| {
+            eprintln!("tt: warning: {error:#}");
+            Vec::new()
+        });
+        let agent = tt_daemon::tls::ureq_agent(&extra_roots, std::time::Duration::from_secs(10));
         let endpoint = format!("{}/api/logout", base.trim_end_matches('/'));
         match agent
             .post(&endpoint)

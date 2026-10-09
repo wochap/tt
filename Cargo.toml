@@ -41,6 +41,7 @@ proptest = "1"
 rcgen = "0.14"
 rand_core = { version = "0.6", features = ["getrandom"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
+rustls-pki-types = { version = "1", features = ["std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -56,3 +57,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 ureq = { version = "3", features = ["json"] }
 uuid = { version = "1", features = ["serde", "v4", "v7"] }
+webpki-root-certs = "1"

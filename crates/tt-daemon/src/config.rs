@@ -1,10 +1,11 @@
 //! `config.toml`: server endpoint and token, index document, preferences.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use chrono::Weekday;
 use chrono_tz::Tz;
+use rustls_pki_types::CertificateDer;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,6 +15,9 @@ pub struct ServerConfig {
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Absolute path of a PEM file with extra trusted CA certificates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca_cert: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +55,7 @@ pub struct Config {
 pub const KEYS: &[&str] = &[
     "server.url",
     "server.token",
+    "server.ca_cert",
     "user.index_doc",
     "user.id",
     "user.name",
@@ -105,6 +110,7 @@ impl Config {
         Ok(match key {
             "server.url" => self.server.url.clone(),
             "server.token" => self.server.token.clone(),
+            "server.ca_cert" => self.server.ca_cert.clone(),
             "user.index_doc" => self.user.index_doc.clone(),
             "user.id" => self.user.id.clone(),
             "user.name" => self.user.name.clone(),
@@ -118,7 +124,12 @@ impl Config {
 
     /// Sets (or with `None`, unsets) a key, validating values.
     pub fn set(&mut self, key: &str, value: Option<String>) -> Result<()> {
-        let value = value.filter(|value| !value.is_empty());
+        let mut value = value.filter(|value| !value.is_empty());
+        if key == "server.ca_cert"
+            && let Some(path) = &value
+        {
+            value = Some(validate_ca_cert(Path::new(path))?.display().to_string());
+        }
         if let Some(value) = &value {
             match key {
                 "week_start" => {
@@ -141,6 +152,7 @@ impl Config {
         let slot = match key {
             "server.url" => &mut self.server.url,
             "server.token" => &mut self.server.token,
+            "server.ca_cert" => &mut self.server.ca_cert,
             "user.index_doc" => &mut self.user.index_doc,
             "user.id" => &mut self.user.id,
             "user.name" => &mut self.user.name,
@@ -171,20 +183,52 @@ impl Config {
             .unwrap_or(Weekday::Mon)
     }
 
-    /// Sync is enabled only with both a server URL and a token.
-    #[must_use]
-    pub fn sync_endpoint(&self) -> Option<SyncEndpoint> {
-        let url = self.server.url.as_deref()?.trim();
-        let token = self.server.token.as_deref()?.trim();
-        if url.is_empty() || token.is_empty() {
-            return None;
+    /// Certificates from `server.ca_cert`; empty when unset.
+    pub fn extra_roots(&self) -> Result<Vec<CertificateDer<'static>>> {
+        match self.server.ca_cert.as_deref() {
+            Some(path) => crate::tls::load_extra_roots(Path::new(path)),
+            None => Ok(Vec::new()),
         }
-        Some(SyncEndpoint {
+    }
+
+    /// Sync is enabled only with both a server URL and a token. `Err` when
+    /// `server.ca_cert` is set but cannot be loaded: then nothing may sync.
+    pub fn sync_endpoint(&self) -> Result<Option<SyncEndpoint>, InvalidCaCert> {
+        let (Some(url), Some(token)) = (self.server.url.as_deref(), self.server.token.as_deref())
+        else {
+            return Ok(None);
+        };
+        let (url, token) = (url.trim(), token.trim());
+        if url.is_empty() || token.is_empty() {
+            return Ok(None);
+        }
+        let extra_roots = self.extra_roots().map_err(|error| InvalidCaCert {
+            path: self.server.ca_cert.clone().unwrap_or_default(),
+            message: format!("{error:#}"),
+        })?;
+        Ok(Some(SyncEndpoint {
             base: url.trim_end_matches('/').to_owned(),
             websocket: websocket_url(url),
             token: token.to_owned(),
-        })
+            extra_roots,
+        }))
     }
+}
+
+/// Canonicalizes `path` and checks it holds at least one PEM certificate.
+pub fn validate_ca_cert(path: &Path) -> Result<PathBuf> {
+    let absolute = std::fs::canonicalize(path)
+        .with_context(|| format!("CA certificate {}", path.display()))?;
+    crate::tls::load_extra_roots(&absolute)?;
+    Ok(absolute)
+}
+
+/// `server.ca_cert` is set but unreadable or holds no certificate.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+pub struct InvalidCaCert {
+    pub path: String,
+    pub message: String,
 }
 
 /// Where and as whom the daemon syncs.
@@ -195,6 +239,8 @@ pub struct SyncEndpoint {
     /// `wss://host/base/sync`.
     pub websocket: String,
     pub token: String,
+    /// Certificates trusted on top of the webpki roots (`server.ca_cert`).
+    pub extra_roots: Vec<CertificateDer<'static>>,
 }
 
 /// `https://host/base` → `wss://host/base/sync`.
@@ -240,14 +286,72 @@ mod tests {
         assert_eq!(loaded, config);
         assert_eq!(
             loaded.sync_endpoint(),
-            Some(SyncEndpoint {
+            Ok(Some(SyncEndpoint {
                 base: "https://tt.example".into(),
                 websocket: "wss://tt.example/sync".into(),
                 token: "secret".into(),
-            })
+                extra_roots: Vec::new(),
+            }))
         );
         assert!(config.set("tz", Some("Mars/Base".into())).is_err());
         assert!(config.set("nope", None).is_err());
-        assert!(Config::default().sync_endpoint().is_none());
+        assert_eq!(Config::default().sync_endpoint(), Ok(None));
+    }
+
+    #[test]
+    fn ca_cert_is_validated_and_stored_absolute() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = rcgen::KeyPair::generate().unwrap();
+        let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let ca = params.self_signed(&key).unwrap();
+        let ca_path = dir.path().join("ca.pem");
+        std::fs::write(&ca_path, ca.pem()).unwrap();
+        let notes = dir.path().join("notes.txt");
+        std::fs::write(&notes, "not a certificate\n").unwrap();
+
+        let mut config = Config::default();
+        config
+            .set("server.url", Some("https://tt.example".into()))
+            .unwrap();
+        config.set("server.token", Some("secret".into())).unwrap();
+        // A relative path is stored canonicalized.
+        let relative = pathdiff(&ca_path);
+        config.set("server.ca_cert", Some(relative)).unwrap();
+        let stored = config.get("server.ca_cert").unwrap().unwrap();
+        assert_eq!(Path::new(&stored), std::fs::canonicalize(&ca_path).unwrap());
+        let endpoint = config.sync_endpoint().unwrap().unwrap();
+        assert_eq!(endpoint.extra_roots, vec![ca.der().clone()]);
+
+        // Invalid files are rejected and leave the value unchanged.
+        let error = config
+            .set("server.ca_cert", Some(notes.display().to_string()))
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("notes.txt"), "{error:#}");
+        let error = config
+            .set("server.ca_cert", Some("/nope.pem".into()))
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("/nope.pem"), "{error:#}");
+        assert_eq!(config.get("server.ca_cert").unwrap(), Some(stored.clone()));
+
+        // A CA file removed later makes the endpoint invalid, never webpki-only.
+        std::fs::remove_file(&ca_path).unwrap();
+        let invalid = config.sync_endpoint().unwrap_err();
+        assert_eq!(invalid.path, stored);
+        assert!(invalid.message.contains("ca.pem"), "{}", invalid.message);
+
+        config.set("server.ca_cert", None).unwrap();
+        assert!(config.sync_endpoint().unwrap().is_some());
+    }
+
+    /// `path` relative to the current directory when possible.
+    fn pathdiff(path: &Path) -> String {
+        let cwd = std::env::current_dir().unwrap();
+        let mut relative = PathBuf::new();
+        for _ in cwd.components().skip(1) {
+            relative.push("..");
+        }
+        relative.push(path.strip_prefix("/").unwrap());
+        relative.display().to_string()
     }
 }

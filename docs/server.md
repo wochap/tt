@@ -153,7 +153,8 @@ A restart loses nothing that was acknowledged.
 ## Daemon behaviour
 
 `tt login <url>` posts the credentials, writes `server.url`, `server.token`,
-`user.index_doc`, `user.id`, and `user.name` to `config.toml` (mode 0600),
+`user.index_doc`, `user.id`, `user.name` (and `server.ca_cert` with
+`--ca-cert`) to `config.toml` (mode 0600),
 and tells the daemon to connect. Before every connection attempt the daemon
 asks `/api/ws-ticket` for a ticket. When that request answers 401 the token
 was revoked: the daemon stops reconnecting and `tt status` shows
@@ -173,9 +174,23 @@ login are never pushed.
   `--insecure-http` is given. With `--insecure-http`, bind to `127.0.0.1` and
   terminate TLS in a proxy on the same host. Passwords and tokens must only
   ever travel over TLS. Clients (`tt login`, the daemon's `wss://` sync)
-  verify the certificate against the bundled Mozilla (webpki) roots, so use
-  a publicly trusted certificate such as Let's Encrypt; self-signed and
-  private-CA certificates are rejected.
+  verify the certificate against the bundled Mozilla (webpki) roots, plus
+  an optional extra CA. For a private or local CA, pass the CA certificate
+  (not the server's own certificate) at login:
+
+  ```sh
+  tt login https://tt.example.local --username alice --ca-cert ./ca.pem
+  ```
+
+  The absolute path is stored as `server.ca_cert` (also settable with
+  `tt config set server.ca_cert <pem>`); login, logout, the ticket request
+  and `wss://` sync all trust it on top of the webpki roots, and hostname
+  checks stay on. The file is read on every daemon start and `sync.reload`,
+  so rotating it needs no config change. If it becomes unreadable or holds
+  no certificate, the daemon keeps serving local commands but opens no
+  connection, and `tt status` reports the sync state `ca_cert_invalid`
+  naming the file. Without `--ca-cert`, a private-CA certificate fails with
+  `UnknownIssuer` (exit code 4) and a hint to use `--ca-cert`.
 - **Passwords.** argon2id with the OWASP parameters: 19 MiB memory
   (`m=19456`), 2 iterations (`t=2`), parallelism 1, random 16-byte salt,
   stored as a PHC string. Unknown user names are verified against a dummy

@@ -2421,6 +2421,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "dialoguer",
+ "rcgen",
  "serde_json",
  "tempfile",
  "tokio",
@@ -2461,6 +2462,9 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "iana-time-zone",
+ "rcgen",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "tempfile",
@@ -2472,6 +2476,7 @@ dependencies = [
  "tt-core",
  "ureq",
  "uuid",
+ "webpki-root-certs",
 ]
 
 [[package]]
@@ -2750,6 +2755,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "webpki-root-certs"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

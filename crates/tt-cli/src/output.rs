@@ -177,6 +177,11 @@ pub fn status(status: &Value, tz: Tz) -> String {
             s(sync, "url"),
             s(sync, "url")
         ));
+    } else if sync["state"] == "ca_cert_invalid" {
+        out.push_str(&format!(
+            "sync:    stopped, server.ca_cert invalid: {}\n",
+            s(&sync["detail"], "error")
+        ));
     } else if sync["configured"].as_bool() == Some(true) {
         out.push_str(&format!(
             "sync:    {} ({})",

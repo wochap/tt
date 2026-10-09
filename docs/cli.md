@@ -881,6 +881,8 @@ Options:
 ```text
 Daemon, sync and running entries
 
+Sync states: offline, connecting, connected, disconnected, failed, login_required, closed, and ca_cert_invalid (server.ca_cert cannot be read or holds no certificate; nothing syncs until it is fixed).
+
 Usage: tt status [OPTIONS]
 
 Options:
@@ -888,7 +890,7 @@ Options:
           JSON output (stable schema: uuids, seqs, UTC timestamps, durations in seconds)
 
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
 
   -V, --version
           Print version
@@ -929,6 +931,9 @@ Options:
 
       --username <USERNAME>
           
+
+      --ca-cert <PEM>
+          PEM file with an extra CA to trust (private or local CA); its absolute path is stored as server.ca_cert
 
   -h, --help
           Print help
@@ -1006,6 +1011,8 @@ Options:
 ```text
 Set a key; omit the value to unset
 
+Keys: server.url, server.token, server.ca_cert, user.index_doc, user.id, user.name, week_start, snap, tz, editor. server.ca_cert takes a PEM file with an extra CA to trust; it is stored as an absolute path and must hold at least one certificate.
+
 Usage: tt config set [OPTIONS] <KEY> [VALUE]
 
 Arguments:
@@ -1020,7 +1027,7 @@ Options:
           JSON output (stable schema: uuids, seqs, UTC timestamps, durations in seconds)
 
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
 
   -V, --version
           Print version

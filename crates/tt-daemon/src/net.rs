@@ -9,6 +9,10 @@
 //! without the ticket endpoint (404, e.g. a plain automerge-repo sync server)
 //! gets the token as an `Authorization` header instead.
 //!
+//! Every connection (ticket request and `wss://`) trusts the webpki roots
+//! plus `server.ca_cert`. An invalid CA file starts no client: status reports
+//! `ca_cert_invalid` instead of silently falling back to webpki-only trust.
+//!
 //! [`SyncScope`] is the client-side access policy: only documents reachable
 //! from this device's index are announced to or accepted from the server, so
 //! stale local documents (an offline workspace from before `tt login`) are
@@ -33,7 +37,7 @@ use bytes::Bytes;
 use serde_json::{Value, json};
 use tokio::{sync::mpsc, task::JoinHandle};
 
-use crate::config::SyncEndpoint;
+use crate::config::{InvalidCaCert, SyncEndpoint};
 
 /// Documents this device syncs: its index and what the index lists.
 #[derive(Debug, Default)]
@@ -72,15 +76,11 @@ enum TicketReply {
     Failed(String),
 }
 
-fn request_ticket(base: &str, token: &str) -> TicketReply {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .timeout_global(Some(Duration::from_secs(10)))
-        .build()
-        .into();
+fn request_ticket(endpoint: &SyncEndpoint) -> TicketReply {
+    let agent = crate::tls::ureq_agent(&endpoint.extra_roots, Duration::from_secs(10));
     let response = agent
-        .post(&format!("{base}/api/ws-ticket"))
-        .header("Authorization", &format!("Bearer {token}"))
+        .post(&format!("{}/api/ws-ticket", endpoint.base))
+        .header("Authorization", &format!("Bearer {}", endpoint.token))
         .send_json(json!({}));
     let mut response = match response {
         Ok(response) => response,
@@ -105,8 +105,8 @@ struct TicketAuth(SyncEndpoint);
 #[async_trait]
 impl ConnectAuth for TicketAuth {
     async fn prepare(&self) -> Result<ConnectTarget, AuthError> {
-        let (base, token) = (self.0.base.clone(), self.0.token.clone());
-        let reply = tokio::task::spawn_blocking(move || request_ticket(&base, &token))
+        let endpoint = self.0.clone();
+        let reply = tokio::task::spawn_blocking(move || request_ticket(&endpoint))
             .await
             .map_err(|error| AuthError::Retry(error.to_string()))?;
         match reply {
@@ -137,6 +137,8 @@ pub struct SyncTransport {
     events_tx: mpsc::Sender<NetworkEvent>,
     events: Mutex<Option<mpsc::Receiver<NetworkEvent>>>,
     active: Mutex<Option<Active>>,
+    /// Set while `server.ca_cert` is invalid (no client runs then).
+    invalid_ca: Mutex<Option<InvalidCaCert>>,
 }
 
 impl SyncTransport {
@@ -148,6 +150,7 @@ impl SyncTransport {
             events_tx,
             events: Mutex::new(Some(events)),
             active: Mutex::new(None),
+            invalid_ca: Mutex::new(None),
         })
     }
 
@@ -156,6 +159,7 @@ impl SyncTransport {
         self.disconnect().await;
         let url = endpoint.base.clone();
         let config = WsJsClientConfig::new(endpoint.websocket.clone(), self.local.clone())
+            .tls(crate::tls::rustls_client_config(&endpoint.extra_roots))
             .auth(Arc::new(TicketAuth(endpoint)));
         let client = WsJsClient::start(config);
         let mut events = client
@@ -176,8 +180,22 @@ impl SyncTransport {
         });
     }
 
+    /// Applies `Config::sync_endpoint`: connect, stop, or (invalid CA) stop
+    /// and report `ca_cert_invalid`.
+    pub async fn apply(&self, endpoint: Result<Option<SyncEndpoint>, InvalidCaCert>) {
+        match endpoint {
+            Ok(Some(endpoint)) => self.connect(endpoint).await,
+            Ok(None) => self.disconnect().await,
+            Err(invalid) => {
+                self.disconnect().await;
+                *self.invalid_ca.lock().unwrap() = Some(invalid);
+            }
+        }
+    }
+
     /// Stops the client, reporting its peer as disconnected.
     pub async fn disconnect(&self) {
+        self.invalid_ca.lock().unwrap().take();
         let previous = self.active.lock().unwrap().take();
         if let Some(active) = previous {
             let remote = match active.client.state() {
@@ -198,6 +216,13 @@ impl SyncTransport {
     /// Status for `tt status`.
     #[must_use]
     pub fn status(&self) -> Value {
+        if let Some(invalid) = self.invalid_ca.lock().unwrap().as_ref() {
+            return json!({
+                "configured": true,
+                "state": "ca_cert_invalid",
+                "detail": {"path": invalid.path, "error": invalid.message},
+            });
+        }
         let active = self.active.lock().unwrap();
         let Some(active) = active.as_ref() else {
             return json!({"configured": false, "state": "offline"});

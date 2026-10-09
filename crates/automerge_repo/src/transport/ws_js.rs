@@ -101,6 +101,8 @@ pub struct WsJsClientConfig {
     /// Called before every attempt; its target replaces `url` and adds
     /// headers. `None` dials `url` directly.
     pub auth: Option<Arc<dyn ConnectAuth>>,
+    /// TLS settings for `wss://`. `None` uses rustls with the webpki roots.
+    pub tls: Option<Arc<rustls::ClientConfig>>,
 }
 
 impl std::fmt::Debug for WsJsClientConfig {
@@ -110,6 +112,7 @@ impl std::fmt::Debug for WsJsClientConfig {
             .field("peer_id", &self.peer_id)
             .field("headers", &self.headers.len())
             .field("auth", &self.auth.is_some())
+            .field("tls", &self.tls.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -129,11 +132,17 @@ impl WsJsClientConfig {
             min_backoff: Duration::from_millis(250),
             max_backoff: Duration::from_secs(30),
             auth: None,
+            tls: None,
         }
     }
     #[must_use]
     pub fn auth(mut self, auth: Arc<dyn ConnectAuth>) -> Self {
         self.auth = Some(auth);
+        self
+    }
+    #[must_use]
+    pub fn tls(mut self, tls: Arc<rustls::ClientConfig>) -> Self {
+        self.tls = Some(tls);
         self
     }
     #[must_use]
@@ -279,7 +288,12 @@ async fn attempt(shared: &Arc<ClientShared>) -> Result<(), AttemptError> {
     }
     let (mut socket, _) = tokio::time::timeout(
         config.handshake_timeout,
-        tokio_tungstenite::connect_async(request),
+        tokio_tungstenite::connect_async_tls_with_config(
+            request,
+            None,
+            false,
+            config.tls.clone().map(tokio_tungstenite::Connector::Rustls),
+        ),
     )
     .await
     .map_err(|_| AttemptError::Io("connect timed out".into()))?
