@@ -17,6 +17,12 @@
 # e.g. only on the tailnet. Add one `--peer <host:port>` per member this
 # server should dial. Pair with `tt-server peer invite` / `peer join`.
 #
+# Client URL (publicUrl): set TT_SERVER_PUBLIC_URL below to the HTTPS URL
+# browsers use for this server (e.g. its Tailscale MagicDNS name). It is
+# passed as --public-url, so a web app installed from any member fails over
+# to this one, and members allow its origin (CORS and /sync). Every member
+# needs its own.
+#
 # TLS here: put the key pair in /etc/tt-server/ readable by the tt-server
 # user and keep the TLS flags. Behind a reverse proxy on this host instead:
 # replace them with `--insecure-http --behind-proxy --listen 127.0.0.1:8080`.
@@ -34,12 +40,14 @@ Group=tt-server
 StateDirectory=tt-server
 StateDirectoryMode=0700
 Environment=TT_SERVER_LOG=info
+Environment=TT_SERVER_PUBLIC_URL=https://tt-server.example.ts.net:8443
 ExecStartPre=/bin/sh -c '/usr/local/bin/tt-server --db /var/lib/tt-server/server.db init; s=$$?; [ $$s -eq 0 ] || [ $$s -eq 4 ]'
 ExecStart=/usr/local/bin/tt-server --db /var/lib/tt-server/server.db serve \
     --listen 0.0.0.0:8443 \
     --tls-cert /etc/tt-server/fullchain.pem \
     --tls-key /etc/tt-server/privkey.pem \
     --web-dir /usr/local/share/tt-server/web \
+    --public-url ${TT_SERVER_PUBLIC_URL} \
     --peer-listen 0.0.0.0:8772
 Restart=on-failure
 RestartSec=2

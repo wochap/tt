@@ -5,6 +5,7 @@
 import { Repo } from "@automerge/automerge-repo/slim";
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel";
 
+import { saveEndpoints } from "./auth.ts";
 import type { Auth, FromWorker, SyncStatus, ToWorker } from "./protocol.ts";
 import { loadAutomerge } from "./wasm.ts";
 
@@ -56,6 +57,8 @@ export class SyncClient {
     if (message.t === "status") {
       this.#status = message.status;
       for (const listener of this.#listeners) listener();
+    } else if (message.t === "endpoints") {
+      saveEndpoints(message.token, message.endpoints);
     } else if (message.t === "wiped") {
       this.#wipes.get(message.id)?.(message.error);
       this.#wipes.delete(message.id);

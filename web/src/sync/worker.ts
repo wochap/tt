@@ -1,15 +1,18 @@
 // The repo worker: one Automerge repo per browser profile, persisted in
 // IndexedDB. Every tab is a MessageChannel peer of this repo; only the worker
-// talks to tt-server (`/sync`, with a fresh ticket per connection). Runs as a
-// SharedWorker, or as a dedicated worker per tab where SharedWorker is missing.
+// talks to tt-server (`/sync`, with a fresh ticket per connection). It syncs
+// with one member of the root at a time, failing over between members (see
+// endpoints.ts); all of them sync into the same repo. Runs as a SharedWorker,
+// or as a dedicated worker per tab where SharedWorker is missing.
 
 import { type Message, Repo } from "@automerge/automerge-repo/slim";
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 
+import { MemberEndpoints } from "./member-endpoints.ts";
 import { PendingTracker } from "./pending.ts";
 import { type Auth, DB_NAME, DB_STORE, type FromWorker, META_DB, type SyncStatus, type ToWorker } from "./protocol.ts";
-import { type SocketState, TicketWebSocketAdapter, Unauthorized } from "./ticket-socket.ts";
+import { type SocketState, TicketWebSocketAdapter } from "./ticket-socket.ts";
 import { loadAutomerge } from "./wasm.ts";
 
 /** The parts of Shared/DedicatedWorkerGlobalScope used here (the project compiles against the DOM lib). */
@@ -28,6 +31,10 @@ let repo: Repo;
 let pending: PendingTracker;
 let auth: Auth | null = null;
 let socket: TicketWebSocketAdapter | undefined;
+const members = new MemberEndpoints((token, endpoints) => {
+  broadcast({ t: "endpoints", token, endpoints });
+  publish(true);
+});
 let socketState: SocketState = "closed";
 let lastSync: number | null = null;
 let status: SyncStatus = { state: "signed-out", pending: 0, lastSync: null, mode: shared ? "shared" : "dedicated" };
@@ -55,7 +62,15 @@ function computeStatus(): SyncStatus {
   else if (socket?.connected) state = count > 0 ? "syncing" : "synced";
   else if (socketState === "connecting" && lastSync === null) state = "connecting";
   else state = "offline";
-  return { state, pending: count, lastSync, mode: status.mode };
+  const current = socket?.connected ? members.current : null;
+  return {
+    state,
+    pending: count,
+    lastSync,
+    mode: status.mode,
+    member: current && { server_id: current.server_id, name: current.name, public_url: current.public_url },
+    members: members.list,
+  };
 }
 
 let publishTimer: ReturnType<typeof setTimeout> | undefined;
@@ -76,20 +91,6 @@ function publish(now = false): void {
   }
 }
 
-async function ticketUrl(current: Auth): Promise<string> {
-  const response = await fetch(`${current.server}/api/ws-ticket`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${current.token}` },
-  });
-  if (response.status === 401) throw new Unauthorized();
-  if (!response.ok) throw new Error(`ws-ticket: HTTP ${response.status}`);
-  const { ticket } = (await response.json()) as { ticket: string };
-  const url = new URL("/sync", current.server);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.searchParams.set("ticket", ticket);
-  return url.toString();
-}
-
 function connect(next: Auth | null): void {
   const same = auth && next && auth.server === next.server && auth.token === next.token;
   auth = next;
@@ -104,12 +105,14 @@ function connect(next: Auth | null): void {
   }
   socketState = "closed";
   lastSync = null;
-  if (next) {
-    const current = next;
+  const rotation = members.reset(next, () => publish(true));
+  if (next && rotation) {
     socket = new TicketWebSocketAdapter({
-      url: () => ticketUrl(current),
+      url: () => rotation.url(),
+      onClose: (opened) => rotation.closed(opened),
       onState: (state) => {
         socketState = state;
+        if (state === "open") void members.connected(next);
         publish(true);
       },
       onInbound: (message: Message) => {

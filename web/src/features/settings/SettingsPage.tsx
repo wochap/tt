@@ -16,6 +16,7 @@ import { reachable } from "@/sync/auth";
 
 import { SyncStatus } from "../shell/SyncStatus.tsx";
 import { useStatusHints, useUi } from "../shell/ui-state.tsx";
+import { MemberList } from "./MemberList.tsx";
 import { ServerSection } from "./ServerSection.tsx";
 
 const SECTIONS = ["General", "Timeline", "Sync", "Server", "Shortcuts", "Account"] as const;
@@ -163,6 +164,9 @@ export function SettingsPage() {
                 <SyncStatus status={status} />
               </span>
             </Row>
+            <Row label="Servers">
+              <MemberList status={status} />
+            </Row>
             <Row label="This device">
               <span className="text-[12.5px] text-muted">
                 {status.mode === "shared" ? "One local copy shared by every tab (SharedWorker + IndexedDB)." : "Each tab keeps its own connection (no SharedWorker in this browser)."}
@@ -179,7 +183,7 @@ export function SettingsPage() {
             </Row>
           </Section>
 
-          <ServerSection />
+          <ServerSection server={status.member?.public_url} />
 
           <Section id="shortcuts" title="Shortcuts">
             <Row label="Keyboard">

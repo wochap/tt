@@ -5,8 +5,10 @@
 //! these tables is ever replicated.
 //!
 //! Every record is keyed by text: user ids are UUIDs, documents are bs58check
-//! ids, token and ticket secrets are only ever stored as SHA-256 hex. Times
-//! are Unix milliseconds.
+//! ids, ticket and invite secrets are only ever stored as SHA-256 hex. Tokens
+//! are stored by token id (the `tid` of a `tt2` token, which is not a
+//! secret: the signature is), in the `token_hash` column of earlier
+//! versions. Times are Unix milliseconds.
 
 use std::{
     path::Path,
@@ -34,7 +36,8 @@ const SCHEMA: &str = "
         user_id TEXT NOT NULL,
         created INTEGER NOT NULL,
         last_used INTEGER,
-        revoked INTEGER
+        revoked INTEGER,
+        issuer TEXT
     );
     CREATE INDEX tokens_user ON tokens(user_id);
     CREATE TABLE tickets (
@@ -186,6 +189,27 @@ fn migrate_peer_addresses(connection: &mut Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
+/// Adds the issuer column to the token table of versions before member-wide
+/// tokens, and drops the old opaque tokens with their tickets: they can no
+/// longer be verified, so their clients sign in again.
+fn migrate_tokens(connection: &mut Connection) -> rusqlite::Result<()> {
+    let current: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('tokens') WHERE name = 'issuer')",
+        [],
+        |row| row.get(0),
+    )?;
+    if current {
+        return Ok(());
+    }
+    let tx = connection.transaction()?;
+    tx.execute_batch(
+        "DELETE FROM tickets;
+         DELETE FROM tokens;
+         ALTER TABLE tokens ADD COLUMN issuer TEXT;",
+    )?;
+    tx.commit()
+}
+
 #[must_use]
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -211,10 +235,14 @@ pub struct RootRecord {
     pub created: i64,
 }
 
+/// A token this server issued or accepted.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenRecord {
-    pub token_hash: String,
+    /// The `tid` of the token.
+    pub token_id: String,
     pub user_id: String,
+    /// The server id of the member that issued it.
+    pub issuer: String,
     /// Filled from the registry by [`crate::App::tokens`]; empty here.
     pub user_name: String,
     pub created: i64,
@@ -223,10 +251,10 @@ pub struct TokenRecord {
 }
 
 impl TokenRecord {
-    /// Short public id used by `token ls|revoke`: a prefix of the hash.
+    /// Short public id used by `token ls|revoke`: a prefix of the token id.
     #[must_use]
     pub fn id(&self) -> &str {
-        &self.token_hash[..12]
+        &self.token_id[..self.token_id.len().min(12)]
     }
 }
 
@@ -273,7 +301,8 @@ pub struct InviteRecord {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TicketGrant {
     pub user_id: String,
-    pub token_hash: String,
+    pub token_id: String,
+    pub issuer: String,
 }
 
 /// Shared connection. Calls from async code go through [`Db::run`], which
@@ -309,8 +338,9 @@ fn check_format(connection: &Connection, path: &Path) -> Result<bool> {
 
 fn token_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TokenRecord> {
     Ok(TokenRecord {
-        token_hash: row.get(0)?,
+        token_id: row.get(0)?,
         user_id: row.get(1)?,
+        issuer: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
         user_name: String::new(),
         created: row.get(2)?,
         last_used: row.get(3)?,
@@ -353,6 +383,7 @@ impl Db {
             })?;
         }
         db.with(|connection| {
+            migrate_tokens(connection)?;
             migrate_peer_addresses(connection)?;
             connection.execute_batch(PEERING_SCHEMA)
         })?;
@@ -821,53 +852,96 @@ impl Db {
 
     // ---------- tokens ----------
 
-    pub fn insert_token(&self, token_hash: &str, user_id: &str) -> Result<()> {
-        let (token_hash, user_id) = (token_hash.to_owned(), user_id.to_owned());
+    /// Records a token this server issued.
+    pub fn insert_token(&self, token_id: &str, user_id: &str, issuer: &str) -> Result<()> {
+        let (token_id, user_id, issuer) =
+            (token_id.to_owned(), user_id.to_owned(), issuer.to_owned());
         self.with(move |connection| {
             connection
                 .execute(
-                    "INSERT INTO tokens (token_hash, user_id, created) VALUES (?1, ?2, ?3)",
-                    params![token_hash, user_id, now_ms()],
+                    "INSERT INTO tokens (token_hash, user_id, created, issuer)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![token_id, user_id, now_ms(), issuer],
                 )
                 .map(|_| ())
         })
     }
 
-    /// The user id of a live (unrevoked) token; records the use.
-    pub fn token_user(&self, token_hash: &str) -> Result<Option<String>> {
-        let token_hash = token_hash.to_owned();
+    /// Records the use of a verified token, adding it when another member
+    /// issued it (`created` is its issue time); `false` when this server
+    /// has revoked it.
+    pub fn touch_token(
+        &self,
+        token_id: &str,
+        user_id: &str,
+        issuer: &str,
+        created: i64,
+    ) -> Result<bool> {
+        let (token_id, user_id, issuer) =
+            (token_id.to_owned(), user_id.to_owned(), issuer.to_owned());
         self.with(move |connection| {
-            let user = connection
+            connection.execute(
+                "INSERT OR IGNORE INTO tokens (token_hash, user_id, created, issuer)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![token_id, user_id, created, issuer],
+            )?;
+            connection
                 .query_row(
-                    "SELECT user_id FROM tokens WHERE token_hash = ?1 AND revoked IS NULL",
-                    params![token_hash],
+                    "UPDATE tokens SET last_used = ?1 WHERE token_hash = ?2
+                     RETURNING revoked IS NULL",
+                    params![now_ms(), token_id],
                     |row| row.get(0),
                 )
-                .optional()?;
-            if user.is_some() {
-                connection.execute(
-                    "UPDATE tokens SET last_used = ?1 WHERE token_hash = ?2",
-                    params![now_ms(), token_hash],
-                )?;
-            }
-            Ok(user)
+                .optional()
+                .map(|live| live.unwrap_or(false))
+        })
+    }
+
+    /// The user id of a live (unrevoked) token.
+    pub fn token_user(&self, token_id: &str) -> Result<Option<String>> {
+        let token_id = token_id.to_owned();
+        self.with(move |connection| {
+            connection
+                .query_row(
+                    "SELECT user_id FROM tokens WHERE token_hash = ?1 AND revoked IS NULL",
+                    params![token_id],
+                    |row| row.get(0),
+                )
+                .optional()
         })
     }
 
     /// Revokes one token; `false` when it was unknown or already revoked.
-    pub fn revoke_token(&self, token_hash: &str) -> Result<bool> {
-        let token_hash = token_hash.to_owned();
+    pub fn revoke_token(&self, token_id: &str) -> Result<bool> {
+        let token_id = token_id.to_owned();
         self.with(move |connection| {
             connection
                 .execute(
                     "UPDATE tokens SET revoked = ?1 WHERE token_hash = ?2 AND revoked IS NULL",
-                    params![now_ms(), token_hash],
+                    params![now_ms(), token_id],
                 )
                 .map(|changed| changed == 1)
         })
     }
 
-    /// Revokes every live token of a user; returns the revoked hashes.
+    /// Marks known tokens revoked (revocations learned from the registry).
+    pub fn mark_revoked(&self, token_ids: Vec<String>) -> Result<()> {
+        self.with(move |connection| {
+            let tx = connection.transaction()?;
+            {
+                let mut statement = tx.prepare(
+                    "UPDATE tokens SET revoked = ?1 WHERE token_hash = ?2 AND revoked IS NULL",
+                )?;
+                let now = now_ms();
+                for id in token_ids {
+                    statement.execute(params![now, id])?;
+                }
+            }
+            tx.commit()
+        })
+    }
+
+    /// Revokes every live token of a user; returns the revoked token ids.
     pub fn revoke_user_tokens(&self, user_id: &str) -> Result<Vec<String>> {
         let user_id = user_id.to_owned();
         self.with(move |connection| {
@@ -884,22 +958,22 @@ impl Db {
     pub fn tokens(&self) -> Result<Vec<TokenRecord>> {
         self.with(|connection| {
             let mut statement = connection.prepare(
-                "SELECT token_hash, user_id, created, last_used, revoked
+                "SELECT token_hash, user_id, created, last_used, revoked, issuer
                  FROM tokens ORDER BY created",
             )?;
             statement.query_map([], token_from_row)?.collect()
         })
     }
 
-    /// Of `hashes`, the ones that are no longer live (revoked or unknown).
-    pub fn dead_tokens(&self, hashes: Vec<String>) -> Result<Vec<String>> {
+    /// Of `token_ids`, the ones that are no longer live (revoked or unknown).
+    pub fn dead_tokens(&self, token_ids: Vec<String>) -> Result<Vec<String>> {
         self.with(move |connection| {
             let mut statement = connection
                 .prepare("SELECT 1 FROM tokens WHERE token_hash = ?1 AND revoked IS NULL")?;
             let mut dead = Vec::new();
-            for hash in hashes {
-                if !statement.exists(params![hash])? {
-                    dead.push(hash);
+            for id in token_ids {
+                if !statement.exists(params![id])? {
+                    dead.push(id);
                 }
             }
             Ok(dead)
@@ -912,13 +986,13 @@ impl Db {
         &self,
         ticket_hash: &str,
         user_id: &str,
-        token_hash: &str,
+        token_id: &str,
         expires: i64,
     ) -> Result<()> {
-        let (ticket_hash, user_id, token_hash) = (
+        let (ticket_hash, user_id, token_id) = (
             ticket_hash.to_owned(),
             user_id.to_owned(),
-            token_hash.to_owned(),
+            token_id.to_owned(),
         );
         self.with(move |connection| {
             let now = now_ms();
@@ -931,14 +1005,15 @@ impl Db {
                 .execute(
                     "INSERT INTO tickets (ticket_hash, user_id, token_hash, expires)
                      VALUES (?1, ?2, ?3, ?4)",
-                    params![ticket_hash, user_id, token_hash, expires],
+                    params![ticket_hash, user_id, token_id, expires],
                 )
                 .map(|_| ())
         })
     }
 
     /// Marks a ticket used and returns its grant if it was unused, unexpired,
-    /// and its token is still live. A second call for the same ticket fails.
+    /// and its token is still live here. A second call for the same ticket
+    /// fails. The caller still checks the token against the registry.
     pub fn consume_ticket(&self, ticket_hash: &str) -> Result<Option<TicketGrant>> {
         let ticket_hash = ticket_hash.to_owned();
         self.with(move |connection| {
@@ -953,17 +1028,19 @@ impl Db {
                 )
                 .optional()?;
             let grant = match claimed {
-                Some((user_id, token_hash)) => {
-                    let live: bool = tx.query_row(
-                        "SELECT EXISTS (SELECT 1 FROM tokens WHERE token_hash = ?1 AND revoked IS NULL)",
-                        params![token_hash],
+                Some((user_id, token_id)) => tx
+                    .query_row(
+                        "SELECT coalesce(issuer, '') FROM tokens
+                         WHERE token_hash = ?1 AND revoked IS NULL",
+                        params![token_id],
                         |row| row.get(0),
-                    )?;
-                    live.then_some(TicketGrant {
+                    )
+                    .optional()?
+                    .map(|issuer| TicketGrant {
                         user_id,
-                        token_hash,
-                    })
-                }
+                        token_id,
+                        issuer,
+                    }),
                 None => None,
             };
             tx.commit()?;
@@ -1091,13 +1168,52 @@ mod tests {
     fn revoking_a_user_returns_the_revoked_hashes() {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(&dir.path().join("server.db")).unwrap();
-        db.insert_token("h1", "alice").unwrap();
-        db.insert_token("h2", "alice").unwrap();
-        db.insert_token("h3", "bob").unwrap();
+        db.insert_token("h1", "alice", "srv").unwrap();
+        db.insert_token("h2", "alice", "srv").unwrap();
+        db.insert_token("h3", "bob", "srv").unwrap();
         assert!(db.revoke_token("h1").unwrap());
         assert_eq!(db.revoke_user_tokens("alice").unwrap(), ["h2"]);
         assert_eq!(db.token_user("h3").unwrap().as_deref(), Some("bob"));
         assert_eq!(db.token_user("h2").unwrap(), None);
+    }
+
+    #[test]
+    fn tokens_of_other_issuers_are_recorded_on_use() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("server.db")).unwrap();
+        assert!(db.touch_token("t1", "alice", "server-a", 5).unwrap());
+        assert!(db.touch_token("t1", "alice", "server-a", 5).unwrap());
+        let tokens = db.tokens().unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(
+            (tokens[0].issuer.as_str(), tokens[0].created),
+            ("server-a", 5)
+        );
+        assert!(tokens[0].last_used.is_some());
+        db.mark_revoked(vec!["t1".into(), "unknown".into()])
+            .unwrap();
+        assert!(!db.touch_token("t1", "alice", "server-a", 5).unwrap());
+    }
+
+    #[test]
+    fn opaque_tokens_are_dropped_when_the_issuer_column_is_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.db");
+        let db = Db::open(&path).unwrap();
+        db.insert_token("t1", "alice", "srv").unwrap();
+        db.with(|c| {
+            c.execute_batch(
+                "DELETE FROM tokens;
+                 ALTER TABLE tokens DROP COLUMN issuer;
+                 INSERT INTO tokens (token_hash, user_id, created) VALUES ('old', 'alice', 1);",
+            )
+        })
+        .unwrap();
+        drop(db);
+        let db = Db::open(&path).unwrap();
+        assert!(db.tokens().unwrap().is_empty());
+        db.insert_token("t2", "alice", "srv").unwrap();
+        assert_eq!(db.tokens().unwrap()[0].issuer, "srv");
     }
 
     #[test]

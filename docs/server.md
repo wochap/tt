@@ -65,9 +65,9 @@ others can access it), `server.db.lock`, and, while `serve` runs,
 | `user rename --id <id> <new-name>` | Rename by account id: the way to rename a *conflicted* account that shares its name with an older one. |
 | `user del <name>` | Delete an account: it becomes a tombstone (`deleted` time) in the registry, its tokens are revoked and its websockets closed; its documents are kept. The name is free again afterwards. |
 | `user ls` | List accounts with id, creation time, state (`active`, `conflicted (rename it)`, `deleted <time>`) and index document. |
-| `token ls` | List tokens: id (first 12 hex characters of the stored hash), user, created, last used, revoked. |
-| `token revoke <id>` | Revoke one token (give at least 6 characters of its id). |
-| `token revoke --user <name>` | Revoke every live token of a user. |
+| `token ls` | List the tokens this server issued or accepted: id (first 12 hex characters of the token id), user, created, last used, revoked. |
+| `token revoke <id>` | Revoke one token on every member (give at least 6 characters of its id): the id goes into the registry's revocation set. |
+| `token revoke --user <name>` | Revoke every live token of a user that this server knows (issued or accepted here), on every member. |
 | `peer invite [--addr <host:port>] [--name <name>]` | Print a one-time pairing code (valid 10 minutes, single use) for another server's `peer join`. The code holds the peer address (default: the first `--peer-advertise` value, else the `--peer-listen` address, the host name when it binds every interface), this server's id, and a secret; only the secret's SHA-256 is stored. `--name` is the name this server takes if it adopts the joiner's root. Needs a running `serve --peer-listen`, or `--listen <addr:port>`: then the command serves the peer port itself, waits until the code is used and the pairing completes (or the code expires, exit 2), and exits. |
 | `peer join <code> [--name <name>]` | Pair with the server that printed the code. Checks that the server at the code's address proves the key of the code's server id before sending anything; the side with a root writes the other's membership entry; the side without a root fetches the other's whole root and returns once it is stored (see [Root direction](#root-direction)). `--name` is this server's name if it adopts the inviter's root (default: the host name). |
 | `peer ls` | List every other non-revoked member as `name (id prefix)` with its state (`online`, `offline`, `syncing (<n> docs)` with the documents not yet in sync, or `error` with the message), when it was last linked (`now`, `5m ago`, `never`), and the address of the current or last link (see [Addresses](#addresses)). Without a running server every member is `offline` with what the last run recorded. Unpaired, it prints the `peer invite`/`peer join` commands instead. |
@@ -144,7 +144,7 @@ and run `tt login` again on each daemon and sign in again in the web app.
 | `--peer-listen <addr:port>` | | Accept links and pairings from other servers here. Mutual TLS 1.3 of its own: works the same next to `--tls-cert` or `--insecure-http`, and never goes through the reverse proxy. Without it the server still dials members at their known addresses but accepts no inbound links and advertises no address. |
 | `--peer-advertise <host:port>` | | An address at which members reach `--peer-listen`, such as a Tailscale MagicDNS name or a public host name with a forwarded port (repeatable). Advertised to members before the interface addresses, and put into invite codes. |
 | `--peer <host:port>` | | A seed: a member's peer address to dial (repeatable). Stored once; dialed until the member answering on it is known, then kept as one of that member's addresses and never pruned. Usually unnecessary: members learn each other's addresses (see [Addresses](#addresses)). |
-| `--public-url <url>` | | This server's client URL (e.g. `https://laptop-b.example.ts.net`). Passed to members in the link hello and listed by `GET /api/peers`; never used for peer links. |
+| `--public-url <url>` | | This server's client URL, as browsers reach it (e.g. `https://laptop-b.example.ts.net`, the reverse proxy's vhost). Reported by `/api/health`, passed to members in the link hello and listed by `GET /api/peers`, so a web app installed from any member can fail over to this one; its origin is allowed by CORS on `/api/*` and by the `/sync` origin check on every member. Never used for peer links. See [Phones and failover](#phones-and-failover). |
 
 Without TLS flags and without `--insecure-http`, `serve` exits 1 and says
 which of the two to add. Logs go to stderr (`TT_SERVER_LOG`, e.g. `debug`).
@@ -309,7 +309,8 @@ needed when no member is reachable yet.
 ### Operations
 
 The systemd unit in `contrib/tt-server.service` passes
-`--peer-listen 0.0.0.0:8772`; add `--peer-advertise <host:port>` for the
+`--peer-listen 0.0.0.0:8772` and `--public-url` from
+`TT_SERVER_PUBLIC_URL` (set it to this server's client URL); add `--peer-advertise <host:port>` for the
 names members should use (a MagicDNS name, a public host name), and open
 the peer port in the firewall (not in the reverse proxy). `--peer
 <host:port>` lines are only needed for members this server must reach
@@ -360,20 +361,91 @@ must dial before it has linked with anyone. With the firewall limited to
 addresses they advertise are tried first and fail fast. Run `tt-server peer invite|join|ls` as the `tt-server`
 user with `--db /var/lib/tt-server/server.db`.
 
+## Phones and failover
+
+All members share one root and one set of accounts, so one installed web
+app syncs with whichever member is reachable: a phone needs a single
+install and a single login, not one per server.
+
+- **Client URLs.** Give every member `--public-url` with the HTTPS URL
+  browsers use for it. Members learn each other's URL from the link hello;
+  the web app learns the list from `GET /api/peers` after each successful
+  connection and keeps it with its session.
+- **Tokens work on every member.** A token is signed by the member that
+  issued it and verified by any member against the registry, without
+  contacting the issuer. Logout and `token revoke` add the token id to the
+  registry's revocation set, so every member refuses it once the registry
+  change reaches it (members sync the registry when they link; until then
+  an unlinked member still accepts the token).
+- **Failover.** The web app connects to one member at a time: the one that
+  last synced, then the others by most recent success. Each attempt checks
+  `GET /api/health` (5 s timeout, `protocol` in the range the app
+  supports; others are skipped and marked "incompatible version" in
+  Settings), then asks that member for a ticket and opens its `/sync`.
+  After a pass over every member without success it backs off (up to 30 s)
+  and starts again. The status bar names the current member
+  ("Synced · laptop-b"); Settings, Sync, Servers lists every member with
+  the current one marked.
+- **Install once.** The installed app loads from its service-worker
+  cache, so the member it was installed from may be down; it only serves
+  updates of the app itself. A failover host name or a cloud member as the
+  install origin makes updates more available but is not required.
+- **CORS.** `/api/*` answers CORS (methods `GET`/`POST`, headers
+  `Authorization` and `Content-Type`, no credentials) for the origins of the
+  client URLs of non-revoked members, this server included; other origins
+  get no CORS headers. Browsers do not apply CORS to websockets, so `/sync`
+  refuses (403) an upgrade whose `Origin` is neither a member origin nor
+  this server's own host; an upgrade without `Origin` (the daemon, other
+  non-browser clients) is allowed. The ticket remains the authentication.
+- **Certificates on the phone.** The phone must trust every member's
+  certificate, since it talks to each member directly. With Tailscale use
+  the `*.ts.net` certificates (`tailscale cert`), which phones trust
+  already, and the MagicDNS names as client URLs. On a plain LAN with a
+  private CA, install the CA certificate on the phone (Android: Settings,
+  Security, Encryption & credentials, Install a certificate, CA
+  certificate; iOS: install the profile, then enable full trust under
+  General, About, Certificate Trust Settings), and make the client URLs
+  resolve on the LAN.
+- **Misconfigured URL.** A wrong `--public-url` makes that member
+  unreachable from the app; `/api/health` echoes it and `tt-server peer ls`
+  shows each member's URL.
+
+### Moving a phone to one install
+
+Member-wide tokens replace the per-server tokens of earlier versions, so
+every client signs in once more after the upgrade.
+
+1. Upgrade every member and set `--public-url` on each (see
+   [Operations](#operations)).
+2. On the phone, keep one installed tt app (any member's) and, in every
+   other install, sign out (Settings, Log out and wipe local data), then
+   remove the install (long-press the icon, Remove or Uninstall) and clear
+   that site's data in the browser. Local data of the removed installs is not merged; it is
+   already on the servers if it synced.
+3. Open the remaining install and sign in again: old tokens are refused
+   with 401. It downloads everything from the server and, after its first
+   connection, lists every member under Settings, Sync, Servers.
+4. Check failover: stop the member the app is syncing with; within a few
+   seconds the status bar names another member.
+
 ## HTTP API
 
 All bodies are JSON. Errors are `{"error": "…"}`. Authenticated endpoints
 take `Authorization: Bearer <token>` and answer 401 (with
-`WWW-Authenticate: Bearer`) for a missing, unknown, or revoked token.
+`WWW-Authenticate: Bearer`) for a missing, unknown, or revoked token. A
+token issued by any member of the root is accepted. `/api/*` answers CORS
+for member origins (see [Phones and failover](#phones-and-failover)).
+`server` objects are `{id, name, public_url}`; `public_url` is null without
+`--public-url`.
 
 | Endpoint | Auth | Response |
 | --- | --- | --- |
-| `GET /api/health` | – | `{ok:true, version, sessions, state, setup, server:{id,name}}`; `state` is `Ready`, `NeedsDecision` or `Joining`; `setup` is `ready` with a root and `needs-decision` otherwise (also while joining), so the web app shows its not-set-up page instead of the login form; without a root `name` is the host name. |
+| `GET /api/health` | – | `{ok:true, version, protocol, public_url, sessions, state, setup, server:{id,name,public_url}}`; `protocol` is the client protocol version (an integer, bumped on incompatible changes for the web app; currently 2); `public_url` is `--public-url`; `state` is `Ready`, `NeedsDecision` or `Joining`; `setup` is `ready` with a root and `needs-decision` otherwise (also while joining), so the web app shows its not-set-up page instead of the login form; without a root `name` is the host name. |
 | `GET /api/peers` | bearer | `{server:{id,name}, peers:[{id, name, state, pending, last_seen, address, public_url, error}]}`: every other non-revoked member, as `peer ls` shows it. `state` is `online`, `offline`, `syncing` or `error`; `pending` counts documents not yet in sync (0 unless `syncing`); `last_seen` is UTC seconds (null if never linked); `public_url` comes from the member's latest hello. Empty `peers` when unpaired. Any signed-in user may read it. |
 | `POST /api/login` `{username, password}` | – | `{token, index_doc, user:{id,name}, server:{id,name}}`; 401 `invalid username or password` (same for unknown and deleted users); 409 `{"error":"account_conflict"}` when the password matches a conflicted account (below); 429 after 5 attempts per minute from one IP. |
 | `GET /api/me` | bearer | `{user:{id,name}, index_doc, server:{id,name}}` |
-| `POST /api/logout` | bearer | `{ok:true}`; revokes the token and closes its websockets. |
-| `POST /api/ws-ticket` | bearer | `{ticket, expires_in:60}`: single-use, 60 s. |
+| `POST /api/logout` | bearer | `{ok:true}`; revokes the token on every member (registry revocation set) and closes its websockets here at once, and on other members when the registry change reaches them. |
+| `POST /api/ws-ticket` | bearer | `{ticket, expires_in:60}`: single-use, 60 s, valid only on the member that issued it. |
 | `GET /api/export` | bearer | The core JSON export (`docs/export.md`) of the caller's workspace and entries, read only from documents the caller owns (below). |
 | `GET /sync?ticket=<ticket>` | ticket or bearer header | Websocket upgrade (below). |
 | other `/api/*` | – | 404 |
@@ -400,15 +472,19 @@ gets `doc-unavailable`.
   servers: { <server_id>: {
       pubkey, added_by, added_at,             // written once; pubkey: hex
       name: { value, at } } },                // versioned field
-  revoked: { <server_id>: { by, at } } }      // append-only
+  revoked: { <server_id>: { by, at } },       // append-only
+  revoked_tokens: { <tid>: { by, at } } }     // append-only
 ```
 
 `init` lists the initializing server as the first member; `serve` adds
 itself when an older registry lacks it. An entry whose public key does not
 hash to its id is ignored.
 
-Tokens, websocket tickets, invite secrets, rate limits and the login audit
-stay in the local SQLite tables and are never written to the registry.
+Websocket tickets, invite secrets, rate limits and the login audit stay in
+the local SQLite tables and are never written to the registry. Tokens are
+not stored in the registry either (each member records the tokens it issued
+or accepted locally); only the ids of revoked tokens are, in
+`revoked_tokens`.
 Concurrent edits from servers sharing a root resolve the same way on every
 server, whatever order they merge in:
 
@@ -422,7 +498,10 @@ server, whatever order they merge in:
   `account_conflict` (only after the correct password, so it reveals
   nothing), and `user rename --id <id> <new-name>` unblocks them.
 - **Revocation** of a member is final: `revoked` lives outside `servers`,
-  so a concurrent rename or re-add of the member cannot undo it.
+  so a concurrent rename or re-add of the member cannot undo it. Token
+  revocations are final the same way: entries in `revoked_tokens` are never
+  removed, and copies of the map created concurrently by two members are
+  read as their union.
 
 When an account becomes deleted, by `user del` or a merged change, the
 server revokes its tokens and closes its websockets.
@@ -517,12 +596,25 @@ login are never pushed.
   stored as a PHC string. Unknown user names are verified against a dummy
   hash so timing and response do not reveal which names exist. Minimum
   length 8.
-- **Tokens.** 32 random bytes from the OS RNG, base64url, returned once at
-  login; only the SHA-256 is stored. Long-lived until revoked
-  (`tt logout`, `tt-server token revoke`, `tt-server user del`). Revocation
-  takes effect on the next request; open websockets for the token are
-  closed immediately (logout, or the CLI through the admin socket), or
-  within 5 s when the CLI wrote the database directly while no server ran.
+- **Tokens.** `tt2.<base64url(payload)>.<base64url(signature)>`: the
+  payload is `{v:2, iss, tid, uid, iat}` (issuing server id, 16 random
+  bytes of token id, user id, issue time in UTC seconds) and the signature
+  is the issuer's ed25519 signature over the payload bytes, made with its
+  `server.key`. Every member accepts a token when the issuer is a
+  non-revoked member in its registry copy, the signature verifies with the
+  issuer's key, the account is neither deleted nor conflicted, and the
+  token id is not in `revoked_tokens`. No shared secret exists, so a member
+  (or anyone who reads the registry) cannot mint tokens for another
+  issuer; members are root-equivalent anyway. Revoking a member refuses
+  every token it issued and closes their websockets. Members store token
+  ids only. Long-lived until revoked (`tt logout`, `tt-server token
+  revoke`, `tt-server user del`). Revocation takes effect on the next
+  request; open websockets for the token are closed immediately (logout,
+  or the CLI through the admin socket), within 5 s when the CLI wrote the
+  database directly while no server ran, and on other members when the
+  registry change reaches them (revocation lag is bounded by registry
+  sync). Tokens of versions before member-wide tokens are dropped on
+  upgrade.
 - **Login rate limit.** 5 attempts per minute per client IP (sliding
   window); the sixth gets 429. Use `--behind-proxy` behind a reverse proxy,
   otherwise every client shares the proxy's address.
@@ -534,7 +626,9 @@ login are never pushed.
   takes `?ticket=`: 32 random bytes, stored as SHA-256, bound to the user
   and the token that requested it, valid 60 s, consumed atomically on first
   use (a second upgrade with it gets 401), and refused if the token was
-  revoked in between. The long-lived token is never accepted in a URL.
+  revoked in between. Tickets stay local to the member that issued them.
+  The long-lived token is never accepted in a URL. Upgrades whose `Origin`
+  is neither a member origin nor this server's host get 403.
 - **Isolation.** Peer identity comes from the server, not the client.
   Every inbound sync/request is checked against the derived access before the
   repository sees it, and every outbound message is checked again; new

@@ -1,6 +1,8 @@
 // A websocket network adapter for tt-server's `/sync` that fetches a fresh
 // single-use ticket before every connection (the stock adapter reuses one
-// URL forever) and reconnects with exponential backoff capped at 30 s.
+// URL forever) and reconnects with exponential backoff capped at 30 s. The
+// URL provider may pick another member each time (see endpoints.ts); after a
+// close, `onClose` decides whether the next attempt starts at once.
 
 import { cbor, type Message, NetworkAdapter, type PeerId, type PeerMetadata } from "@automerge/automerge-repo/slim";
 
@@ -16,6 +18,8 @@ export type SocketState = "connecting" | "open" | "closed" | "unauthorized";
 export interface TicketSocketOptions {
   /** Resolves to a `wss://…/sync?ticket=…` URL; throws `Unauthorized` on 401. */
   url: () => Promise<string>;
+  /** The socket closed (`opened`: it had connected); true retries at once instead of after the backoff. */
+  onClose?: (opened: boolean) => boolean;
   onState?: (state: SocketState) => void;
   /** Every repo message received from the server. */
   onInbound?: (message: Message) => void;
@@ -120,10 +124,12 @@ export class TicketWebSocketAdapter extends NetworkAdapter {
     socket.addEventListener("close", () => {
       if (this.#socket !== socket) return;
       this.#socket = undefined;
+      const opened = this.#remotePeerId !== undefined;
       if (this.#remotePeerId) this.emit("peer-disconnected", { peerId: this.#remotePeerId });
       this.#remotePeerId = undefined;
       this.#options.onState?.("closed");
-      this.#scheduleRetry();
+      if (!this.#stopped && this.#options.onClose?.(opened)) void this.#open();
+      else this.#scheduleRetry();
     });
   }
 

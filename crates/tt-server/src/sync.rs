@@ -37,7 +37,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     access::Access,
-    api::{ApiError, authenticate, bearer},
+    api::{ApiError, TokenRef, authenticate, bearer, sync_origin_allowed, token_grant},
     app::{App, Session},
     auth::{random_hex, secret_hash},
     registry::Account,
@@ -53,6 +53,16 @@ pub(crate) async fn upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
+    // Browsers always send `Origin`; other clients (daemon, peers) may not.
+    if let Some(origin) = headers.get(axum::http::header::ORIGIN) {
+        let allowed = origin
+            .to_str()
+            .is_ok_and(|origin| sync_origin_allowed(&app, origin, &headers));
+        if !allowed {
+            warn!(origin = ?origin, "refused a websocket upgrade from an unknown origin");
+            return ApiError::new(StatusCode::FORBIDDEN, "origin not allowed").into_response();
+        }
+    }
     if query.contains_key("token") {
         return ApiError::new(
             StatusCode::UNAUTHORIZED,
@@ -63,32 +73,38 @@ pub(crate) async fn upgrade(
     let granted = if let Some(ticket) = query.get("ticket") {
         let hash = secret_hash(ticket);
         match app.db.run(move |db| db.consume_ticket(&hash)).await {
-            Ok(Some(grant)) => match app.view().active(&grant.user_id) {
-                Some(user) => Ok((user.clone(), grant.token_hash)),
-                None => Err(ApiError::unauthorized()),
-            },
+            Ok(Some(grant)) => {
+                match token_grant(&app.view(), &grant.user_id, &grant.issuer, &grant.token_id) {
+                    Some(user) => Ok((
+                        user,
+                        TokenRef {
+                            id: grant.token_id,
+                            issuer: grant.issuer,
+                        },
+                    )),
+                    None => Err(ApiError::unauthorized()),
+                }
+            }
             Ok(None) => Err(ApiError::unauthorized()),
             Err(error) => Err(error.into()),
         }
     } else if let Some(token) = bearer(&headers) {
         authenticate(&app, token)
             .await
-            .map(|auth| (auth.user, auth.token_hash))
+            .map(|auth| (auth.user, auth.token))
     } else {
         Err(ApiError::unauthorized())
     };
     match granted {
-        Ok((user, token_hash)) => {
-            ws.on_upgrade(move |socket| session(app, socket, user, token_hash))
-        }
+        Ok((user, token)) => ws.on_upgrade(move |socket| session(app, socket, user, token)),
         Err(error) => error.into_response(),
     }
 }
 
-async fn session(app: Arc<App>, socket: WebSocket, user: Account, token_hash: String) {
+async fn session(app: Arc<App>, socket: WebSocket, user: Account, token: TokenRef) {
     let close = Arc::new(Notify::new());
     let id = app.register(Session {
-        token_hash,
+        token,
         user_id: user.id.clone(),
         close: close.clone(),
     });

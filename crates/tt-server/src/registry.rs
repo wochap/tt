@@ -11,7 +11,8 @@
 //!   servers: { <server_id>: {
 //!       pubkey, added_by, added_at,          // written once (pubkey: hex)
 //!       name: { value, at } } },             // versioned field
-//!   revoked: { <server_id>: { by, at } } }   // append-only
+//!   revoked: { <server_id>: { by, at } },    // append-only
+//!   revoked_tokens: { <tid>: { by, at } } }  // append-only
 //! ```
 //!
 //! Merges must resolve the same way on every server whatever order changes
@@ -20,10 +21,14 @@
 //! reader takes every conflicting value (`get_all`) and keeps the greatest
 //! `(at, value)`. `deleted` is final: any value present means deleted, and
 //! so is an entry in `revoked`, which lives outside `servers` so that no
-//! concurrent edit of a member's entry can undo it.
+//! concurrent edit of a member's entry can undo it. `revoked_tokens` holds
+//! the ids of tokens revoked by logout or `token revoke`; registries from
+//! before it get the map on their first revocation, and the reader unions
+//! every conflicting copy so two members creating it concurrently lose
+//! nothing.
 //! Nothing ever removes a key. Strings are scalars, never `Text`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use automerge::{
     AutomergeError, ObjId, ObjType, ROOT, ReadDoc, ScalarValue, Value, transaction::Transactable,
@@ -43,6 +48,7 @@ pub fn init<T: Transactable + ReadDoc>(tx: &mut T) -> AmResult<()> {
     tx.put_object(ROOT, "users", ObjType::Map)?;
     tx.put_object(ROOT, "servers", ObjType::Map)?;
     tx.put_object(ROOT, "revoked", ObjType::Map)?;
+    tx.put_object(ROOT, "revoked_tokens", ObjType::Map)?;
     Ok(())
 }
 
@@ -204,6 +210,23 @@ pub fn revoke_server<T: Transactable + ReadDoc>(
     Ok(())
 }
 
+/// Revokes a token by id, for good: the entry is written once and never
+/// removed.
+pub fn revoke_token<T: Transactable + ReadDoc>(
+    tx: &mut T,
+    tid: &str,
+    by: &str,
+    at: i64,
+) -> AmResult<()> {
+    let revoked = top(tx, "revoked_tokens")?;
+    if tx.get(&revoked, tid)?.is_none() {
+        let obj = tx.put_object(&revoked, tid, ObjType::Map)?;
+        tx.put(&obj, "by", by)?;
+        tx.put(&obj, "at", at)?;
+    }
+    Ok(())
+}
+
 /// A revocation: who revoked the member, and when.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Revocation {
@@ -308,6 +331,7 @@ fn deleted<D: ReadDoc>(doc: &D, obj: &ObjId) -> Option<i64> {
 pub struct RegistryView {
     accounts: BTreeMap<String, Account>,
     servers: BTreeMap<String, ServerEntry>,
+    revoked_tokens: BTreeSet<String>,
 }
 
 /// Every revocation of `id` merged: the earliest wins, and any value at all
@@ -365,6 +389,18 @@ fn read_servers<D: ReadDoc>(doc: &D) -> BTreeMap<String, ServerEntry> {
     servers
 }
 
+/// Every revoked token id, from every conflicting copy of the map.
+fn read_revoked_tokens<D: ReadDoc>(doc: &D) -> BTreeSet<String> {
+    let Ok(copies) = doc.get_all(ROOT, "revoked_tokens") else {
+        return BTreeSet::new();
+    };
+    copies
+        .into_iter()
+        .filter(|(value, _)| matches!(value, Value::Object(ObjType::Map)))
+        .flat_map(|(_, obj)| doc.keys(&obj).collect::<Vec<_>>())
+        .collect()
+}
+
 /// Reads the registry. Accounts missing write-once fields (a partial merge
 /// that cannot happen with this writer) are skipped.
 pub fn read<D: ReadDoc>(doc: &D) -> RegistryView {
@@ -399,6 +435,7 @@ pub fn read<D: ReadDoc>(doc: &D) -> RegistryView {
     let mut view = RegistryView {
         accounts,
         servers: read_servers(doc),
+        revoked_tokens: read_revoked_tokens(doc),
     };
     view.flag_conflicts();
     view
@@ -478,6 +515,18 @@ impl RegistryView {
             .is_some_and(|entry| {
                 !entry.is_revoked() && entry.public_key().as_deref() == Some(pubkey)
             })
+    }
+
+    /// Whether a token id is in the replicated revocation set.
+    #[must_use]
+    pub fn is_token_revoked(&self, tid: &str) -> bool {
+        self.revoked_tokens.contains(tid)
+    }
+
+    /// Every revoked token id.
+    #[must_use]
+    pub fn revoked_tokens(&self) -> &BTreeSet<String> {
+        &self.revoked_tokens
     }
 
     /// Every account, deleted ones included, by name then creation.
@@ -707,6 +756,43 @@ mod tests {
             view.server(&c.id).unwrap().revoked.as_ref().unwrap().by,
             "server-b"
         );
+    }
+
+    #[test]
+    fn token_revocation_survives_concurrent_edits() {
+        let (mut a, mut b) = forked();
+        revoke_token(&mut a, "tid-1", "server-a", 1000).unwrap();
+        // Unrelated edits on the other side, including a revocation of
+        // another token and an account change.
+        set_password(&mut b, "b0b", "new-hash", 1001).unwrap();
+        revoke_token(&mut b, "tid-2", "server-b", 1002).unwrap();
+        add_server(&mut b, &new_server(4, "laptop-d")).unwrap();
+        let view = merge_both(a, b);
+        assert!(view.is_token_revoked("tid-1"));
+        assert!(view.is_token_revoked("tid-2"));
+        assert!(!view.is_token_revoked("tid-3"));
+        assert_eq!(view.get("b0b").unwrap().password_hash, "new-hash");
+
+        // Revoked twice concurrently: still revoked.
+        let (mut a, mut b) = forked();
+        revoke_token(&mut a, "tid-1", "server-a", 1000).unwrap();
+        revoke_token(&mut b, "tid-1", "server-b", 900).unwrap();
+        assert!(merge_both(a, b).is_token_revoked("tid-1"));
+    }
+
+    #[test]
+    fn token_revocations_in_a_map_created_concurrently_are_all_kept() {
+        // A registry from before `revoked_tokens`: both sides create the
+        // map on their first revocation.
+        let mut origin = AutoCommit::new();
+        origin.put(ROOT, "kind", KIND_REGISTRY).unwrap();
+        origin.put_object(ROOT, "users", ObjType::Map).unwrap();
+        let (mut a, mut b) = (origin.fork(), origin.fork());
+        revoke_token(&mut a, "tid-a", "server-a", 1000).unwrap();
+        revoke_token(&mut b, "tid-b", "server-b", 1000).unwrap();
+        let view = merge_both(a, b);
+        assert!(view.is_token_revoked("tid-a"));
+        assert!(view.is_token_revoked("tid-b"));
     }
 
     #[test]

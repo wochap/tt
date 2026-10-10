@@ -52,12 +52,12 @@ async fn login_me_logout_and_audit() {
     let server_id = server.server().app().identity().server_id().to_owned();
     assert_eq!(
         body["server"],
-        json!({"id": server_id, "name": "test-server"})
+        json!({"id": server_id, "name": "test-server", "public_url": null})
     );
     let login = server.login("alice").await;
     assert_eq!(login.user_id, alice.id);
     assert_eq!(login.index_doc, alice.index_doc);
-    assert_eq!(login.token.len(), 43);
+    assert!(login.token.starts_with("tt2."), "{}", login.token);
 
     let audit = Db::open(&server.db()).unwrap().login_audit(10).unwrap();
     assert_eq!(audit.len(), 4);
@@ -65,10 +65,11 @@ async fn login_me_logout_and_audit() {
     assert!(!audit[2].success && audit[2].username == "mallory");
     assert!(!audit[3].success && audit[3].reason == "invalid credentials");
 
-    // Only hashes are stored.
+    // Only token ids are stored, with this server as their issuer.
     let tokens = Db::open(&server.db()).unwrap().tokens().unwrap();
     assert_eq!(tokens.len(), 2);
-    assert_ne!(tokens[0].token_hash, login.token);
+    assert!(tokens.iter().all(|token| token.token_id.len() == 32));
+    assert!(tokens.iter().all(|token| token.issuer == server_id));
 
     let (status, me) = get(&base, "/api/me", Some(&login.token)).await;
     assert_eq!(status, 200);
@@ -213,6 +214,8 @@ async fn health_and_unknown_api_paths() {
     assert_eq!(body["ok"], true);
     assert_eq!(body["state"], "Ready");
     assert_eq!(body["setup"], "ready");
+    assert_eq!(body["protocol"], tt_server::api::PROTOCOL);
+    assert_eq!(body["public_url"], serde_json::Value::Null);
     assert_eq!(body["server"]["name"], "test-server");
     let id = body["server"]["id"].as_str().unwrap();
     assert_eq!(id, server.server().app().identity().server_id());

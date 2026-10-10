@@ -82,13 +82,15 @@ function useVisible(ref: RefObject<HTMLElement | null>): boolean {
  * (pairing happens in the CLI). Refreshes every `refreshMs` only while the
  * section is on screen; a failed refresh keeps the last list, marked stale.
  */
-export function ServerSection({ refreshMs = 10_000 }: { refreshMs?: number }) {
+export function ServerSection({ refreshMs = 10_000, server: current }: { refreshMs?: number; server?: string }) {
   const { auth } = useSession();
+  // The member the app syncs with now; the signed-in server until connected.
+  const server = current ?? auth.server;
   const phone = usePhone();
   const now = useNow(5000);
   const ref = useRef<HTMLElement>(null);
   const visible = useVisible(ref);
-  const key = `${auth.server} ${auth.token}`;
+  const key = `${server} ${auth.token}`;
   const [status, setStatus] = useState<ServerStatus>(() => cache.get(key) ?? EMPTY);
 
   useEffect(() => {
@@ -96,8 +98,8 @@ export function ServerSection({ refreshMs = 10_000 }: { refreshMs?: number }) {
     const controller = new AbortController();
     const load = async () => {
       const [health, peers] = await Promise.all([
-        fetchHealth(auth.server, controller.signal),
-        fetchPeers({ server: auth.server, token: auth.token }, controller.signal),
+        fetchHealth(server, controller.signal),
+        fetchPeers({ server, token: auth.token }, controller.signal),
       ]);
       if (controller.signal.aborted) return;
       setStatus((previous) => {
@@ -117,10 +119,11 @@ export function ServerSection({ refreshMs = 10_000 }: { refreshMs?: number }) {
       controller.abort();
       clearInterval(timer);
     };
-  }, [visible, auth.server, auth.token, key, refreshMs]);
+  }, [visible, server, auth.token, key, refreshMs]);
 
-  const name = status.peers?.server.name ?? status.health?.server.name ?? serverName(auth);
-  const id = status.peers?.server.id || status.health?.server.id || auth.identity?.id || "";
+  const signedIn = server === auth.server;
+  const name = status.peers?.server.name ?? status.health?.server.name ?? (signedIn ? serverName(auth) : new URL(server).host);
+  const id = status.peers?.server.id || status.health?.server.id || (signedIn ? auth.identity?.id : "") || "";
   const short = id.slice(0, 8);
   const peers = status.peers?.peers;
   const reach = peers?.filter((p) => p.state === "online" || p.state === "syncing").length ?? 0;

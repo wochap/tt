@@ -50,7 +50,9 @@ export default defineConfig(({ mode }) => ({
         navigateFallbackDenylist: [/^\/api\//, /^\/sync/],
         runtimeCaching: [
           {
-            urlPattern: ({ url }) => url.pathname.startsWith("/api/"),
+            // Only this origin's API: calls to other member servers (failover)
+            // go straight to the network.
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith("/api/"),
             handler: "NetworkFirst",
             options: { cacheName: "tt-api", networkTimeoutSeconds: 5 },
           },
@@ -74,7 +76,15 @@ export default defineConfig(({ mode }) => ({
   server: {
     proxy: {
       "/api": { target: server, changeOrigin: true },
-      "/sync": { target: server.replace(/^http/, "ws"), ws: true, changeOrigin: true },
+      // tt-server refuses websocket upgrades whose `Origin` is neither a
+      // member's client URL nor its own host; the dev server's origin is
+      // neither, so the proxy drops the header (a missing `Origin` is allowed).
+      "/sync": {
+        target: server.replace(/^http/, "ws"),
+        ws: true,
+        changeOrigin: true,
+        configure: (proxy) => proxy.on("proxyReqWs", (request) => request.removeHeader("origin")),
+      },
     },
   },
   test: {

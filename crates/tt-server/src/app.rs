@@ -5,7 +5,7 @@
 //! when no server holds it.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     path::PathBuf,
     sync::{
@@ -135,7 +135,7 @@ impl std::fmt::Display for UserRef {
 }
 
 pub(crate) struct Session {
-    pub token_hash: String,
+    pub token: crate::api::TokenRef,
     pub user_id: String,
     pub close: Arc<Notify>,
 }
@@ -165,6 +165,9 @@ pub struct App {
     refreshing: tokio::sync::Mutex<()>,
     sessions: Mutex<HashMap<u64, Session>>,
     next_session: AtomicU64,
+    /// Origins of the client URLs of every non-revoked member, this server
+    /// included: CORS on `/api/*` and the `/sync` origin check allow them.
+    origins: RwLock<HashSet<String>>,
     pub(crate) tasks: Mutex<Vec<JoinHandle<()>>>,
 }
 
@@ -238,6 +241,12 @@ impl App {
         };
         let joining = if root.is_none() { db.joining()? } else { None };
         let peering = Peering::new(&identity, &access)?;
+        let own_origin = options
+            .public_url
+            .as_deref()
+            .and_then(crate::api::origin_of)
+            .into_iter()
+            .collect();
         let app = Arc::new(Self {
             limiter: RateLimiter::new(options.login_limit, options.login_window),
             options,
@@ -255,6 +264,7 @@ impl App {
             refreshing: tokio::sync::Mutex::new(()),
             sessions: Mutex::new(HashMap::new()),
             next_session: AtomicU64::new(1),
+            origins: RwLock::new(own_origin),
             tasks: Mutex::new(Vec::new()),
         });
         app.watch_inventory();
@@ -358,6 +368,7 @@ impl App {
         };
         let view = Arc::new(handle.read(registry::read).await?);
         let previous = std::mem::replace(&mut *self.view.write().unwrap(), view.clone());
+        self.apply_token_revocations(&previous, &view).await?;
         for account in view.accounts() {
             let newly_deleted = account.is_deleted() && previous.active(&account.id).is_some()
                 || account.is_deleted() && previous.get(&account.id).is_none();
@@ -397,6 +408,71 @@ impl App {
                 info!(server = %crate::identity::id_prefix(&server), "member no longer trusted; closing its link");
                 self.transport.close_link(&server);
             }
+        }
+        self.refresh_origins().await
+    }
+
+    /// Recomputes the member origins from this server's `--public-url` and
+    /// the client URLs non-revoked members sent in their latest hello.
+    pub(crate) async fn refresh_origins(&self) -> Result<()> {
+        let seen = self.db.run(|db| db.peer_seen()).await?;
+        let view = self.view();
+        let own = self.identity.server_id();
+        let mut origins: HashSet<String> = self
+            .options
+            .public_url
+            .as_deref()
+            .and_then(crate::api::origin_of)
+            .into_iter()
+            .collect();
+        origins.extend(
+            view.servers()
+                .into_iter()
+                .filter(|entry| !entry.is_revoked() && entry.id != own)
+                .filter_map(|entry| seen.get(&entry.id)?.public_url.as_deref())
+                .filter_map(crate::api::origin_of),
+        );
+        *self.origins.write().unwrap() = origins;
+        Ok(())
+    }
+
+    /// Whether `origin` (an `Origin` header value) is a member's client URL
+    /// origin.
+    #[must_use]
+    pub fn is_member_origin(&self, origin: &str) -> bool {
+        crate::api::origin_of(origin)
+            .is_some_and(|origin| self.origins.read().unwrap().contains(&origin))
+    }
+
+    /// Closes sessions whose token was revoked, or whose issuer was revoked,
+    /// since `previous`, and records those token revocations locally.
+    async fn apply_token_revocations(
+        &self,
+        previous: &RegistryView,
+        view: &RegistryView,
+    ) -> Result<()> {
+        let tokens: Vec<String> = view
+            .revoked_tokens()
+            .difference(previous.revoked_tokens())
+            .cloned()
+            .collect();
+        let mut closed = 0;
+        for id in &tokens {
+            closed += self.close_token_sessions(id);
+        }
+        for entry in view.servers().into_iter().filter(|entry| {
+            entry.is_revoked()
+                && previous
+                    .server(&entry.id)
+                    .is_none_or(|old| !old.is_revoked())
+        }) {
+            closed += self.close_sessions(|session| session.token.issuer == entry.id);
+        }
+        if closed > 0 {
+            info!(closed, "tokens revoked; closed sync sessions");
+        }
+        if !tokens.is_empty() {
+            self.db.run(move |db| db.mark_revoked(tokens)).await?;
         }
         Ok(())
     }
@@ -460,12 +536,14 @@ impl App {
             .map(|root| root.record.clone())
     }
 
-    /// `{id, name}` as the API reports it; `name` is null before `init`.
+    /// `{id, name, public_url}` as the API reports it; `name` is null before
+    /// `init`, `public_url` without `--public-url`.
     #[must_use]
     pub fn server_json(&self) -> Value {
         json!({
             "id": self.identity.server_id(),
             "name": self.root().filter(|_| self.state() == RootState::Ready).map(|root| root.name),
+            "public_url": self.options.public_url,
         })
     }
 
@@ -487,9 +565,9 @@ impl App {
         self.sessions.lock().unwrap().remove(&id);
     }
 
-    /// Closes every open session authenticated by `token_hash`.
-    pub(crate) fn close_token_sessions(&self, token_hash: &str) -> usize {
-        self.close_sessions(|session| session.token_hash == token_hash)
+    /// Closes every open session authenticated by the token `token_id`.
+    pub(crate) fn close_token_sessions(&self, token_id: &str) -> usize {
+        self.close_sessions(|session| session.token.id == token_id)
     }
 
     /// Closes every open session of a user.
@@ -783,21 +861,39 @@ impl App {
             .tokens()
             .await?
             .into_iter()
-            .filter(|token| token.revoked.is_none() && token.token_hash.starts_with(id))
+            .filter(|token| token.revoked.is_none() && token.token_id.starts_with(id))
             .collect();
         let token = match matches.as_slice() {
             [] => return Err(AdminError::NoSuchToken(id.into()).into()),
             [one] => one.clone(),
             _ => return Err(AdminError::AmbiguousToken(id.into()).into()),
         };
-        let hash = token.token_hash.clone();
-        self.db
-            .run(move |db| db.revoke_token(&hash))
+        let closed = self
+            .revoke_token_ids(vec![token.token_id.clone()])
             .await
             .context("revoking token")?;
-        let closed = self.close_token_sessions(&token.token_hash);
         info!(token = token.id(), user = %token.user_name, closed, "token revoked");
         Ok(token)
+    }
+
+    /// Revokes tokens on every member: adds their ids to the registry's
+    /// revocation set and closes the sessions using them here; returns how
+    /// many sessions closed.
+    pub(crate) async fn revoke_token_ids(&self, ids: Vec<String>) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let _writer = self.writer.lock().await;
+        let local = ids.clone();
+        self.db.run(move |db| db.mark_revoked(local)).await?;
+        let (by, at, revoked) = (self.identity.server_id().to_owned(), now_ms(), ids.clone());
+        self.write_registry(move |tx| {
+            revoked
+                .iter()
+                .try_for_each(|id| registry::revoke_token(tx, id, &by, at))
+        })
+        .await?;
+        Ok(ids.iter().map(|id| self.close_token_sessions(id)).sum())
     }
 
     /// Revokes every live token of a user and closes their sessions;
@@ -805,14 +901,13 @@ impl App {
     pub async fn revoke_user_tokens(&self, user: &UserRef) -> Result<usize> {
         let account = self.resolve(user)?;
         let user_id = account.id.clone();
-        let hashes = self
+        let ids = self
             .db
             .run(move |db| db.revoke_user_tokens(&user_id))
             .await?;
-        for hash in &hashes {
-            self.close_token_sessions(hash);
-        }
-        Ok(hashes.len())
+        let count = ids.len();
+        self.revoke_token_ids(ids).await?;
+        Ok(count)
     }
 
     // ---------- lifecycle ----------
@@ -825,7 +920,7 @@ impl App {
             let hashes: Vec<String> = {
                 let sessions = self.sessions.lock().unwrap();
                 let mut hashes: Vec<String> =
-                    sessions.values().map(|s| s.token_hash.clone()).collect();
+                    sessions.values().map(|s| s.token.id.clone()).collect();
                 hashes.sort();
                 hashes.dedup();
                 hashes

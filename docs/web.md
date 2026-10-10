@@ -33,10 +33,23 @@ Playwright's Chromium, or a system Chrome (`TT_E2E_CHROME`).
   worker asks `POST /api/ws-ticket` for a single-use ticket and opens
   `/sync?ticket=…`; the bearer token never goes into a URL. Reconnects back
   off exponentially, capped at 30 s; a 401 stops and shows "Sign in again".
+- **Member failover** (`src/sync/endpoints.ts`, `member-endpoints.ts`): the
+  worker syncs with one member server of the root at a time. It keeps the
+  members' client URLs (`{server_id, name, public_url, last_ok}`) with the
+  session, seeded with the sign-in server and refreshed from `/api/peers` of
+  the member it just connected to. Each attempt checks `/api/health` (5 s
+  timeout; a `protocol` outside `SUPPORTED_PROTOCOLS` marks the member
+  incompatible and skips it), takes a ticket from that member and opens its
+  `/sync`. The last member that synced goes first; after a drop the next
+  member is tried at once, and only a full pass without success backs off.
+  A 401 from every member that answered means "Sign in again". All members
+  sync into the same IndexedDB repo; signing out drops the list with the
+  session. Settings, Sync, Servers lists the members, the current one marked.
 - **Sync status** (`src/sync/pending.ts`): every sync message from the server
   carries its heads; local changes beyond them are "pending". The status bar
-  names the server: "Synced · laptop-a · 14s ago", "Syncing 3 changes ·
-  laptop-a", or "laptop-a unreachable · 5 changes saved here"; its tooltip adds
+  names the member it syncs with: "Synced · laptop-a · 14s ago", "Syncing 3
+  changes · laptop-a", or "laptop-a unreachable · 5 changes saved here" ("Offline
+  · 5 changes saved here" when several members are known); its tooltip adds
   the short server id (first 8 characters), last sync and pending count.
 - **Session and server identity** (`src/sync/auth.ts`): login stores the
   token, index document id and the server's `{id, name}` together, and

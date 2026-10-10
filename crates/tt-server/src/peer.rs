@@ -572,6 +572,8 @@ impl App {
                 .await;
             if let Err(error) = recorded {
                 warn!(error = %format!("{error:#}"), "recording a peer link failed");
+            } else if let Err(error) = self.refresh_origins().await {
+                warn!(error = %format!("{error:#}"), "updating member origins failed");
             }
         }
         let mut gate = PeerGate {

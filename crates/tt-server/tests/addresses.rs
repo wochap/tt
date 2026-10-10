@@ -184,6 +184,10 @@ async fn members_store_each_others_advertised_addresses_and_client_urls() {
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["server"]["id"], a_id);
     assert_eq!(body["server"]["name"], "laptop-a");
+    assert_eq!(
+        body["server"]["public_url"],
+        "https://laptop-a.example.ts.net"
+    );
     let peers = body["peers"].as_array().unwrap();
     assert_eq!(peers.len(), 1, "{body}");
     let peer = &peers[0];

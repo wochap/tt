@@ -6,6 +6,10 @@ import type { Auth } from "./protocol.ts";
 
 export interface Health {
   version: string;
+  /** Client protocol version; 1 for servers from before the field. */
+  protocol: number;
+  /** The server's `--public-url`, if set. */
+  public_url: string | null;
   server: { id: string; name: string };
   /** `needs-decision` until `tt-server init` or `tt-server peer join` has run. */
   setup: "ready" | "needs-decision";
@@ -27,7 +31,7 @@ export interface Peer {
 }
 
 export interface Peers {
-  server: { id: string; name: string | null };
+  server: { id: string; name: string | null; public_url?: string | null };
   peers: Peer[];
 }
 
@@ -36,9 +40,17 @@ export async function fetchHealth(server: string, signal?: AbortSignal): Promise
   try {
     const response = await fetch(`${server}/api/health`, { signal, cache: "no-store" });
     if (!response.ok) return null;
-    const body = (await response.json()) as { version?: string; server?: { id?: string; name?: string | null } | null; setup?: string };
+    const body = (await response.json()) as {
+      version?: string;
+      protocol?: number;
+      public_url?: string | null;
+      server?: { id?: string; name?: string | null } | null;
+      setup?: string;
+    };
     return {
       version: body.version ?? "",
+      protocol: typeof body.protocol === "number" ? body.protocol : 1,
+      public_url: body.public_url ?? null,
       server: { id: body.server?.id ?? "", name: body.server?.name || new URL(server).host },
       // Servers from before the setup field are set up by definition.
       setup: body.setup === "needs-decision" ? "needs-decision" : "ready",

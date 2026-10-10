@@ -1,4 +1,4 @@
-import { type SyncStatus as Status, serverName } from "@/sync/protocol";
+import { type Auth, type SyncStatus as Status, serverName } from "@/sync/protocol";
 
 import { Tooltip } from "@/components/ui/tooltip";
 import { useNow, useSession } from "@/data/react";
@@ -49,17 +49,29 @@ export function syncLabel(status: Status, now: number, server?: string): { text:
   }
 }
 
+/** The member the app syncs with now, or the signed-in server while not connected. */
+export function memberName(status: Status, auth: Auth): string {
+  return status.member?.name ?? serverName(auth);
+}
+
+/** The name the status names: none while offline with several members (any of them would do). */
+function labelServer(status: Status, auth: Auth): string | undefined {
+  return status.state === "offline" && (status.members?.length ?? 0) > 1 ? undefined : memberName(status, auth);
+}
+
 /** Tooltip body (frame 5.1): server name and short id, last sync, pending, offline promise. */
 export function SyncDetails({ status, now }: { status: Status; now: number }) {
   const { auth } = useSession();
-  const name = serverName(auth);
+  const name = memberName(status, auth);
+  const id = status.member?.server_id || auth.identity?.id;
+  const several = (status.members?.length ?? 0) > 1;
   const at = status.lastSync ? new Date(status.lastSync) : null;
   return (
     <div className="flex w-[260px] flex-col gap-[6px] p-1" data-testid="sync-details">
       <div className="flex items-center gap-2">
         <span className={cn("size-2 rounded-full", DOT[status.state])} />
         <span className="text-[13px] font-medium">{name}</span>
-        {auth.identity && <span className="font-mono text-[11px] text-faint">{auth.identity.id.slice(0, 8)}</span>}
+        {id && <span className="font-mono text-[11px] text-faint">{id.slice(0, 8)}</span>}
       </div>
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-[2px] text-muted">
         <span>Last sync</span>
@@ -67,7 +79,9 @@ export function SyncDetails({ status, now }: { status: Status; now: number }) {
         <span>Pending</span>
         <span className="text-sub1">{changes(status.pending)}</span>
       </div>
-      <div className="text-muted">Changes are saved on this device and sync when {name} is reachable.</div>
+      <div className="text-muted">
+        Changes are saved on this device and sync when {several ? "one of your servers" : name} is reachable.
+      </div>
       {status.mode === "dedicated" && <div className="text-faint">This browser has no SharedWorker: each tab syncs on its own.</div>}
     </div>
   );
@@ -80,8 +94,8 @@ export function SyncDetails({ status, now }: { status: Status; now: number }) {
 export function SyncStatus({ status, compact = false }: { status: Status; compact?: boolean }) {
   const { auth } = useSession();
   const now = useNow(5000);
-  const name = serverName(auth);
-  const { text, dot } = syncLabel(status, now, name);
+  const name = memberName(status, auth);
+  const { text, dot } = syncLabel(status, now, labelServer(status, auth));
   return (
     <Tooltip content={<SyncDetails status={status} now={now} />}>
       <span

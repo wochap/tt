@@ -1,7 +1,8 @@
-// The session: server origin and identity, bearer token, index document and
-// user. Kept in localStorage ("stay signed in") or sessionStorage, never in a URL.
+// The session: server origin and identity, bearer token, index document,
+// user, and the member endpoint list. Kept in localStorage ("stay signed in")
+// or sessionStorage, never in a URL.
 
-import type { Auth, ServerIdentity } from "./protocol.ts";
+import type { Auth, Endpoint, ServerIdentity } from "./protocol.ts";
 
 const KEY = "tt.auth";
 const SERVER_KEY = "tt.server";
@@ -48,6 +49,13 @@ export function updateAuth(auth: Auth): void {
   storage?.setItem(KEY, JSON.stringify(auth));
 }
 
+/** Stores the worker's refreshed endpoint list with the session it belongs to (dropped if signed out since). */
+export function saveEndpoints(token: string, endpoints: Endpoint[]): void {
+  const current = loadAuth();
+  if (current?.token === token) updateAuth({ ...current, endpoints });
+}
+
+/** Signs out locally: the session and its endpoint list go. */
 export function clearAuth(): void {
   localStorage.removeItem(KEY);
   sessionStorage.removeItem(KEY);
@@ -123,16 +131,24 @@ export async function fetchIdentity(server: string, signal?: AbortSignal): Promi
   }
 }
 
-/** Revokes the token on the server; offline logout still proceeds locally. */
+/**
+ * Revokes the token through the first member that answers (any member
+ * revokes it on all of them); offline logout still proceeds locally.
+ */
 export async function revoke(auth: Auth): Promise<void> {
-  try {
-    await fetch(`${auth.server}/api/logout`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${auth.token}` },
-    });
-  } catch {
-    // offline: the token stays valid until revoked on the server
+  const servers = [...new Set([auth.server, ...(auth.endpoints ?? []).map((endpoint) => endpoint.public_url)])];
+  for (const server of servers) {
+    try {
+      await fetch(`${server}/api/logout`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${auth.token}` },
+      });
+      return;
+    } catch {
+      // unreachable: try the next member
+    }
   }
+  // offline: the token stays valid until revoked on a server
 }
 
 export async function reachable(server: string, signal?: AbortSignal): Promise<boolean> {
