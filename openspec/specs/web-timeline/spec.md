@@ -6,11 +6,15 @@ TBD - created by syncing change web. Day/week/month views, lanes, running strip,
 ## Requirements
 
 ### Requirement: Day, week and month views
-The timeline SHALL offer day, week and month views with previous/next/today navigation, a jump-to-date popover with calendar and natural-language input, and keyboard shortcuts per the design.
+The timeline SHALL offer day, week and month views with previous/next/today navigation, a jump-to-date popover with calendar and natural-language input, and keyboard shortcuts per the design. On phone layouts, the scrolling day timeline SHALL show a fade and a scroll indicator at its bottom edge while more content is below, and hide them when scrolled to the end.
 
 #### Scenario: Month to day
 - **WHEN** the user clicks a day cell in month view
 - **THEN** day view opens on that date
+
+#### Scenario: Phone day scroll affordance
+- **WHEN** the phone day view has more hours below the visible area
+- **THEN** a bottom fade and scroll indicator are shown, and they disappear once the user scrolls to the end
 
 ### Requirement: Overlapping entries render in lanes
 Entries that overlap in time SHALL render side by side in equal lanes with a 3 px gutter; running entries SHALL extend to now with a live edge; two running entries SHALL be visually distinct.

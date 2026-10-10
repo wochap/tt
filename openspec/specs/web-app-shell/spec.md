@@ -6,7 +6,7 @@ TBD - created by syncing change web. Login, theming (Mocha/Latte/system), routin
 ## Requirements
 
 ### Requirement: Login and session
-The app SHALL present a login form (username, password, "stay signed in", server endpoint override) titled with the server's name and showing its URL, call `POST /api/login`, store the token, index document id and server identity, and stay usable offline afterward until logout. A 409 `account_conflict` response SHALL show a dedicated error explaining that the account name is also used on another server and must be renamed by the admin, distinct from the wrong-password error.
+The app SHALL present a login form (username, password, "stay signed in", server endpoint override) titled with the server's name and showing its URL, call `POST /api/login`, store the token, index document id and server identity, and stay usable offline afterward until logout. Below the Sign in button the form SHALL show the muted line "Works on all paired servers". A 409 `account_conflict` response SHALL show a dedicated error explaining that the account name is also used on another server and must be renamed by the admin, distinct from the wrong-password error.
 
 #### Scenario: Offline after login
 - **WHEN** the user has logged in once and later loads the app without network
@@ -15,6 +15,10 @@ The app SHALL present a login form (username, password, "stay signed in", server
 #### Scenario: Server name on login
 - **WHEN** the login page loads from server `laptop-a`
 - **THEN** it reads "Sign in to laptop-a" and shows the server URL
+
+#### Scenario: One sign-in for all members
+- **WHEN** the login page loads
+- **THEN** the line "Works on all paired servers" appears under the Sign in button
 
 #### Scenario: Account conflict
 - **WHEN** login returns 409 `account_conflict`
@@ -57,11 +61,15 @@ Settings SHALL include a Server section between Sync and Shortcuts showing this 
 - **THEN** the empty state with both CLI commands is shown
 
 ### Requirement: Empty states
-Day, week, month, tasks and reports SHALL render the design's empty states with a primary action for a user with no data.
+Day, week, month, tasks and reports SHALL render the design's empty states with a primary action for a user with no data. The empty month state SHALL be a card placed in the page flow above the month grid, so it never covers day numbers or cells.
 
 #### Scenario: New user
 - **WHEN** a user with no tasks opens the timeline
 - **THEN** the empty state offers "Create your first task" and "Start tracking"
+
+#### Scenario: Empty month does not cover the grid
+- **WHEN** month view shows a month without entries
+- **THEN** the "No time tracked this month" card appears above the grid and every day number stays visible and clickable
 
 ### Requirement: Server identity in the shell
 The status bar sync label and its tooltip, the phone header, and the account menu SHALL name the server the app syncs with (for example "Synced · laptop-a", "wochap on laptop-a"), using the identity stored at login so it is shown offline too.

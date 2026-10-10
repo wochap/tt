@@ -33,11 +33,27 @@ The worker SHALL connect to one member at a time, trying the last member that sy
 - **THEN** the app skips `laptop-b` and connects to another member
 
 ### Requirement: Current member display
-The sync status SHALL name the member the app currently syncs with (for example "Synced · laptop-b"), and Settings SHALL list the known members with which one is current.
+The sync status SHALL name the member the app currently syncs with (for example "Synced · laptop-b"), and Settings SHALL list the known members with which one is current. When the app switches to another member, the status line SHALL show "Switched to <member>" with an accent tint for 4 seconds and then return to the normal status text; the switch SHALL NOT raise a toast or block any interaction. The sync tooltip SHALL summarize the other known members: "Also reachable: <names>" for members that answered their last health check, and "Other members: <names> (unreachable)" for members that did not. Each member row in Settings SHALL show the member's name, short id (first 8 characters), URL and one state: Connected (the member in use, marked "in use"), Reachable, Unreachable, or "Skipped: incompatible version (<version>)", with a note that the list is read-only and the app picks a member by itself.
 
 #### Scenario: Failover visible
 - **WHEN** the app switches from `laptop-a` to `laptop-b`
 - **THEN** the status bar shows `laptop-b` without a reload
+
+#### Scenario: Switch notice fades
+- **WHEN** the app switches from `laptop-a` to `laptop-b`
+- **THEN** the status line reads "Switched to laptop-b" with an accent tint, no toast appears, and after 4 seconds it reads "Synced · laptop-b"
+
+#### Scenario: Tooltip lists reachable members
+- **WHEN** the app syncs with `laptop-b` and `laptop-a` answered its last health check
+- **THEN** the sync tooltip contains "Also reachable: laptop-a"
+
+#### Scenario: Tooltip lists unreachable members
+- **WHEN** the app syncs with `laptop-b` and `laptop-a` did not answer its last health check
+- **THEN** the sync tooltip contains "Other members: laptop-a (unreachable)"
+
+#### Scenario: Member states in Settings
+- **WHEN** Settings → Sync lists `laptop-b` in use, `laptop-a` answering, `cloud` not answering, and `old` reporting an unsupported protocol with version 1.2.0
+- **THEN** the rows read Connected with an "in use" marker, Reachable, Unreachable, and "Skipped: incompatible version (1.2.0)", each with its short id and URL
 
 ### Requirement: Single install across members
 The app installed from any member SHALL work against every member of the same root. Signing out SHALL wipe local data and the endpoint list, as it does today.
@@ -45,3 +61,10 @@ The app installed from any member SHALL work against every member of the same ro
 #### Scenario: Second install not needed
 - **WHEN** the user has installed the app from `laptop-a` and later only `laptop-b` is up
 - **THEN** the installed app continues to sync through `laptop-b` and the user is never asked to install from `laptop-b`
+
+### Requirement: Reachability of members not in use
+While the app is connected to one member, it SHALL check the health endpoint of every other known member at most once per minute and record whether it answered and, when it answered, its reported version and protocol. The check SHALL NOT open a sync connection, SHALL NOT request a ticket, and SHALL stop while the app has no network or is signed out.
+
+#### Scenario: Other member comes back
+- **WHEN** `laptop-a` was unreachable and starts answering while the app syncs with `laptop-b`
+- **THEN** within about a minute Settings shows `laptop-a` as Reachable and the app stays connected to `laptop-b`
