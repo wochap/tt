@@ -32,3 +32,10 @@ The app SHALL be installable and SHALL load its shell from cache when offline.
 #### Scenario: Cold offline load
 - **WHEN** the installed app is opened with no network
 - **THEN** the shell loads from cache and local documents render
+
+### Requirement: Tickets come from the connected member
+Before each websocket connection the worker SHALL obtain the single-use ticket from `POST /api/ws-ticket` of the member it is about to connect to, using the member-wide token, and SHALL never send a ticket from one member to another.
+
+#### Scenario: Ticket on failover
+- **WHEN** the worker fails over from `laptop-a` to `laptop-b`
+- **THEN** it requests a new ticket from `laptop-b` and opens `laptop-b`'s `/sync` with it

@@ -62,3 +62,21 @@ When `--web-dir` is set the server SHALL serve its files at `/` with SPA fallbac
 #### Scenario: Server without a root
 - **WHEN** a server in `NeedsDecision` answers `/api/health`
 - **THEN** the response includes `setup: "needs-decision"` and the server name
+
+### Requirement: Cross-origin access for member origins
+The server SHALL answer CORS preflight and add CORS headers on `/api/*` for requests whose `Origin` is the client URL origin of a non-revoked registry member, allowing the `Authorization` and `Content-Type` headers and no cookies. `/sync` upgrades SHALL be accepted only from such origins or without an `Origin` header. Other origins SHALL get no CORS headers.
+
+#### Scenario: App served by another member
+- **WHEN** the app loaded from `https://tt.laptop-a` calls `POST https://tt.laptop-b/api/ws-ticket`
+- **THEN** the preflight succeeds and the response carries `Access-Control-Allow-Origin: https://tt.laptop-a`
+
+#### Scenario: Unknown origin
+- **WHEN** a page from `https://evil.example` calls `/api/me` on a member
+- **THEN** the response carries no CORS headers and a websocket upgrade from that origin is rejected with 403
+
+### Requirement: Client URL and protocol version
+`GET /api/health` SHALL report the server's `protocol` version (an integer bumped on incompatible client protocol changes) and its configured client URL. A server SHALL be configured with its client URL (`--public-url`), which is advertised to members and listed by `GET /api/peers`.
+
+#### Scenario: Health reports protocol
+- **WHEN** a client calls `/api/health`
+- **THEN** the response contains `protocol` and `public_url`

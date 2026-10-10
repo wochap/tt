@@ -52,3 +52,25 @@ Tokens SHALL be 32 random bytes, stored as SHA-256 in the issuing server's local
 #### Scenario: Ticket reuse
 - **WHEN** a ticket is used twice
 - **THEN** the second upgrade is rejected with 401
+
+### Requirement: Tokens are valid on every member
+A token issued by one member SHALL be accepted by every member of the same root without contacting the issuer. A member SHALL reject a token whose issuer is not a registry member or is revoked, whose account is deleted or flagged, or whose token id is in the replicated token revocation set. Tokens SHALL carry no credential that lets a member mint tokens for another issuer.
+
+#### Scenario: Token from another member
+- **WHEN** a client signed in on `laptop-a` sends its token to `laptop-b`
+- **THEN** `laptop-b` accepts it for that user while `laptop-a` is offline
+
+#### Scenario: Issuer revoked
+- **WHEN** `laptop-a` is revoked from the registry
+- **THEN** every member rejects tokens issued by `laptop-a` with 401
+
+#### Scenario: Forged issuer
+- **WHEN** a token claims `laptop-a` as issuer but was not signed by `laptop-a`'s key
+- **THEN** every member rejects it with 401
+
+### Requirement: Token revocation is replicated
+Logout and `tt-server token revoke` SHALL add the token id to a replicated, append-only revocation set in the registry. Every member SHALL reject the token once the revocation reaches it and SHALL close any open websocket that used it.
+
+#### Scenario: Logout on one member
+- **WHEN** the user logs out through `laptop-b` and `laptop-a` later syncs the registry
+- **THEN** `laptop-a` rejects the token with 401
