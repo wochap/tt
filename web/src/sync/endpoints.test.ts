@@ -184,7 +184,7 @@ describe("member rotation", () => {
     const onCompatibility = vi.fn();
     const list = [endpoint(B, { last_ok: 20 }), endpoint(A, { last_ok: 10 })];
     expect(await rotation(list, members, onCompatibility).url()).toContain("laptop-a");
-    expect(onCompatibility).toHaveBeenCalledWith(list[0], true);
+    expect(onCompatibility).toHaveBeenCalledWith(list[0], true, undefined);
     expect(members.calls).not.toContain(`${B}/api/ws-ticket`);
   });
 
@@ -193,7 +193,7 @@ describe("member rotation", () => {
     const onCompatibility = vi.fn();
     const list = [endpoint(B, { incompatible: true })];
     await rotation(list, members, onCompatibility).url();
-    expect(onCompatibility).toHaveBeenCalledWith(list[0], false);
+    expect(onCompatibility).toHaveBeenCalledWith(list[0], false, undefined);
   });
 
   it("after a drop the next member is tried at once, the dropped one only in the next pass", async () => {
@@ -222,5 +222,104 @@ describe("member rotation", () => {
   it("every reachable member refusing the token means it was revoked", async () => {
     const members = fakeMembers({ [A]: "revoked-token", [B]: "down" });
     await expect(rotation([endpoint(A), endpoint(B)], members).url()).rejects.toBeInstanceOf(Unauthorized);
+  });
+});
+
+describe("health checks of members not in use", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** Members by origin: a version answers health with that version, "old" with protocol 1, "down" refuses. */
+  function healthOnly(states: Record<string, string>) {
+    const calls: string[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      calls.push(`${url.origin}${url.pathname}`);
+      const state = states[url.origin] ?? "down";
+      if (state === "down") throw new TypeError("Failed to fetch");
+      if (url.pathname === "/api/health") return json(200, state === "old" ? { version: "1.2.0", protocol: 1 } : { version: state, protocol: 2 });
+      if (url.pathname === "/api/ws-ticket") return json(200, { ticket: "t" });
+      if (url.pathname === "/api/peers") return json(200, { server: { id: ID[url.hostname.split(".")[0]!.slice(-1) as "a"], name: url.hostname.split(".")[0] }, peers: [peer(ID.a, "laptop-a", A), peer(ID.b, "laptop-b", B), peer(ID.c, "laptop-c", C)] });
+      return json(404, {});
+    });
+    return { fetch, calls };
+  }
+
+  async function connectedTo(states: Record<string, string>, list: Endpoint[], online = true) {
+    const members = healthOnly(states);
+    vi.stubGlobal("fetch", members.fetch);
+    const onChange = vi.fn();
+    const session = new MemberEndpoints(() => {}, { fetch: members.fetch, online: () => online, random: () => 0.5, timeoutMs: 50 });
+    const auth = { ...AUTH, endpoints: list };
+    const rotation = session.reset(auth, onChange)!;
+    await rotation.url();
+    session.disconnected();
+    return { session, auth, members, onChange };
+  }
+
+  it("records reachable, unreachable and incompatible members with their version", async () => {
+    const list = [endpoint(A, { last_ok: 9 }), endpoint(B), endpoint(C)];
+    const { session, members, onChange } = await connectedTo({ [A]: "0.9.0", [B]: "0.9.1", [C]: "old" }, list);
+    members.calls.length = 0;
+    await session.probeOthers();
+    // Only members not in use, and only their health: no ticket, no socket.
+    expect(members.calls.sort()).toEqual([`${B}/api/health`, `${C}/api/health`]);
+    const [a, b, c] = session.list;
+    expect(a!.reachable).toBeUndefined();
+    expect(b).toMatchObject({ reachable: true, version: "0.9.1", protocol: 2, checked_at: expect.any(Number) });
+    expect(b!.incompatible).toBeUndefined();
+    expect(c).toMatchObject({ reachable: true, version: "1.2.0", protocol: 1, incompatible: true });
+    expect(onChange).toHaveBeenCalled();
+  });
+
+  it("a member that stops answering is unreachable", async () => {
+    const list = [endpoint(A, { last_ok: 9 }), endpoint(B, { reachable: true, version: "0.9.1" })];
+    const { session } = await connectedTo({ [A]: "0.9.0" }, list);
+    await session.probeOthers();
+    expect(session.list[1]).toMatchObject({ reachable: false, checked_at: expect.any(Number) });
+  });
+
+  it("does nothing while offline", async () => {
+    const { session, members } = await connectedTo({ [A]: "0.9.0", [B]: "0.9.1" }, [endpoint(A, { last_ok: 9 }), endpoint(B)], false);
+    members.calls.length = 0;
+    await session.probeOthers();
+    expect(members.calls).toEqual([]);
+  });
+
+  it("runs once after connecting, then about once a minute until disconnected", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { session, auth, members } = await connectedTo({ [A]: "0.9.0", [B]: "0.9.1" }, [endpoint(A, { last_ok: 9 }), endpoint(B)]);
+    await session.connected(auth);
+    const probes = () => members.calls.filter((call) => call === `${B}/api/health`).length;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(probes()).toBe(1);
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(probes()).toBe(1);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(probes()).toBe(2);
+    session.disconnected();
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(probes()).toBe(2);
+  });
+
+  it("the first connection is no switch; a failover is", async () => {
+    const list = [endpoint(A, { last_ok: 9 }), endpoint(B)];
+    const { session, auth } = await connectedTo({ [A]: "0.9.0", [B]: "0.9.1" }, list);
+    const rotation = session.reset(auth, () => {})!;
+    await rotation.url();
+    await session.connected(auth);
+    session.disconnected();
+    expect(session.switchedAt).toBeNull();
+    // A drops; B is used next.
+    rotation.closed(true);
+    expect(await rotation.url()).toContain("laptop-b");
+    await session.connected(auth);
+    session.disconnected();
+    expect(session.switchedAt).toEqual(expect.any(Number));
+    // A new session starts without a switch.
+    session.reset(auth, () => {});
+    expect(session.switchedAt).toBeNull();
   });
 });

@@ -45,6 +45,14 @@ describe.each<Flavor>(["mocha", "latte"])("LoginPage (%s)", (flavor) => {
     expect(screen.getByTestId("login-server")).toHaveTextContent(location.origin);
   });
 
+  it("says one sign-in works on every paired server, under Sign in", async () => {
+    mockServer(() => json(500, {}));
+    render(<LoginPage onLogin={() => {}} />);
+    const line = await screen.findByText("Works on all paired servers");
+    const button = screen.getByRole("button", { name: /^Sign in/ });
+    expect(button.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("falls back to the host when the server is unreachable", async () => {
     mockServer(
       () => json(500, {}),

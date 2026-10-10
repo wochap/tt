@@ -289,6 +289,9 @@ export function TimelinePage() {
       {kind === "month" ? (
         <>
           <div className="relative flex min-h-0 flex-1 flex-col">
+            {entries.filter((e) => e.start < range.to && (e.end ?? now) > range.from).length === 0 && (
+              <EmptyMonth onToday={() => go({ kind: "day", date: today })} />
+            )}
             <MonthView
               view={view}
               tz={tz}
@@ -300,9 +303,6 @@ export function TimelinePage() {
               topTasks={settings.monthTopTasks}
               onOpenDay={(d) => go({ kind: "day", date: d })}
             />
-            {entries.filter((e) => e.start < range.to && (e.end ?? now) > range.from).length === 0 && (
-              <EmptyMonth onToday={() => go({ kind: "day", date: today })} />
-            )}
           </div>
           <MonthFooter monthFirst={monthFirst} entries={entries} now={now} />
         </>

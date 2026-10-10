@@ -42,7 +42,8 @@ export function refreshEndpoints(list: Endpoint[], peers: Peers, connected: Endp
   const add = (entry: Pick<Endpoint, "server_id" | "name" | "public_url">) => {
     if (next.some((known) => sameMember(known, entry))) return;
     const old = list.find((known) => sameMember(known, entry));
-    next.push({ ...entry, last_ok: old?.last_ok ?? null, ...(old?.incompatible ? { incompatible: true } : {}) });
+    const { server_id: _id, name: _name, public_url: _url, last_ok, ...probed } = old ?? { server_id: "", name: "", public_url: "", last_ok: null };
+    next.push({ ...entry, last_ok, ...probed });
   };
   add({ server_id: peers.server.id, name: peers.server.name ?? connected.name, public_url: connected.public_url });
   for (const peer of peers.peers) {
@@ -69,8 +70,26 @@ export function markOk(list: Endpoint[], url: string, at: number): Endpoint[] {
   return list.map((endpoint) => (endpoint.public_url === url ? { ...endpoint, last_ok: at, incompatible: undefined } : endpoint));
 }
 
-export function markIncompatible(list: Endpoint[], url: string, incompatible: boolean): Endpoint[] {
-  return list.map((endpoint) => (endpoint.public_url === url ? { ...endpoint, incompatible: incompatible || undefined } : endpoint));
+export function markIncompatible(list: Endpoint[], url: string, incompatible: boolean, version?: string): Endpoint[] {
+  return list.map((endpoint) =>
+    endpoint.public_url === url ? { ...endpoint, incompatible: incompatible || undefined, ...(version ? { version } : {}) } : endpoint,
+  );
+}
+
+/** Records a health check of the member at `url`: its answer, or null when it did not answer. */
+export function markProbed(
+  list: Endpoint[],
+  url: string,
+  at: number,
+  health: { version: string; protocol: number } | null,
+  supported: { min: number; max: number } = SUPPORTED_PROTOCOLS,
+): Endpoint[] {
+  return list.map((endpoint) => {
+    if (endpoint.public_url !== url) return endpoint;
+    if (!health) return { ...endpoint, reachable: false, checked_at: at };
+    const incompatible = health.protocol < supported.min || health.protocol > supported.max;
+    return { ...endpoint, reachable: true, checked_at: at, version: health.version || undefined, protocol: health.protocol, incompatible: incompatible || undefined };
+  });
 }
 
 /** The `/sync` URL of a member with a ticket. */
@@ -107,7 +126,7 @@ export interface RotationOptions {
   supported?: { min: number; max: number };
   fetch?: typeof fetch;
   /** A member's health check found it (in)compatible. */
-  onCompatibility?: (endpoint: Endpoint, incompatible: boolean) => void;
+  onCompatibility?: (endpoint: Endpoint, incompatible: boolean, version?: string) => void;
 }
 
 /**
@@ -174,11 +193,11 @@ export class MemberRotation {
     const supported = this.#options.supported ?? SUPPORTED_PROTOCOLS;
     const health = await fetcher(`${endpoint.public_url}/api/health`, { cache: "no-store", signal: AbortSignal.timeout(timeout) });
     if (!health.ok) throw new Error(`health: HTTP ${health.status}`);
-    const body = (await health.json()) as { protocol?: unknown };
+    const body = (await health.json()) as { protocol?: unknown; version?: unknown };
     // Servers from before the protocol field speak version 1.
     const protocol = typeof body.protocol === "number" ? body.protocol : 1;
     const incompatible = protocol < supported.min || protocol > supported.max;
-    if (incompatible || endpoint.incompatible) this.#options.onCompatibility?.(endpoint, incompatible);
+    if (incompatible || endpoint.incompatible) this.#options.onCompatibility?.(endpoint, incompatible, typeof body.version === "string" ? body.version : undefined);
     if (incompatible) throw new Incompatible(protocol);
     let response: Response;
     try {

@@ -23,6 +23,7 @@ import { columnFor, todayIn } from "../timeline/geometry.ts";
 import { Board } from "./Board.tsx";
 import { DEFAULT_FILTERS, filterTasks, MultiMenu, SortMenu, StateMenu, type TaskFilters } from "./filters.tsx";
 import { type QuickCreateHandle, QuickCreateInput } from "./QuickCreateInput.tsx";
+import { RenumberHint, renumberHints } from "./renumber-hints.tsx";
 
 export function TasksPage() {
   const view = useView();
@@ -48,6 +49,12 @@ export function TasksPage() {
     const result = filterTasks(view, filters, totalAll, mode === "board");
     return { hits: result, elapsed: Math.max(1, Math.round(performance.now() - t0)) };
   }, [view, filters, totalAll, mode]);
+
+  const hints = useMemo(() => renumberHints(view.workspace.tasks.values(), filters.query), [view, filters.query]);
+  const holder = hints.length ? hits.findIndex((hit) => hit.task.seq === hints[0]!.from) : -1;
+  const hintRows = hints.map((hint) => (
+    <RenumberHint key={`hint-${hint.id}`} hint={hint} onOpen={() => navigate(`/tasks/${hint.to}`)} className="border-b px-[14px] pl-16" />
+  ));
 
   const setMode = (next: "list" | "board") => {
     const q = new URLSearchParams(params);
@@ -212,7 +219,7 @@ export function TasksPage() {
             <span />
           </div>
           <div className="tt-scroll min-h-0 flex-1 overflow-y-auto" role="list" aria-label="Tasks">
-            {hits.map((hit) => (
+            {hits.map((hit, index) => [
               <TaskRow
                 key={hit.task.id}
                 hit={hit}
@@ -224,8 +231,10 @@ export function TasksPage() {
                 renaming={renaming === hit.task.id}
                 onRenamed={() => setRenaming(undefined)}
                 onFocus={() => setFocus(hit.task.id)}
-              />
-            ))}
+              />,
+              index === holder && hintRows,
+            ])}
+            {holder < 0 && hintRows}
             {empty ? (
               <EmptyTasks onStart={() => quick.current?.focus()} />
             ) : (

@@ -21,6 +21,7 @@ import { useSettings, useTz } from "@/lib/settings";
 
 import { type DragOrigin, type GridMetrics, type Pointer, type Preview, preview as computePreview } from "./drag.ts";
 import { type Column, renderedHours } from "./geometry.ts";
+import { ScrollFade, useMoreBelow } from "./ScrollFade.tsx";
 import { SidePanel } from "./SidePanel.tsx";
 import { TimelineGrid } from "./TimelineGrid.tsx";
 
@@ -69,6 +70,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
   const columnEls = useRef(new Map<string, HTMLDivElement>());
   const ghostEl = useRef<HTMLDivElement | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const moreBelow = useMoreBelow(scroller, density === "phone");
   const origin = useRef<DragOrigin | null>(null);
   const pointer = useRef<Pointer>({ x: 0, y: 0, alt: false, shift: false });
   const overTask = useRef<Uuid | undefined>(undefined);
@@ -274,6 +276,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
               emptyOverlay={props.emptyOverlay}
               snapLabel={props.snapLabel}
             />
+            {density === "phone" && <ScrollFade show={moreBelow} />}
           </div>
         </div>
         {props.side && !phone && (

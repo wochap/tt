@@ -11,6 +11,7 @@ import {
   localDate,
   parseJumpDate,
   parseQuick,
+  type RenumberedFrom,
   search,
   type Task,
   taskProject,
@@ -26,6 +27,7 @@ import { taskColor } from "@/lib/colors";
 import { useSettings, useTz } from "@/lib/settings";
 import { MOD } from "@/lib/utils";
 
+import { RenumberHint, renumberHints } from "../tasks/renumber-hints.tsx";
 import { useUi } from "./ui-state.tsx";
 
 interface Row {
@@ -38,6 +40,8 @@ interface Row {
   run: () => void;
   /** ⌘⏎: start and open (tasks). */
   alt?: () => void;
+  /** A renumber hint: shown muted, never selected, never run. */
+  renumbered?: RenumberedFrom;
 }
 
 /** ⌘K: start (fuzzy over tasks), stop, jump to date, switch view, create task, settings. */
@@ -139,6 +143,14 @@ function PaletteBody({ initial, mode, close }: { initial: string; mode: "all" | 
       });
     }
 
+    // Old short ids: a hint under the task holding the id now (or after the tasks).
+    const moved = renumberHints(view.workspace.tasks.values(), q);
+    if (moved.length) {
+      const holder = hits.find((hit) => hit.task.seq === moved[0]!.from);
+      const at = holder ? out.findIndex((row) => row.id === `start-${holder.task.id}`) + 1 : out.length;
+      out.splice(at, 0, ...moved.map((hint) => ({ id: `renumbered-${hint.id}`, kind: "", label: hint.title, run: () => undefined, renumbered: hint })));
+    }
+
     // Go: a parsed date, or the jump popover.
     const today = localDate(tz, now);
     let parsed: string | undefined;
@@ -193,7 +205,7 @@ function PaletteBody({ initial, mode, close }: { initial: string; mode: "all" | 
   }, [query, mode, view, running, now, tz, weekStart, actions, navigate]);
 
   const runRow = (row: Row, alt = false) => {
-    if (row.id === "new") return; // needs a title: keep typing
+    if (row.id === "new" || row.renumbered) return; // needs a title: keep typing; hints only open
     close();
     (alt && row.alt ? row.alt : row.run)();
   };
@@ -207,7 +219,7 @@ function PaletteBody({ initial, mode, close }: { initial: string; mode: "all" | 
         // ⌘⏎ before cmdk's own Enter handling.
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
           event.preventDefault();
-          const row = rows.find((r) => r.id === selected) ?? rows[0];
+          const row = rows.find((r) => r.id === selected) ?? rows.find((r) => !r.renumbered);
           if (row) runRow(row, true);
         }
       }}
@@ -223,20 +235,33 @@ function PaletteBody({ initial, mode, close }: { initial: string; mode: "all" | 
         <Kbd>Esc</Kbd>
       </div>
       <CommandList className="p-[6px]">
-        {rows.map((row) => (
-          <CommandItem key={row.id} value={row.id} onSelect={() => runRow(row)} className="h-9 gap-[10px] px-3">
-            <span className="w-[38px] shrink-0 text-[10.5px] uppercase tracking-[.06em] text-faint">{row.kind}</span>
-            <span
-              className="size-2 shrink-0 rounded-xs"
-              style={{ background: row.color ?? "transparent", visibility: row.color ? "visible" : "hidden" }}
+        {rows.map((row) =>
+          row.renumbered ? (
+            // Not a CommandItem: arrow keys skip it and it never starts tracking.
+            <RenumberHint
+              key={row.id}
+              hint={row.renumbered}
+              className="px-3 pl-[66px]"
+              onOpen={() => {
+                close();
+                navigate(`/tasks/${row.renumbered!.to}`);
+              }}
             />
-            <span className="min-w-0 flex-1 truncate text-[13px]">{row.label}</span>
-            {row.hint && <span className="shrink-0 text-[11px] text-faint">{row.hint}</span>}
-            <Kbd className="min-w-[18px] text-center" style={{ visibility: row.kbd ? "visible" : "hidden" }}>
-              {row.kbd ?? "·"}
-            </Kbd>
-          </CommandItem>
-        ))}
+          ) : (
+            <CommandItem key={row.id} value={row.id} onSelect={() => runRow(row)} className="h-9 gap-[10px] px-3">
+              <span className="w-[38px] shrink-0 text-[10.5px] uppercase tracking-[.06em] text-faint">{row.kind}</span>
+              <span
+                className="size-2 shrink-0 rounded-xs"
+                style={{ background: row.color ?? "transparent", visibility: row.color ? "visible" : "hidden" }}
+              />
+              <span className="min-w-0 flex-1 truncate text-[13px]">{row.label}</span>
+              {row.hint && <span className="shrink-0 text-[11px] text-faint">{row.hint}</span>}
+              <Kbd className="min-w-[18px] text-center" style={{ visibility: row.kbd ? "visible" : "hidden" }}>
+                {row.kbd ?? "·"}
+              </Kbd>
+            </CommandItem>
+          ),
+        )}
       </CommandList>
       <div className="flex gap-[14px] border-t px-[14px] py-2 text-[11px] text-faint">
         <span>

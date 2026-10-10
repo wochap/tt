@@ -153,6 +153,10 @@ export function LoginPage({ onLogin }: { onLogin: (auth: Auth, persist: boolean)
         <Button type="submit" variant="primary" size="lg" className="gap-[10px]" disabled={busy || blocked}>
           {busy ? "Signing in…" : "Sign in"} <Kbd inherit>⏎</Kbd>
         </Button>
+        {/* One account and token for every member of the root (Turn 6). */}
+        <span className="-mt-2 text-[12px] text-muted" data-testid="login-all-members">
+          Works on all paired servers
+        </span>
         <div className="flex flex-col gap-[3px] text-[11.5px] text-faint">
           <span>
             Wrong server?{" "}

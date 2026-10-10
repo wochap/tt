@@ -21,6 +21,14 @@ export interface Endpoint {
   last_ok: number | null;
   /** The member's last health check reported a protocol outside `SUPPORTED_PROTOCOLS`. */
   incompatible?: boolean;
+  /** The member answered its last health check (probed while connected to another member); missing if never checked. */
+  reachable?: boolean;
+  /** Time of the last health check (ms since epoch). */
+  checked_at?: number;
+  /** Server version from the last health check that answered. */
+  version?: string;
+  /** Client protocol from the last health check that answered. */
+  protocol?: number;
 }
 
 export interface Auth {
@@ -62,6 +70,8 @@ export interface SyncStatus {
   member?: Pick<Endpoint, "server_id" | "name" | "public_url"> | null;
   /** Every known member, for Settings. */
   members?: Endpoint[];
+  /** When the worker switched to another member (ms since epoch); not set by the first connection. */
+  switchedAt?: number | null;
 }
 
 export type ToWorker =

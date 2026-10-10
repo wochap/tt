@@ -1,8 +1,29 @@
+import { useEffect, useState } from "react";
+
 import { type Auth, type SyncStatus as Status, serverName } from "@/sync/protocol";
 
 import { Tooltip } from "@/components/ui/tooltip";
 import { useNow, useSession } from "@/data/react";
 import { cn } from "@/lib/utils";
+
+import { memberSummary } from "./member-state.ts";
+
+/** How long the status line reads "Switched to <member>" after a failover. */
+export const SWITCH_NOTICE_MS = 4000;
+
+/** True while a switch at `switchedAt` is recent enough to announce. */
+function useSwitchNotice(switchedAt: number | null | undefined): boolean {
+  const recent = () => switchedAt != null && Date.now() - switchedAt < SWITCH_NOTICE_MS;
+  const [shown, setShown] = useState(recent);
+  useEffect(() => {
+    const left = switchedAt == null ? 0 : switchedAt + SWITCH_NOTICE_MS - Date.now();
+    setShown(left > 0);
+    if (left <= 0) return;
+    const timer = setTimeout(() => setShown(false), left);
+    return () => clearTimeout(timer);
+  }, [switchedAt]);
+  return shown;
+}
 
 export function ago(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -59,13 +80,14 @@ function labelServer(status: Status, auth: Auth): string | undefined {
   return status.state === "offline" && (status.members?.length ?? 0) > 1 ? undefined : memberName(status, auth);
 }
 
-/** Tooltip body (frame 5.1): server name and short id, last sync, pending, offline promise. */
+/** Tooltip body (frame 5.1): server name and short id, last sync, pending, other members, offline promise. */
 export function SyncDetails({ status, now }: { status: Status; now: number }) {
   const { auth } = useSession();
   const name = memberName(status, auth);
   const id = status.member?.server_id || auth.identity?.id;
   const several = (status.members?.length ?? 0) > 1;
   const at = status.lastSync ? new Date(status.lastSync) : null;
+  const others = memberSummary(status.members ?? [], status.member);
   return (
     <div className="flex w-[260px] flex-col gap-[6px] p-1" data-testid="sync-details">
       <div className="flex items-center gap-2">
@@ -79,6 +101,16 @@ export function SyncDetails({ status, now }: { status: Status; now: number }) {
         <span>Pending</span>
         <span className="text-sub1">{changes(status.pending)}</span>
       </div>
+      {others.reachable.length > 0 && (
+        <div className="text-muted" data-testid="sync-also-reachable">
+          Also reachable: <span className="text-sub1">{others.reachable.join(", ")}</span>
+        </div>
+      )}
+      {others.unreachable.length > 0 && (
+        <div className="text-muted" data-testid="sync-other-members">
+          Other members: <span className="text-sub1">{others.unreachable.join(", ")}</span> (unreachable)
+        </div>
+      )}
       <div className="text-muted">
         Changes are saved on this device and sync when {several ? "one of your servers" : name} is reachable.
       </div>
@@ -95,14 +127,24 @@ export function SyncStatus({ status, compact = false }: { status: Status; compac
   const { auth } = useSession();
   const now = useNow(5000);
   const name = memberName(status, auth);
-  const { text, dot } = syncLabel(status, now, labelServer(status, auth));
+  const label = syncLabel(status, now, labelServer(status, auth));
+  // A failover reads "Switched to <member>" for a moment; never a toast.
+  const switched = useSwitchNotice(status.switchedAt) && !!status.member && (status.state === "synced" || status.state === "syncing");
+  const text = switched ? `Switched to ${name}` : label.text;
+  const dot = label.dot;
   return (
     <Tooltip content={<SyncDetails status={status} now={now} />}>
       <span
         data-testid="sync-status"
         data-state={status.state}
+        data-switched={switched || undefined}
         aria-label={compact ? text : undefined}
-        className={cn("flex items-center gap-[6px] whitespace-nowrap", compact && "h-6 rounded-2 border border-s1 px-[9px] text-sub1")}
+        className={cn(
+          "flex items-center gap-[6px] whitespace-nowrap transition-colors duration-500",
+          compact && "h-6 rounded-2 border border-s1 px-[9px] text-sub1",
+          switched && "bg-[color-mix(in_srgb,var(--color-accent)_16%,transparent)] text-sub1",
+          switched && !compact && "-ml-[6px] rounded-sm px-[6px] py-[2px]",
+        )}
       >
         <span className={cn("size-[6px] rounded-full", dot)} />
         {compact ? name : text}

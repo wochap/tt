@@ -46,10 +46,11 @@ export function EmptyWeek() {
   );
 }
 
+/** In the page flow above the month grid, never over the day cells. */
 export function EmptyMonth({ onToday }: { onToday: () => void }) {
   return (
     <div
-      className="absolute left-1/2 top-[30%] z-10 flex w-[min(420px,80%)] -translate-x-1/2 flex-col items-start gap-2 rounded-md bg-mantle p-[14px] shadow-[var(--shadow-md)]"
+      className="mx-auto mb-3 mt-3 flex w-[min(420px,calc(100%-24px))] flex-none flex-col items-start gap-2 rounded-md bg-mantle p-[14px] shadow-[var(--shadow-md)]"
       data-testid="empty-month"
     >
       <div className="text-[13px] font-medium">No time tracked this month</div>

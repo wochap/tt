@@ -70,6 +70,7 @@ function computeStatus(): SyncStatus {
     mode: status.mode,
     member: current && { server_id: current.server_id, name: current.name, public_url: current.public_url },
     members: members.list,
+    switchedAt: members.switchedAt,
   };
 }
 
@@ -113,6 +114,7 @@ function connect(next: Auth | null): void {
       onState: (state) => {
         socketState = state;
         if (state === "open") void members.connected(next);
+        else members.disconnected();
         publish(true);
       },
       onInbound: (message: Message) => {
