@@ -41,6 +41,21 @@ Settings SHALL include server endpoint (with reachability indicator), week start
 - **WHEN** the user clicks logout while 12 changes are unsynced
 - **THEN** a dialog states 12 unsynced changes will be lost and requires explicit confirmation
 
+### Requirement: Server section in settings
+Settings SHALL include a Server section between Sync and Shortcuts showing this server's name, short id (copyable) and version, and a read-only list of peers from `GET /api/peers` with a status dot, name, state, last seen and address per row. The list SHALL render as a table on desktop and a stacked list on phone, SHALL refresh while the section is visible, and SHALL show an empty state ("Not paired with other servers") with the CLI commands `tt-server peer invite` and `tt-server peer join <code>`.
+
+#### Scenario: Peers listed
+- **WHEN** the user opens Settings on a server linked with `laptop-b`
+- **THEN** the Server section shows `laptop-b` online with its address and last seen time
+
+#### Scenario: Offline client
+- **WHEN** Settings is open and the server is unreachable
+- **THEN** the Server section shows the last loaded peer list marked as stale, not an error page
+
+#### Scenario: Unpaired server
+- **WHEN** `/api/peers` returns an empty list
+- **THEN** the empty state with both CLI commands is shown
+
 ### Requirement: Empty states
 Day, week, month, tasks and reports SHALL render the design's empty states with a primary action for a user with no data.
 
@@ -65,3 +80,14 @@ When the app's local workspace renumbers a task or receives a renumbering throug
 #### Scenario: Several renumbers
 - **WHEN** one sync renumbers three tasks
 - **THEN** a single toast reads "3 tasks renumbered" and lists each change when expanded
+
+### Requirement: Server not set up page
+When `/api/health` reports `setup: "needs-decision"`, the app SHALL show a full-page state titled "<server name> is not set up" with the commands `tt-server init` and `tt-server peer join <code>` as copyable blocks, and SHALL NOT show the login form.
+
+#### Scenario: Fresh server
+- **WHEN** a browser opens the app on a server in `NeedsDecision`
+- **THEN** the not-set-up page is shown instead of the login form
+
+#### Scenario: Server becomes ready
+- **WHEN** the server is initialized while the page is open
+- **THEN** the app switches to the login form after its next health check

@@ -40,3 +40,25 @@ When `--web-dir` is set the server SHALL serve its files at `/` with SPA fallbac
 #### Scenario: Seed only
 - **WHEN** a server runs with `--peer laptop-a.ts.net:8772` and no `--peer-listen`
 - **THEN** it links outbound to that member and refuses no client traffic
+
+### Requirement: Peer status endpoint
+`GET /api/peers` SHALL require a valid bearer token and return `{server: {id, name}, peers: [{id, name, state, pending, last_seen, address, public_url, error}]}` where `public_url` is the member's client URL from its latest hello, or null, with the same data as `tt-server peer ls`. `state` SHALL be one of `online`, `offline`, `syncing`, `error`; `pending` SHALL be the count of documents not yet in sync (0 unless `syncing`); `last_seen` SHALL be UTC seconds or null if never linked.
+
+#### Scenario: Authenticated request
+- **WHEN** a logged-in client calls `/api/peers` on a server with one member
+- **THEN** the response is 200 with that member's name, state and address
+
+#### Scenario: No token
+- **WHEN** `/api/peers` is called without a token
+- **THEN** the response is 401
+
+#### Scenario: Not paired
+- **WHEN** a server with no other members answers `/api/peers`
+- **THEN** `peers` is an empty list
+
+### Requirement: Health reports setup state
+`GET /api/health` SHALL include `setup: "ready" | "needs-decision"` without requiring authentication, so clients can tell a server without a root from an unreachable one.
+
+#### Scenario: Server without a root
+- **WHEN** a server in `NeedsDecision` answers `/api/health`
+- **THEN** the response includes `setup: "needs-decision"` and the server name
