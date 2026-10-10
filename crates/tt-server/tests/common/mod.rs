@@ -68,6 +68,7 @@ impl TestServer {
         options.pending_timeout = Duration::from_millis(500);
         options.revocation_poll = Duration::from_millis(100);
         options.peer_retry = Duration::from_millis(100);
+        options.peer_retry_max = Duration::from_secs(1);
         options.join_timeout = Duration::from_secs(30);
         configure(&mut options);
         let mut server = Server::open(options).await.unwrap();
@@ -329,6 +330,7 @@ pub struct Proxy {
     /// Connections still allowed; negative means unlimited.
     budget: Arc<std::sync::atomic::AtomicI64>,
     connections: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    accepted: Arc<std::sync::atomic::AtomicUsize>,
     accept: tokio::task::JoinHandle<()>,
 }
 
@@ -338,7 +340,8 @@ impl Proxy {
         let addr = listener.local_addr().unwrap();
         let budget = Arc::new(std::sync::atomic::AtomicI64::new(budget));
         let connections: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>> = Arc::default();
-        let (left, open) = (budget.clone(), connections.clone());
+        let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (left, open, count) = (budget.clone(), connections.clone(), accepted.clone());
         let accept = tokio::spawn(async move {
             loop {
                 let Ok((mut inbound, _)) = listener.accept().await else {
@@ -358,6 +361,7 @@ impl Proxy {
                 if !allowed {
                     continue;
                 }
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 open.lock().unwrap().push(tokio::spawn(async move {
                     if let Ok(mut outbound) = tokio::net::TcpStream::connect(target).await {
                         let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
@@ -369,8 +373,24 @@ impl Proxy {
             addr,
             budget,
             connections,
+            accepted,
             accept,
         }
+    }
+
+    /// Connections let through so far.
+    pub fn accepted(&self) -> usize {
+        self.accepted.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Connections currently forwarded.
+    pub fn open_connections(&self) -> usize {
+        self.connections
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|connection| !connection.is_finished())
+            .count()
     }
 
     /// Lets every connection through from now on.

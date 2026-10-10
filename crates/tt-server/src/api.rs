@@ -151,6 +151,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/me", get(me))
+        .route("/peers", get(peers))
         .route("/ws-ticket", post(ws_ticket))
         .route("/export", get(export_json))
         .fallback(api_not_found);
@@ -183,8 +184,10 @@ or <code>tt-server peer join</code> to join an existing one. This page reloads i
 const JOINING: &str =
     "this server is joining another server and fetching its data; try again in a moment";
 
-/// In `NeedsDecision` and `Joining` only `/api/health` and the not-set-up
-/// page are served; every other API route and `/sync` answer 503.
+/// In `NeedsDecision` and `Joining` only `/api/health` and the web app
+/// (which shows its own not-set-up page from `/api/health`), or without a
+/// web bundle a static not-set-up page, are served; every other API route
+/// and `/sync` answer 503.
 async fn root_gate(State(app): State<Arc<App>>, request: Request, next: Next) -> Response {
     let state = app.state();
     if state == RootState::Ready {
@@ -195,6 +198,8 @@ async fn root_gate(State(app): State<Arc<App>>, request: Request, next: Next) ->
         next.run(request).await
     } else if path.starts_with("/api/") || path == "/api" || path == "/sync" {
         ApiError::not_ready(state).into_response()
+    } else if app.options.web_dir.is_some() {
+        next.run(request).await
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, Html(NOT_SET_UP_PAGE)).into_response()
     }
@@ -204,14 +209,33 @@ async fn api_not_found() -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "not found")
 }
 
+/// `setup` is `ready` once the server has a root and `needs-decision`
+/// otherwise (also while a join fetches one); until then the server name is
+/// the host name `init` would default to.
 async fn health(State(app): State<Arc<App>>) -> Json<Value> {
+    let ready = app.state() == RootState::Ready;
+    let mut server = app.server_json();
+    if !ready {
+        server["name"] = json!(crate::identity::host_name());
+    }
     Json(json!({
         "ok": true,
         "version": env!("CARGO_PKG_VERSION"),
         "sessions": app.session_count(),
         "state": app.state(),
-        "server": app.server_json(),
+        "setup": if ready { "ready" } else { "needs-decision" },
+        "server": server,
     }))
+}
+
+/// Every other non-revoked member with its link state, as `peer ls` shows
+/// it. Membership holds no user data, so any signed-in user may read it.
+async fn peers(State(app): State<Arc<App>>, _auth: AuthUser) -> ApiResult<Json<Value>> {
+    let peers = app.peer_status().await?;
+    Ok(Json(json!({
+        "server": app.server_json(),
+        "peers": peers,
+    })))
 }
 
 #[derive(Deserialize)]

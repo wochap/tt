@@ -33,7 +33,7 @@ use crate::{
     auth::{MIN_PASSWORD_LEN, hash_password},
     db::{Db, RootRecord, TokenRecord},
     identity::key_path,
-    peer::{INVITE_TTL, Invitation, JoinReport},
+    peer::{INVITE_TTL, Invitation, JoinReport, PeerStatus},
     registry::{Account, ServerEntry},
 };
 
@@ -264,6 +264,12 @@ pub async fn list_servers(db: &Path) -> Result<Vec<ServerEntry>> {
     typed(db, "peer.ls", json!({})).await
 }
 
+/// Every non-revoked member except this server, with its link state (all
+/// offline when no server is running).
+pub async fn peer_status(db: &Path) -> Result<Vec<PeerStatus>> {
+    typed(db, "peer.status", json!({})).await
+}
+
 /// Revokes a member by name or id prefix.
 pub async fn revoke_server(db: &Path, target: &str) -> Result<ServerEntry> {
     typed(db, "peer.revoke", json!({"target": target})).await
@@ -315,13 +321,7 @@ pub async fn invite(
                 .await
                 .with_context(|| format!("binding {listen}"))?;
             let app = App::open(ServerOptions::new(db)).await?;
-            let bound = listener.local_addr()?;
-            let advertised = if bound.ip().is_unspecified() {
-                format!("{}:{}", crate::identity::host_name(), bound.port())
-            } else {
-                bound.to_string()
-            };
-            app.set_peer_address(advertised);
+            app.set_peer_listener(listener.local_addr()?);
             let server = tokio::spawn(app.clone().serve_peers(listener));
             let result = async {
                 let invitation: Invitation = serde_json::from_value(

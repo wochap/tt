@@ -155,6 +155,8 @@ pub struct AccessIndex {
     inner: RwLock<Inner>,
     /// Bumped whenever the closure changes.
     closure_version: watch::Sender<u64>,
+    /// The trusted server ids, sorted.
+    trusted: watch::Sender<Vec<String>>,
 }
 
 impl Default for AccessIndex {
@@ -162,6 +164,7 @@ impl Default for AccessIndex {
         Self {
             inner: RwLock::default(),
             closure_version: watch::Sender::new(0),
+            trusted: watch::Sender::new(Vec::new()),
         }
     }
 }
@@ -247,11 +250,46 @@ impl AccessIndex {
     /// Replaces the trusted member servers (id to public key).
     pub fn set_servers(&self, servers: HashMap<String, Vec<u8>>) {
         self.inner.write().unwrap().servers = servers;
+        self.publish_trusted();
     }
 
     /// Trusts `server_id` while a join fetches the root from it.
     pub fn set_joining(&self, server_id: Option<String>) {
         self.inner.write().unwrap().joining = server_id;
+        self.publish_trusted();
+    }
+
+    fn publish_trusted(&self) {
+        let trusted = {
+            let inner = self.inner.read().unwrap();
+            let mut ids: Vec<String> = inner
+                .servers
+                .keys()
+                .cloned()
+                .chain(inner.joining.clone())
+                .collect();
+            ids.sort();
+            ids.dedup();
+            ids
+        };
+        self.trusted.send_if_modified(|current| {
+            let changed = *current != trusted;
+            *current = trusted;
+            changed
+        });
+    }
+
+    /// Server ids that may link: non-revoked members other than this
+    /// server, and the server a join fetches from.
+    #[must_use]
+    pub fn trusted_servers(&self) -> Vec<String> {
+        self.trusted.borrow().clone()
+    }
+
+    /// Changes whenever the trusted servers do.
+    #[must_use]
+    pub fn subscribe_trusted(&self) -> watch::Receiver<Vec<String>> {
+        self.trusted.subscribe()
     }
 
     /// Whether a peer presenting `pubkey` may link: a non-revoked member,

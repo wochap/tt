@@ -12,7 +12,10 @@ use std::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
-use tt_server::{ServerOptions, UserRef, admin, admin::AdminError, identity::id_prefix, serve};
+use tt_server::{
+    ServerOptions, UserRef, admin, admin::AdminError, identity::id_prefix, serve,
+    transport::PeerState,
+};
 
 #[derive(Parser)]
 #[command(name = "tt-server", version, about = "tt sync server")]
@@ -77,8 +80,12 @@ enum PeerCmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// List member servers
-    Ls,
+    /// List the other member servers with their link state, last seen time and address
+    Ls {
+        /// List every member instead: this server and revoked ones too, with ids and when they were added
+        #[arg(long)]
+        all: bool,
+    },
     /// Revoke a member server (by name, or id prefix when names repeat)
     Revoke { server: String },
     /// Rename a member server
@@ -114,6 +121,15 @@ struct ServeArgs {
     /// A member server's peer address (host:port) to dial; repeatable
     #[arg(long = "peer", value_name = "HOST:PORT")]
     peers: Vec<String>,
+    /// An address at which members reach --peer-listen (host:port, e.g. a
+    /// Tailscale MagicDNS name), advertised before the interface addresses;
+    /// repeatable
+    #[arg(long = "peer-advertise", value_name = "HOST:PORT")]
+    peer_advertise: Vec<String>,
+    /// This server's client URL (e.g. https://laptop-b.example.ts.net), told
+    /// to members for browsers; never used for peer links
+    #[arg(long, value_name = "URL")]
+    public_url: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -158,6 +174,19 @@ fn time(ms: i64) -> String {
     DateTime::<Utc>::from_timestamp_millis(ms)
         .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_else(|| "?".into())
+}
+
+/// `now`, `5m ago`, `2h ago`, `3d ago`, or `never`.
+fn ago(seconds: Option<i64>, now: i64) -> String {
+    let Some(seconds) = seconds else {
+        return "never".into();
+    };
+    match (now - seconds).max(0) {
+        age if age < 60 => "now".into(),
+        age if age < 3600 => format!("{}m ago", age / 60),
+        age if age < 86_400 => format!("{}h ago", age / 3600),
+        age => format!("{}d ago", age / 86_400),
+    }
 }
 
 fn read_password(confirm: bool) -> Result<String> {
@@ -276,7 +305,40 @@ async fn peer(db: &Path, command: PeerCmd) -> Result<()> {
                 _ => println!("{} and this server now list each other", report.inviter),
             }
         }
-        PeerCmd::Ls => {
+        PeerCmd::Ls { all: false } => {
+            let peers = admin::peer_status(db).await?;
+            if peers.is_empty() {
+                println!(
+                    "not paired with other servers: run `tt-server peer invite` here and `tt-server peer join <code>` on the other server"
+                );
+                return Ok(());
+            }
+            println!(
+                "{:<32} {:<20} {:<10} ADDRESS",
+                "SERVER", "STATE", "LAST SEEN"
+            );
+            let now = Utc::now().timestamp();
+            for peer in peers {
+                let state = match peer.state {
+                    PeerState::Online => "online".to_owned(),
+                    PeerState::Offline => "offline".to_owned(),
+                    PeerState::Syncing => format!("syncing ({} docs)", peer.pending),
+                    PeerState::Error => "error".to_owned(),
+                };
+                let mut line = format!(
+                    "{:<32} {:<20} {:<10} {}",
+                    format!("{} ({})", peer.name, id_prefix(&peer.id)),
+                    state,
+                    ago(peer.last_seen, now),
+                    peer.address.as_deref().unwrap_or("-")
+                );
+                if let Some(error) = &peer.error {
+                    line.push_str(&format!("  error: {error}"));
+                }
+                println!("{}", line.trim_end());
+            }
+        }
+        PeerCmd::Ls { all: true } => {
             let own = admin::server_id(db).await?;
             for server in admin::list_servers(db).await? {
                 let state = match &server.revoked {
@@ -395,6 +457,8 @@ fn main() -> ExitCode {
                 options.web_dir = args.web_dir;
                 options.behind_proxy = args.behind_proxy;
                 options.idle_eviction = Duration::from_secs(args.idle_evict_secs.max(1));
+                options.peer_advertise = args.peer_advertise;
+                options.public_url = args.public_url;
                 let listener = std::net::TcpListener::bind(args.listen)
                     .map_err(|error| anyhow::anyhow!("binding {}: {error}", args.listen))?;
                 let peers = serve::Peers {

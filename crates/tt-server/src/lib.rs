@@ -12,6 +12,7 @@ pub mod app;
 pub mod auth;
 pub mod db;
 pub mod identity;
+pub mod links;
 pub mod peer;
 pub mod registry;
 pub mod serve;

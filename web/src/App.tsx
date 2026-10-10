@@ -5,13 +5,14 @@ import { ClientProvider, SessionProvider } from "@/data/react";
 import { SessionControlContext } from "@/data/session-control";
 import { clearCaches } from "@/lib/pwa";
 import { useThemeSync } from "@/lib/theme";
-import { clearAuth, loadAuth, onAuthChange, refreshMe, revoke, saveAuth, updateAuth } from "@/sync/auth";
+import { clearAuth, defaultServer, loadAuth, onAuthChange, refreshMe, revoke, saveAuth, updateAuth } from "@/sync/auth";
 import { SyncClient } from "@/sync/client";
 import type { Auth } from "@/sync/protocol";
 
 import { LoginPage } from "./features/login/LoginPage.tsx";
 import { ReportsPage } from "./features/reports/ReportsPage.tsx";
 import { SettingsPage } from "./features/settings/SettingsPage.tsx";
+import { SetupGate } from "./features/setup/SetupGate.tsx";
 import { AppShell } from "./features/shell/AppShell.tsx";
 import { TaskDetailPage } from "./features/tasks/TaskDetailPage.tsx";
 import { TasksPage } from "./features/tasks/TasksPage.tsx";
@@ -89,7 +90,14 @@ export function App() {
       </div>
     );
   }
-  if (!auth) return <LoginPage onLogin={onLogin} />;
+  // A server that is not set up has nobody to sign in as: say so instead.
+  if (!auth) {
+    return (
+      <SetupGate server={defaultServer()}>
+        <LoginPage onLogin={onLogin} />
+      </SetupGate>
+    );
+  }
   return (
     <ClientProvider client={client}>
       <SessionControlContext.Provider value={control}>

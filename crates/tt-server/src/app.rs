@@ -70,8 +70,17 @@ pub struct ServerOptions {
     /// Login attempts allowed per IP per `login_window`.
     pub login_limit: usize,
     pub login_window: Duration,
-    /// Delay before redialing a peer after a failed attempt or a drop.
+    /// First delay before redialing a member after a failed attempt or a
+    /// drop; it doubles up to `peer_retry_max` (with jitter).
     pub peer_retry: Duration,
+    pub peer_retry_max: Duration,
+    /// `--peer-advertise`: names (such as a Tailscale MagicDNS name) at
+    /// which the peer listener is reachable, advertised to members before
+    /// the interface addresses.
+    pub peer_advertise: Vec<String>,
+    /// `--public-url`: this server's client URL, passed to members in the
+    /// hello (never used for peer links).
+    pub public_url: Option<String>,
     /// How long `peer join` waits for the root to be fetched.
     pub join_timeout: Duration,
 }
@@ -89,7 +98,10 @@ impl ServerOptions {
             behind_proxy: false,
             login_limit: 5,
             login_window: Duration::from_secs(60),
-            peer_retry: Duration::from_secs(3),
+            peer_retry: crate::links::BACKOFF_MIN,
+            peer_retry_max: crate::links::BACKOFF_MAX,
+            peer_advertise: Vec::new(),
+            public_url: None,
             join_timeout: Duration::from_secs(30 * 60),
         }
     }
@@ -894,7 +906,7 @@ impl Server {
             RootState::Ready => app.register_self().await?,
             RootState::Joining => {}
         }
-        app.dial_known().await?;
+        app.start_peering().await?;
         Ok(Self {
             app,
             tasks,
@@ -924,20 +936,16 @@ impl Server {
         let address = listener
             .local_addr()
             .expect("bound listener has an address");
-        let advertised = if address.ip().is_unspecified() {
-            format!("{}:{}", host_name(), address.port())
-        } else {
-            address.to_string()
-        };
-        self.app.set_peer_address(advertised);
+        self.app.set_peer_listener(address);
         self.tasks
             .push(tokio::spawn(self.app.clone().serve_peers(listener)));
         address
     }
 
-    /// Keeps a link to the member at `addr` (a `--peer` seed).
+    /// Dials a `--peer` seed until the member answering on it is known;
+    /// that member's dialer keeps it as an address.
     pub fn add_peer(&self, addr: impl Into<String>) {
-        self.app.dial(addr.into());
+        self.app.add_seed(addr.into());
     }
 
     /// Serves plain HTTP on `listener` in the background.

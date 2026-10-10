@@ -16,8 +16,9 @@ import { reachable } from "@/sync/auth";
 
 import { SyncStatus } from "../shell/SyncStatus.tsx";
 import { useStatusHints, useUi } from "../shell/ui-state.tsx";
+import { ServerSection } from "./ServerSection.tsx";
 
-const SECTIONS = ["General", "Timeline", "Sync", "Shortcuts", "Account"] as const;
+const SECTIONS = ["General", "Timeline", "Sync", "Server", "Shortcuts", "Account"] as const;
 
 function offsetLabel(tz: string): string {
   const minutes = Math.round(tzOffset(tz, Date.now()) / 60000);
@@ -177,6 +178,8 @@ export function SettingsPage() {
               )}
             </Row>
           </Section>
+
+          <ServerSection />
 
           <Section id="shortcuts" title="Shortcuts">
             <Row label="Keyboard">

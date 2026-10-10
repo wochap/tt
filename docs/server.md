@@ -68,9 +68,10 @@ others can access it), `server.db.lock`, and, while `serve` runs,
 | `token ls` | List tokens: id (first 12 hex characters of the stored hash), user, created, last used, revoked. |
 | `token revoke <id>` | Revoke one token (give at least 6 characters of its id). |
 | `token revoke --user <name>` | Revoke every live token of a user. |
-| `peer invite [--addr <host:port>] [--name <name>]` | Print a one-time pairing code (valid 10 minutes, single use) for another server's `peer join`. The code holds the peer address (default: the `--peer-listen` address, the host name when it binds every interface), this server's id, and a secret; only the secret's SHA-256 is stored. `--name` is the name this server takes if it adopts the joiner's root. Needs a running `serve --peer-listen`, or `--listen <addr:port>`: then the command serves the peer port itself, waits until the code is used and the pairing completes (or the code expires, exit 2), and exits. |
+| `peer invite [--addr <host:port>] [--name <name>]` | Print a one-time pairing code (valid 10 minutes, single use) for another server's `peer join`. The code holds the peer address (default: the first `--peer-advertise` value, else the `--peer-listen` address, the host name when it binds every interface), this server's id, and a secret; only the secret's SHA-256 is stored. `--name` is the name this server takes if it adopts the joiner's root. Needs a running `serve --peer-listen`, or `--listen <addr:port>`: then the command serves the peer port itself, waits until the code is used and the pairing completes (or the code expires, exit 2), and exits. |
 | `peer join <code> [--name <name>]` | Pair with the server that printed the code. Checks that the server at the code's address proves the key of the code's server id before sending anything; the side with a root writes the other's membership entry; the side without a root fetches the other's whole root and returns once it is stored (see [Root direction](#root-direction)). `--name` is this server's name if it adopts the inviter's root (default: the host name). |
-| `peer ls` | List member servers as `name (id prefix)`, with the full id, when it was added, and `this server`, `member` or `revoked <time>`. |
+| `peer ls` | List every other non-revoked member as `name (id prefix)` with its state (`online`, `offline`, `syncing (<n> docs)` with the documents not yet in sync, or `error` with the message), when it was last linked (`now`, `5m ago`, `never`), and the address of the current or last link (see [Addresses](#addresses)). Without a running server every member is `offline` with what the last run recorded. Unpaired, it prints the `peer invite`/`peer join` commands instead. |
+| `peer ls --all` | List every member, this server and revoked ones included, as `name (id prefix)`, with the full id, when it was added, and `this server`, `member` or `revoked <time>`. |
 | `peer revoke <name\|id-prefix>` | Revoke a member for good (the registry's `revoked` map is append-only); its links close at once here and on every member the change reaches. A name shared by several members is refused: give an id prefix. Revoking this server itself is refused (use `reset`). Rotate the passwords afterwards: the revoked server holds every hash. |
 | `peer rename <name\|id-prefix> <new-name>` | Change a member's display name. |
 | `reset [--new-identity] [--yes]` | With the server stopped: delete the root, every document and account, tokens, tickets, invite secrets and peer state, and return to `NeedsDecision`. The key (and so the server id) is kept unless `--new-identity`. Asks for confirmation on a terminal; elsewhere it needs `--yes`. A reset is recorded before anything is deleted and completes on the next start of any command if it was interrupted. |
@@ -86,8 +87,8 @@ or a second `init`.
 `serve` takes an exclusive `flock` on `server.db.lock` and listens on
 `admin.sock` (mode 0600, newline-delimited JSON-RPC 2.0; methods `init`,
 `user.add`, `user.passwd`, `user.rename`, `user.del`, `user.ls`, `token.ls`,
-`token.revoke`, `server.id`, `peer.ls`, `peer.revoke`, `peer.rename`,
-`peer.invite`, `peer.join`). Every admin command first tries to take the lock: if it
+`token.revoke`, `server.id`, `peer.ls`, `peer.status`, `peer.revoke`,
+`peer.rename`, `peer.invite`, `peer.join`). Every admin command first tries to take the lock: if it
 gets it, no server is running and it writes the database directly; if the
 lock is held, it sends the change to the running server over the socket.
 So admin commands work while the server is up, take effect at once (a new
@@ -104,7 +105,10 @@ tt-server process`).
 `tt-server init` (create a new root) or `tt-server peer join` (join an
 existing server) is needed. Its peer listener accepts pairings, so an
 empty server can also `peer invite` a rooted one. It serves `GET /api/health`
-(`state: "NeedsDecision"`), a "not set up" page for every non-API path, and
+(`state: "NeedsDecision"`, `setup: "needs-decision"`), the web bundle
+(which shows a "not set up" page with the commands and switches to the login
+form once health reports `ready`; without `--web-dir`, a static "not set
+up" page for every non-API path), and
 the admin socket; every other `/api/*` route and `/sync` answer 503 with
 `{"error": "… tt-server init … tt-server peer join …", "state":
 "NeedsDecision"}`. Running `tt-server init` while it serves (through the
@@ -137,8 +141,10 @@ and run `tt login` again on each daemon and sign in again in the web app.
 | `--behind-proxy` | off | Take the client address for rate limiting and the audit log from `X-Forwarded-For` (first entry) or `X-Real-IP`. Only with a proxy you control. |
 | `--web-dir <dir>` | | Built web bundle. Files are served at `/`; unknown non-API paths get `index.html` (status 200) for client-side routing. A directory without `index.html` is ignored with a warning. |
 | `--idle-evict-secs <n>` | `600` | A document nobody is syncing and nothing has touched for this long is flushed and dropped from memory; it reloads on the next request. |
-| `--peer-listen <addr:port>` | | Accept links and pairings from other servers here. Mutual TLS 1.3 of its own: works the same next to `--tls-cert` or `--insecure-http`, and never goes through the reverse proxy. Without it the server still dials `--peer` seeds and remembered addresses but accepts no inbound links. |
-| `--peer <host:port>` | | A member's peer address to keep a link to (repeatable). Addresses learned from invite codes are remembered and dialed too. |
+| `--peer-listen <addr:port>` | | Accept links and pairings from other servers here. Mutual TLS 1.3 of its own: works the same next to `--tls-cert` or `--insecure-http`, and never goes through the reverse proxy. Without it the server still dials members at their known addresses but accepts no inbound links and advertises no address. |
+| `--peer-advertise <host:port>` | | An address at which members reach `--peer-listen`, such as a Tailscale MagicDNS name or a public host name with a forwarded port (repeatable). Advertised to members before the interface addresses, and put into invite codes. |
+| `--peer <host:port>` | | A seed: a member's peer address to dial (repeatable). Stored once; dialed until the member answering on it is known, then kept as one of that member's addresses and never pruned. Usually unnecessary: members learn each other's addresses (see [Addresses](#addresses)). |
+| `--public-url <url>` | | This server's client URL (e.g. `https://laptop-b.example.ts.net`). Passed to members in the link hello and listed by `GET /api/peers`; never used for peer links. |
 
 Without TLS flags and without `--insecure-http`, `serve` exits 1 and says
 which of the two to add. Logs go to stderr (`TT_SERVER_LOG`, e.g. `debug`).
@@ -177,8 +183,11 @@ tt-pair:aeaq…
 laptop-b$ tt-server peer join tt-pair:aeaq…
 joined laptop-a (or4xxbd5); this server now holds root 4Jd…
 laptop-b$ tt-server peer ls
-laptop-a (or4xxbd5)   or4xxbd5…  added 2026-10-09 10:00  member
-laptop-b (pagx3bv4)   pagx3bv4…  added 2026-10-09 10:02  this server
+SERVER                           STATE                LAST SEEN  ADDRESS
+laptop-a (or4xxbd5)              online               now        laptop-a.tail1234.ts.net:8772
+laptop-b$ tt-server peer ls --all
+laptop-a (or4xxbd5)              or4xxbd5…  added 2026-10-09 10:00  member
+laptop-b (pagx3bv4)              pagx3bv4…  added 2026-10-09 10:02  this server
 ```
 
 Users log in to any member with the same accounts; a client keeps using
@@ -225,12 +234,53 @@ stored. A revoked server cannot pair again with its old key: reset it with
   link closes with a protocol error after 10 s. On every new link and on
   every change of the registry or an index, the server loads every such
   document (also ones evicted from memory) and offers it to its members.
-- **Mesh.** Each server dials every address it knows (`--peer`, codes it
-  joined with) and redials after a few seconds when a link drops. Changes
-  relay through members: if B and C both reach A, they sync through A.
-  When both sides dial each other the newer link replaces the older one.
+- **Mesh.** Each server keeps one dialer per non-revoked member it is not
+  linked with, dialing that member's known addresses (see
+  [Addresses](#addresses)) in order of most recent success. A failed round
+  waits 1 s, doubling up to 5 minutes, with ±20 % jitter; a link resets it,
+  so a member that comes back is linked within 5 minutes at most. A dialer
+  idles while a link with its member exists, and stops when the member is
+  revoked. Changes relay through members: if B and C both reach A, they sync
+  through A until they learn each other's addresses.
+- **One link per pair.** When both sides dial each other at once, both keep
+  the link dialed by the lower `server_id` and close the other; they agree
+  without exchanging anything. Sync state is rebuilt on the surviving link
+  from the document heads, so nothing pending is lost.
 - **Revocation** closes a link at once on the revoking server and on every
   member within moments of the registry change reaching it.
+
+### Addresses
+
+Pairing is identity, not address: a laptop that moves between networks
+keeps its membership, and members find it again from what they last saw.
+Addresses never enter the registry (Automerge keeps all history, so daily
+churn would grow it forever); each server keeps them in its own
+`server.db` (`peer_addresses`), with when each was last seen, when a link
+over it last succeeded, and where it came from:
+
+| Source | Learned from | Kept |
+| --- | --- | --- |
+| `self` | the member's own hello on a live link | until its next hello stops advertising it; then it becomes a hint |
+| `hint` | another member's hello, or a pairing | removed once no successful link confirmed it for 30 days (checked at start and daily) |
+| `seed` | `--peer` | always |
+
+Right after mutual TLS, before the automerge-repo protocol, both sides
+send one CBOR hello: `{type: "tt-hello", server_id, name, version,
+advertise: [host:port], public_url, hints: [{server_id, addrs: [{addr,
+seen_at}]}]}`. `advertise` is every `--peer-advertise` value, then the
+`--peer-listen` address, or for a wildcard listen address every interface
+address of the host (non-loopback, non-link-local, read again for each
+link) with the listen port. `hints` are the sender's known addresses of
+the other members. A receiver keeps advertised addresses only from a
+trusted member, and hints only for `server_id`s its own registry lists and
+does not revoke (not for itself or for the sender), at most 16 addresses
+per member; everything else is discarded. Both members must run a version
+with the hello; an older member cannot link.
+
+So in practice: give each laptop `--peer-advertise <name>.<tailnet>.ts.net:8772`,
+pair once, and every member learns every other member's names and LAN
+addresses on its next link with anyone. Static `--peer` seeds are only
+needed when no member is reachable yet.
 
 ### Peering security model
 
@@ -249,6 +299,9 @@ stored. A revoked server cannot pair again with its old key: reset it with
 - **Reachability:** members link directly. Members behind NAT on different
   networks need Tailscale (or another VPN) or a member with a publicly
   reachable peer port; tt does no NAT traversal of its own.
+- **Addresses:** every member learns every member's addresses (they are
+  not secret, and members are root-equivalent anyway); unknown and revoked
+  ids in hints are ignored, and hints are capped at 16 per member.
 - **Exposure:** the peer port can listen on every interface: non-members
   fail the TLS handshake before any application data, and pairing needs a
   valid secret, with 5 pairing attempts per minute per IP.
@@ -256,9 +309,11 @@ stored. A revoked server cannot pair again with its old key: reset it with
 ### Operations
 
 The systemd unit in `contrib/tt-server.service` passes
-`--peer-listen 0.0.0.0:8772`; add `--peer <host:port>` lines for members
-this server should dial, and open the peer port in the firewall (not in
-the reverse proxy). Its `ExecStartPre` runs `init` on the first start:
+`--peer-listen 0.0.0.0:8772`; add `--peer-advertise <host:port>` for the
+names members should use (a MagicDNS name, a public host name), and open
+the peer port in the firewall (not in the reverse proxy). `--peer
+<host:port>` lines are only needed for members this server must reach
+before any link told it their addresses. Its `ExecStartPre` runs `init` on the first start:
 remove it on a server that will `peer join` another (or `tt-server reset
 --yes` before joining).
 
@@ -284,19 +339,25 @@ in {
         ${tt-server} --db /var/lib/tt-server/server.db serve \
           --insecure-http --behind-proxy --listen 127.0.0.1:8080 \
           --peer-listen 0.0.0.0:8772 \
-          --peer laptop-a.tail1234.ts.net:8772
+          --peer-advertise laptop-b.tail1234.ts.net:8772 \
+          --public-url https://laptop-b.tail1234.ts.net
       '';
     };
   };
-  # The peer port: on every interface, or only on the tailnet.
+  # The peer port: on every interface (LAN and tailnet), or only on the
+  # tailnet when members only ever meet there.
   networking.firewall.allowedTCPPorts = [ 8772 ];
   # networking.firewall.interfaces.tailscale0.allowedTCPPorts = [ 8772 ];
 }
 ```
 
-Options worth setting: the peer port (`--peer-listen`), the seeds
-(`--peer`, one per member this host should dial), and the firewall opening
-for the peer port. Run `tt-server peer invite|join|ls` as the `tt-server`
+Options worth setting: the peer port (`--peer-listen`), this host's
+MagicDNS name with that port (`--peer-advertise`, so members reach it from
+any network), its client URL (`--public-url`), and the firewall opening
+for the peer port. Add `--peer <host:port>` only for a member this host
+must dial before it has linked with anyone. With the firewall limited to
+`tailscale0`, members on the same LAN still link over Tailscale: the LAN
+addresses they advertise are tried first and fail fast. Run `tt-server peer invite|join|ls` as the `tt-server`
 user with `--db /var/lib/tt-server/server.db`.
 
 ## HTTP API
@@ -307,7 +368,8 @@ take `Authorization: Bearer <token>` and answer 401 (with
 
 | Endpoint | Auth | Response |
 | --- | --- | --- |
-| `GET /api/health` | – | `{ok:true, version, sessions, state, server:{id,name}}`; `state` is `Ready`, `NeedsDecision` or `Joining` (then `name` is null). |
+| `GET /api/health` | – | `{ok:true, version, sessions, state, setup, server:{id,name}}`; `state` is `Ready`, `NeedsDecision` or `Joining`; `setup` is `ready` with a root and `needs-decision` otherwise (also while joining), so the web app shows its not-set-up page instead of the login form; without a root `name` is the host name. |
+| `GET /api/peers` | bearer | `{server:{id,name}, peers:[{id, name, state, pending, last_seen, address, public_url, error}]}`: every other non-revoked member, as `peer ls` shows it. `state` is `online`, `offline`, `syncing` or `error`; `pending` counts documents not yet in sync (0 unless `syncing`); `last_seen` is UTC seconds (null if never linked); `public_url` comes from the member's latest hello. Empty `peers` when unpaired. Any signed-in user may read it. |
 | `POST /api/login` `{username, password}` | – | `{token, index_doc, user:{id,name}, server:{id,name}}`; 401 `invalid username or password` (same for unknown and deleted users); 409 `{"error":"account_conflict"}` when the password matches a conflicted account (below); 429 after 5 attempts per minute from one IP. |
 | `GET /api/me` | bearer | `{user:{id,name}, index_doc, server:{id,name}}` |
 | `POST /api/logout` | bearer | `{ok:true}`; revokes the token and closes its websockets. |

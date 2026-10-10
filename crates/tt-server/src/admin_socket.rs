@@ -2,7 +2,7 @@
 //! served by `serve` in the database directory (mode 0600: the file
 //! permissions are the credential). Methods: `init`, `user.add`,
 //! `user.passwd`, `user.rename`, `user.del`, `user.ls`, `token.ls`,
-//! `token.revoke`, `server.id`, `peer.ls`, `peer.revoke`, `peer.rename`,
+//! `token.revoke`, `server.id`, `peer.ls`, `peer.status`, `peer.revoke`, `peer.rename`,
 //! `peer.invite`, `peer.join`. Password hashes arrive already hashed; the socket never
 //! carries a plaintext password. [`dispatch`] is also what direct admin
 //! commands run, so both paths share one implementation.
@@ -255,6 +255,7 @@ pub(crate) async fn dispatch(app: &Arc<App>, method: &str, raw: Value) -> Result
         }
         "server.id" => json!(app.identity().server_id()),
         "peer.ls" => serde_json::to_value(app.servers()?)?,
+        "peer.status" => serde_json::to_value(app.peer_status().await?)?,
         "peer.revoke" => {
             let p: PeerParams = params(raw)?;
             serde_json::to_value(app.revoke_server(&p.target).await?)?

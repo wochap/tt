@@ -36,6 +36,7 @@ csv = "1"
 dialoguer = { version = "0.12", default-features = false, features = ["fuzzy-select", "password"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 iana-time-zone = "0.1"
+if-addrs = "0.15"
 nucleo-matcher = "0.3"
 proptest = "1"
 rcgen = "0.14"

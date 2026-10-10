@@ -391,6 +391,20 @@ impl RawPeer {
         let (mut socket, _) = tokio_tungstenite::client_async("ws://tt-peer/", stream)
             .await
             .unwrap();
+        // The hello comes first, both ways.
+        let hello = tt_server::links::Hello::new(identity.server_id(), "raw");
+        socket
+            .send(tokio_tungstenite::tungstenite::Message::Binary(
+                hello.encode().unwrap().into(),
+            ))
+            .await
+            .unwrap();
+        match socket.next().await {
+            Some(Ok(tokio_tungstenite::tungstenite::Message::Binary(bytes))) => {
+                tt_server::links::Hello::decode(&bytes).unwrap();
+            }
+            other => panic!("expected a hello, got {other:?}"),
+        }
         let join = WireMessage::Join {
             sender_id: "srv:raw".into(),
             peer_metadata: PeerMetadata::default(),
@@ -701,7 +715,7 @@ async fn peer_commands_without_a_running_server() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let (code, out, _) = cli(&a, &["peer", "ls"]).await;
+    let (code, out, _) = cli(&a, &["peer", "ls", "--all"]).await;
     assert_eq!(code, 0);
     let nixos: Vec<&str> = out
         .lines()
@@ -717,7 +731,7 @@ async fn peer_commands_without_a_running_server() {
     let (code, _, err) = cli(&a, &["peer", "revoke", "nixos"]).await;
     assert_eq!(code, 2, "{err}");
     assert!(err.contains("id prefix"), "{err}");
-    let (code, own, _) = cli(&b, &["peer", "ls"]).await;
+    let (code, own, _) = cli(&b, &["peer", "ls", "--all"]).await;
     assert_eq!(code, 0);
     let own_line = own
         .lines()

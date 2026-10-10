@@ -212,6 +212,7 @@ async fn health_and_unknown_api_paths() {
     assert_eq!(status, 200);
     assert_eq!(body["ok"], true);
     assert_eq!(body["state"], "Ready");
+    assert_eq!(body["setup"], "ready");
     assert_eq!(body["server"]["name"], "test-server");
     let id = body["server"]["id"].as_str().unwrap();
     assert_eq!(id, server.server().app().identity().server_id());
@@ -472,7 +473,11 @@ async fn serve_without_root_runs_limited_until_init_arrives() {
         health["server"]["id"],
         server.server().app().identity().server_id()
     );
-    assert_eq!(health["server"]["name"], json!(null));
+    assert_eq!(health["setup"], "needs-decision");
+    assert_eq!(
+        health["server"]["name"],
+        json!(tt_server::identity::host_name())
+    );
 
     let (status, body) = post(
         &base,
@@ -489,7 +494,12 @@ async fn serve_without_root_runs_limited_until_init_arrives() {
     );
     assert_eq!(get(&base, "/api/me", Some("x")).await.0, 503);
     assert_eq!(upgrade(&server.ws()).await, Err(503));
+    // The web app is served: it shows its not-set-up page from the health
+    // check. Without a bundle a static page says the same.
     let (status, page) = get(&base, "/", None).await;
+    assert_eq!((status, page.as_str()), (200, Some("<title>tt</title>")));
+    let bare = TestServer::start_uninitialized(|_| {}).await;
+    let (status, page) = get(&bare.base(), "/", None).await;
     assert_eq!(status, 503);
     assert!(page.as_str().unwrap().contains("not set up"), "{page}");
 

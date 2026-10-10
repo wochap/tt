@@ -83,10 +83,108 @@ const PEERING_SCHEMA: &str = "
         started INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS peer_addresses (
-        addr TEXT PRIMARY KEY,
-        server_id TEXT,
-        added INTEGER NOT NULL
+        server_id TEXT NOT NULL,
+        addr TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('self', 'hint', 'seed')),
+        last_seen INTEGER NOT NULL,
+        last_ok INTEGER,
+        PRIMARY KEY (server_id, addr)
+    );
+    CREATE TABLE IF NOT EXISTS peer_seen (
+        server_id TEXT PRIMARY KEY,
+        last_seen INTEGER NOT NULL,
+        address TEXT,
+        public_url TEXT
     );";
+
+/// Hint addresses no successful link confirmed for this long are pruned.
+pub const HINT_TTL_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+/// Hint addresses kept per member.
+pub const MAX_HINTS: usize = 16;
+
+/// Where a peer address was learned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AddressSource {
+    /// Advertised by the member itself in its latest hello.
+    #[serde(rename = "self")]
+    Advertised,
+    /// Passed on by another member, or remembered from an invite.
+    Hint,
+    /// A `--peer` address; never pruned.
+    Seed,
+}
+
+impl AddressSource {
+    fn parse(text: &str) -> Self {
+        match text {
+            "self" => Self::Advertised,
+            "seed" => Self::Seed,
+            _ => Self::Hint,
+        }
+    }
+}
+
+/// One known address of a member (`server_id` is empty for a seed whose
+/// owner is not known yet). Times are Unix milliseconds of this server's
+/// clock.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeerAddress {
+    pub server_id: String,
+    pub addr: String,
+    pub source: AddressSource,
+    pub last_seen: i64,
+    pub last_ok: Option<i64>,
+}
+
+/// When this server last linked with a member, over which address, and
+/// the client URL from its latest hello.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeenRecord {
+    pub last_seen: i64,
+    pub address: Option<String>,
+    pub public_url: Option<String>,
+}
+
+/// Dial order: most recently successful first, then most recently seen,
+/// seeds last among the never-successful.
+const DIAL_ORDER: &str =
+    "ORDER BY last_ok IS NULL, last_ok DESC, source = 'seed', last_seen DESC, addr";
+
+fn address_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PeerAddress> {
+    Ok(PeerAddress {
+        server_id: row.get(0)?,
+        addr: row.get(1)?,
+        source: AddressSource::parse(&row.get::<_, String>(2)?),
+        last_seen: row.get(3)?,
+        last_ok: row.get(4)?,
+    })
+}
+
+/// Replaces the address table of the first peering version (`addr`,
+/// `server_id`, `added`) with the current one, keeping its rows as hints.
+fn migrate_peer_addresses(connection: &mut Connection) -> rusqlite::Result<()> {
+    let old: bool = connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('peer_addresses') WHERE name = 'added')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !old {
+        return Ok(());
+    }
+    let tx = connection.transaction()?;
+    tx.execute_batch("ALTER TABLE peer_addresses RENAME TO peer_addresses_v1;")?;
+    tx.execute_batch(PEERING_SCHEMA)?;
+    tx.execute(
+        "INSERT OR IGNORE INTO peer_addresses (server_id, addr, source, last_seen)
+         SELECT coalesce(server_id, ''), addr,
+                CASE WHEN server_id IS NULL THEN 'seed' ELSE 'hint' END, added
+         FROM peer_addresses_v1",
+        [],
+    )?;
+    tx.execute_batch("DROP TABLE peer_addresses_v1;")?;
+    tx.commit()
+}
 
 #[must_use]
 pub fn now_ms() -> i64 {
@@ -254,7 +352,10 @@ impl Db {
                 tx.commit()
             })?;
         }
-        db.with(|connection| connection.execute_batch(PEERING_SCHEMA))?;
+        db.with(|connection| {
+            migrate_peer_addresses(connection)?;
+            connection.execute_batch(PEERING_SCHEMA)
+        })?;
         Ok(db)
     }
 
@@ -445,25 +546,218 @@ impl Db {
 
     // ---------- peer addresses ----------
 
-    /// Remembers an address to dial (from an invite code).
-    pub fn add_peer_address(&self, addr: &str, server_id: Option<&str>) -> Result<()> {
-        let (addr, server_id) = (addr.to_owned(), server_id.map(str::to_owned));
+    /// Records a `--peer` seed whose owner is not known yet; a seed already
+    /// stored (resolved or not) is left alone. `true` when inserted.
+    pub fn add_seed(&self, addr: &str) -> Result<bool> {
+        let addr = addr.to_owned();
+        self.with(move |connection| {
+            let known: bool = connection.query_row(
+                "SELECT EXISTS (SELECT 1 FROM peer_addresses WHERE addr = ?1 AND source = 'seed')",
+                params![addr],
+                |row| row.get(0),
+            )?;
+            if known {
+                return Ok(false);
+            }
+            connection
+                .execute(
+                    "INSERT INTO peer_addresses (server_id, addr, source, last_seen)
+                     VALUES ('', ?1, 'seed', ?2)",
+                    params![addr, now_ms()],
+                )
+                .map(|changed| changed == 1)
+        })
+    }
+
+    /// Seeds whose owner is not known yet.
+    pub fn unresolved_seeds(&self) -> Result<Vec<String>> {
+        self.with(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT addr FROM peer_addresses WHERE server_id = '' ORDER BY last_seen, addr",
+            )?;
+            statement.query_map([], |row| row.get(0))?.collect()
+        })
+    }
+
+    /// Assigns a seed to the member that answered on it.
+    pub fn resolve_seed(&self, addr: &str, server_id: &str) -> Result<()> {
+        let (addr, server_id) = (addr.to_owned(), server_id.to_owned());
+        self.with(move |connection| {
+            let tx = connection.transaction()?;
+            tx.execute(
+                "DELETE FROM peer_addresses WHERE server_id = '' AND addr = ?1",
+                params![addr],
+            )?;
+            tx.execute(
+                "INSERT INTO peer_addresses (server_id, addr, source, last_seen)
+                 VALUES (?1, ?2, 'seed', ?3)
+                 ON CONFLICT (server_id, addr) DO UPDATE SET source = 'seed'",
+                params![server_id, addr, now_ms()],
+            )?;
+            tx.commit()
+        })
+    }
+
+    /// Stores the addresses a member advertised in a live hello. Its
+    /// previous self-advertised addresses that it no longer advertises
+    /// become hints (and expire as such); seeds stay seeds.
+    pub fn set_advertised(&self, server_id: &str, addrs: &[String], now: i64) -> Result<()> {
+        let (server_id, addrs) = (server_id.to_owned(), addrs.to_vec());
+        self.with(move |connection| {
+            let tx = connection.transaction()?;
+            tx.execute(
+                "UPDATE peer_addresses SET source = 'hint'
+                 WHERE server_id = ?1 AND source = 'self'",
+                params![server_id],
+            )?;
+            for addr in &addrs {
+                tx.execute(
+                    "INSERT INTO peer_addresses (server_id, addr, source, last_seen)
+                     VALUES (?1, ?2, 'self', ?3)
+                     ON CONFLICT (server_id, addr) DO UPDATE SET
+                         last_seen = excluded.last_seen,
+                         source = CASE WHEN source = 'seed' THEN 'seed' ELSE 'self' END",
+                    params![server_id, addr, now],
+                )?;
+            }
+            tx.commit()
+        })
+    }
+
+    /// Adds addresses another member passed on for `server_id`; known ones
+    /// keep their times. Keeps the [`MAX_HINTS`] most recent hints.
+    pub fn add_hints(&self, server_id: &str, addrs: &[String], now: i64) -> Result<()> {
+        let (server_id, addrs) = (server_id.to_owned(), addrs.to_vec());
+        self.with(move |connection| {
+            let tx = connection.transaction()?;
+            for addr in addrs.iter().take(MAX_HINTS) {
+                tx.execute(
+                    "INSERT INTO peer_addresses (server_id, addr, source, last_seen)
+                     VALUES (?1, ?2, 'hint', ?3) ON CONFLICT (server_id, addr) DO NOTHING",
+                    params![server_id, addr, now],
+                )?;
+            }
+            tx.execute(
+                "DELETE FROM peer_addresses WHERE server_id = ?1 AND source = 'hint'
+                 AND addr NOT IN (
+                     SELECT addr FROM peer_addresses WHERE server_id = ?1 AND source = 'hint'
+                     ORDER BY coalesce(last_ok, last_seen) DESC, addr LIMIT ?2)",
+                params![server_id, MAX_HINTS as i64],
+            )?;
+            tx.commit()
+        })
+    }
+
+    /// Records a successful link over `addr` to `server_id`.
+    pub fn confirm_address(&self, server_id: &str, addr: &str, now: i64) -> Result<()> {
+        let (server_id, addr) = (server_id.to_owned(), addr.to_owned());
         self.with(move |connection| {
             connection
                 .execute(
-                    "INSERT INTO peer_addresses (addr, server_id, added) VALUES (?1, ?2, ?3)
-                     ON CONFLICT (addr) DO UPDATE SET server_id = excluded.server_id",
-                    params![addr, server_id, now_ms()],
+                    "INSERT INTO peer_addresses (server_id, addr, source, last_seen, last_ok)
+                     VALUES (?1, ?2, 'hint', ?3, ?3)
+                     ON CONFLICT (server_id, addr) DO UPDATE SET
+                         last_seen = excluded.last_seen, last_ok = excluded.last_ok",
+                    params![server_id, addr, now],
                 )
                 .map(|_| ())
         })
     }
 
-    pub fn peer_addresses(&self) -> Result<Vec<String>> {
+    /// Every known address of a member, in dial order.
+    pub fn member_addresses(&self, server_id: &str) -> Result<Vec<PeerAddress>> {
+        let server_id = server_id.to_owned();
+        self.with(move |connection| {
+            let mut statement = connection.prepare(&format!(
+                "SELECT server_id, addr, source, last_seen, last_ok FROM peer_addresses
+                 WHERE server_id = ?1 {DIAL_ORDER}"
+            ))?;
+            statement
+                .query_map(params![server_id], address_from_row)?
+                .collect()
+        })
+    }
+
+    /// The addresses to dial for a member, in order.
+    pub fn dial_order(&self, server_id: &str) -> Result<Vec<String>> {
+        Ok(self
+            .member_addresses(server_id)?
+            .into_iter()
+            .map(|address| address.addr)
+            .collect())
+    }
+
+    /// Removes hints that no successful link confirmed within
+    /// [`HINT_TTL_MS`] before `now`; seeds and self-advertised addresses
+    /// stay. Returns how many were removed.
+    pub fn prune_hints(&self, now: i64) -> Result<usize> {
+        self.with(move |connection| {
+            connection.execute(
+                "DELETE FROM peer_addresses
+                 WHERE source = 'hint' AND coalesce(last_ok, last_seen) < ?1",
+                params![now - HINT_TTL_MS],
+            )
+        })
+    }
+
+    /// Records a link with a member: when, over which address (kept when
+    /// `None`), and its client URL from the hello.
+    pub fn record_link(
+        &self,
+        server_id: &str,
+        address: Option<&str>,
+        public_url: Option<&str>,
+        now: i64,
+    ) -> Result<()> {
+        let (server_id, address, public_url) = (
+            server_id.to_owned(),
+            address.map(str::to_owned),
+            public_url.map(str::to_owned),
+        );
+        self.with(move |connection| {
+            connection
+                .execute(
+                    "INSERT INTO peer_seen (server_id, last_seen, address, public_url)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT (server_id) DO UPDATE SET
+                         last_seen = excluded.last_seen,
+                         address = coalesce(excluded.address, address),
+                         public_url = excluded.public_url",
+                    params![server_id, now, address, public_url],
+                )
+                .map(|_| ())
+        })
+    }
+
+    /// Moves a member's last-seen time (a link that just ended).
+    pub fn touch_link(&self, server_id: &str, now: i64) -> Result<()> {
+        let server_id = server_id.to_owned();
+        self.with(move |connection| {
+            connection
+                .execute(
+                    "UPDATE peer_seen SET last_seen = ?2 WHERE server_id = ?1",
+                    params![server_id, now],
+                )
+                .map(|_| ())
+        })
+    }
+
+    pub fn peer_seen(&self) -> Result<std::collections::HashMap<String, SeenRecord>> {
         self.with(|connection| {
-            let mut statement =
-                connection.prepare("SELECT addr FROM peer_addresses ORDER BY added")?;
-            statement.query_map([], |row| row.get(0))?.collect()
+            let mut statement = connection
+                .prepare("SELECT server_id, last_seen, address, public_url FROM peer_seen")?;
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        SeenRecord {
+                            last_seen: row.get(1)?,
+                            address: row.get(2)?,
+                            public_url: row.get(3)?,
+                        },
+                    ))
+                })?
+                .collect()
         })
     }
 
@@ -518,6 +812,7 @@ impl Db {
                  DELETE FROM invites;
                  DELETE FROM joining;
                  DELETE FROM peer_addresses;
+                 DELETE FROM peer_seen;
                  DELETE FROM reset_intent;",
             )?;
             tx.commit()
@@ -762,6 +1057,7 @@ mod tests {
                 "joining",
                 "login_audit",
                 "peer_addresses",
+                "peer_seen",
                 "reset_intent",
                 "server",
                 "tickets",
@@ -848,6 +1144,130 @@ mod tests {
         assert!(
             !db.begin_join(&intent).unwrap(),
             "a rooted server never joins"
+        );
+    }
+
+    #[test]
+    fn addresses_dial_by_success_then_sight_with_seeds_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("server.db")).unwrap();
+        let now = now_ms();
+        db.add_seed("seed.example:8772").unwrap();
+        db.resolve_seed("seed.example:8772", "b").unwrap();
+        db.set_advertised("b", &["new.lan:8772".into()], now - 10)
+            .unwrap();
+        db.add_hints("b", &["old.hint:8772".into()], now - 1_000)
+            .unwrap();
+        db.add_hints("b", &["work.lan:8772".into()], now - 20)
+            .unwrap();
+        db.confirm_address("b", "work.lan:8772", now - 500).unwrap();
+        db.set_advertised("b", &["tail.ts.net:8772".into()], now)
+            .unwrap();
+        db.confirm_address("b", "tail.ts.net:8772", now).unwrap();
+        db.add_hints("c", &["c.lan:8772".into()], now).unwrap();
+        assert_eq!(
+            db.dial_order("b").unwrap(),
+            [
+                "tail.ts.net:8772",
+                "work.lan:8772",
+                "new.lan:8772",
+                "old.hint:8772",
+                "seed.example:8772"
+            ]
+        );
+        // The address no longer advertised became a hint.
+        let sources: Vec<(String, AddressSource)> = db
+            .member_addresses("b")
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.addr, a.source))
+            .collect();
+        assert!(sources.contains(&("new.lan:8772".into(), AddressSource::Hint)));
+        assert!(sources.contains(&("tail.ts.net:8772".into(), AddressSource::Advertised)));
+        assert!(sources.contains(&("seed.example:8772".into(), AddressSource::Seed)));
+    }
+
+    #[test]
+    fn unconfirmed_hints_expire_after_30_days_and_seeds_stay() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("server.db")).unwrap();
+        let day = 24 * 60 * 60 * 1000;
+        let start = now_ms() - 40 * day;
+        db.add_seed("seed:1").unwrap();
+        db.resolve_seed("seed:1", "b").unwrap();
+        db.add_seed("never-answered:1").unwrap();
+        db.add_hints("b", &["stale:1".into(), "used:1".into()], start)
+            .unwrap();
+        db.confirm_address("b", "used:1", start + 20 * day).unwrap();
+        db.add_hints("b", &["fresh:1".into()], start + 35 * day)
+            .unwrap();
+        // Hinted again later: the first sighting counts.
+        db.add_hints("b", &["stale:1".into()], start + 39 * day)
+            .unwrap();
+        let removed = db.prune_hints(start + 40 * day).unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(db.dial_order("b").unwrap(), ["used:1", "fresh:1", "seed:1"]);
+        assert_eq!(db.unresolved_seeds().unwrap(), ["never-answered:1"]);
+        // Seeds survive any age.
+        db.prune_hints(start + 4000 * day).unwrap();
+        assert_eq!(db.dial_order("b").unwrap(), ["seed:1"]);
+    }
+
+    #[test]
+    fn hints_are_capped_per_member() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("server.db")).unwrap();
+        let now = now_ms();
+        let many: Vec<String> = (0..40).map(|i| format!("10.0.0.{i}:8772")).collect();
+        db.add_hints("b", &many, now).unwrap();
+        assert_eq!(db.dial_order("b").unwrap().len(), MAX_HINTS);
+        db.add_hints("b", &["later:1".into()], now + 1).unwrap();
+        let order = db.dial_order("b").unwrap();
+        assert_eq!(order.len(), MAX_HINTS);
+        assert_eq!(order[0], "later:1");
+    }
+
+    #[test]
+    fn seeds_load_once_across_restarts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.db");
+        for _ in 0..3 {
+            let db = Db::open(&path).unwrap();
+            for seed in ["a.example:8772", "b.example:8772"] {
+                db.add_seed(seed).unwrap();
+            }
+        }
+        let db = Db::open(&path).unwrap();
+        assert_eq!(
+            db.unresolved_seeds().unwrap(),
+            ["a.example:8772", "b.example:8772"]
+        );
+        // A resolved seed is not added again as an unresolved one.
+        db.resolve_seed("a.example:8772", "srv-a").unwrap();
+        assert!(!db.add_seed("a.example:8772").unwrap());
+        assert_eq!(db.unresolved_seeds().unwrap(), ["b.example:8772"]);
+        assert_eq!(db.dial_order("srv-a").unwrap(), ["a.example:8772"]);
+    }
+
+    #[test]
+    fn first_version_address_rows_become_hints() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.db");
+        Db::open(&path).unwrap();
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "DROP TABLE peer_addresses;
+                 CREATE TABLE peer_addresses (addr TEXT PRIMARY KEY, server_id TEXT, added INTEGER NOT NULL);
+                 INSERT INTO peer_addresses VALUES ('a:1', 'srv-a', 5);",
+            )
+            .unwrap();
+        let db = Db::open(&path).unwrap();
+        let addresses = db.member_addresses("srv-a").unwrap();
+        assert_eq!(addresses.len(), 1);
+        assert_eq!(
+            (addresses[0].source, addresses[0].last_seen),
+            (AddressSource::Hint, 5)
         );
     }
 }
