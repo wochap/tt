@@ -55,6 +55,8 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
         <span>Server chip</span><code>Badge</code><span style="color:var(--c-muted)">variant outline + status dot; see <code>ServerChip</code></span>
         <span>Peer list (desktop)</span><code>Table</code><span style="color:var(--c-muted)">read-only, 38px rows; phone uses stacked <code>PeerRow</code>s</span>
         <span>Renumber notice</span><code>Toast</code> (Sonner)<span style="color:var(--c-muted)">bottom-left, action = View, 10s; burst collapses by id <code>renumber</code></span>
+        <span>Member list (Settings → Sync)</span><code>Table</code><span style="color:var(--c-muted)">read-only, 38px rows, in-use row has accent inset; phone uses stacked <code>MemberRow</code>s</span>
+        <span>Renumber hint</span><code>CommandItem</code> / <code>TableRow</code><span style="color:var(--c-muted)">non-selectable (skipped by ↑↓), muted; click or ⌘⏎ opens the moved task</span>
         <span>Not set up, account conflict</span><code>Card</code> / <code>Alert</code><span style="color:var(--c-muted)">CLI blocks are <code>pre</code> + copy button</span>
       </div>
     </div>
@@ -71,11 +73,14 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
         <span><code>RoundFlattenPreview</code></span><span style="color:var(--c-muted)"><code>entries[]</code>, <code>gridMinutes</code>, <code>groupBy</code> (entry | taskDay), <code>now</code> → raw / flattened rows, strips, delta; pure function + table</span>
         <span><code>TotalsBar</code></span><span style="color:var(--c-muted)"><code>entries[]</code>, <code>now</code> → summed, wall-clock (union), overlap, count; also used by phone collapsible</span>
         <span><code>QuickCreateInput</code></span><span style="color:var(--c-muted)"><code>value</code>, <code>onCreate</code>, <code>onCreateAndStart</code>; tokenizes <code>+tag</code>, <code>@project</code>, <code>key:value</code> live</span>
-        <span><code>SyncStatus</code></span><span style="color:var(--c-muted)"><code>state</code> (synced | syncing | offline), <code>pending</code>, <code>lastSync</code>, <code>server</code>, <code>compact</code> (dot + name only)</span>
+        <span><code>SyncStatus</code></span><span style="color:var(--c-muted)"><code>state</code> (synced | syncing | switched | offline), <code>member</code> (name, id; omitted offline when 2+ members), <code>members[]</code>, <code>pending</code>, <code>lastSync</code>, <code>compact</code>; tooltip lists "Also reachable" / "Other members"</span>
         <span><code>ServerChip</code></span><span style="color:var(--c-muted)"><code>name</code>, <code>state</code> (dot), <code>size</code> (sm | md); tooltip = <code>SyncStatus</code> detail</span>
         <span><code>PeerRow</code></span><span style="color:var(--c-muted)"><code>name</code>, <code>serverId</code>, <code>state</code> (online | offline | syncing | error), <code>pending</code>, <code>error</code>, <code>lastSeen</code>, <code>layout</code> (row | stacked)</span>
         <span><code>NotSetUpPage</code></span><span style="color:var(--c-muted)"><code>serverName</code>, <code>url</code>, <code>pollMs</code>; reloads when the server reports a dataset</span>
         <span><code>RenumberToast</code></span><span style="color:var(--c-muted)"><code>changes[]</code> ({from, to, title}), <code>onView(id)</code>; 1 → single line, 2+ → count + expandable list</span>
+        <span><code>MemberRow</code></span><span style="color:var(--c-muted)"><code>name</code>, <code>serverId</code>, <code>url</code>, <code>state</code> (connected | reachable | unreachable | skipped), <code>skipReason</code>, <code>inUse</code>, <code>layout</code> (row | stacked); read-only</span>
+        <span><code>RenumberHint</code></span><span style="color:var(--c-muted)"><code>query</code> (#n), <code>moved</code> ({to, title}); renders "#to title was renumbered from #n" under the task that holds #n now</span>
+        <span><code>FailoverStatus</code></span><span style="color:var(--c-muted)"><code>member</code>; part of <code>SyncStatus</code>: "Switched to {member}" with accent tint for 4s, then the synced line; never a toast</span>
       </div>
     </div>
   </div>
@@ -105,9 +110,186 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
     </div>
   </div>
 
+  <!-- ═══════ TURN 6 · ONE INSTALL, MEMBERS, RENUMBER HINT ═══════ -->
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--canvas-accent);padding-bottom:4px;border-bottom:1px solid var(--canvas-rule);max-width:2928px">Turn 6 · renumber hint, one install / any member, member list, failover, login</div>
+    <p style="margin:0;max-width:880px;color:var(--canvas-muted);font-size:12.5px;line-height:1.5;text-wrap:pretty">One install syncs with whichever paired server ("member") is reachable. The status names the member in use; offline with several members it names none. Old short ids belong to whichever task holds them now — a muted hint row points to the moved task. Revised in place: 5.1, 5.3 (member wording), 5.4–5.6 (peer address, no transport), 5.14 (no redirect), login, empty month, phone day; 5.16–5.18 removed.</p>
+    <div style="display:flex;gap:48px;align-items:flex-start">
+    <sc-for list="{{ themes }}" as="t" hint-placeholder-count="2">
+    <div class="{{ t.cls }}" style="display:flex;flex-direction:column;gap:32px;flex:none;width:1440px">
+
+      <div style="display:flex;gap:24px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">6.1 · search</span>Task list search · old number · {{ t.name }} · 1008×240</div>
+          <div data-screen-label="Search renumbered {{ t.name }}" style="width:1008px;height:240px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
+            <div style="padding:14px 14px 10px;display:flex;align-items:center;gap:8px;font-size:12px;border-bottom:1px solid var(--c-s0)">
+              <div style="display:flex;align-items:center;gap:8px;height:28px;padding:0 9px;border:1px solid var(--color-accent);border-radius:var(--r-2);width:260px;background:var(--c-mantle)"><span style="display:flex;align-items:center;font-family:var(--c-mono)">#{{ renumberFirst.from }}<span style="width:1px;height:14px;background:var(--color-accent)"></span></span><span style="margin-left:auto;color:var(--c-muted)">1 match · short id</span></div>
+            </div>
+            <div style="display:grid;grid-template-columns:40px 1fr 160px 80px 32px;gap:10px;padding:6px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted);border-bottom:1px solid var(--c-s0)"><span>#</span><span>Task</span><span>Project</span><span style="text-align:right">Total</span><span></span></div>
+            <div style="display:grid;grid-template-columns:40px 1fr 160px 80px 32px;gap:10px;align-items:center;height:38px;padding:0 14px;background:color-mix(in srgb,var(--color-accent) 8%,transparent);box-shadow:inset 2px 0 0 var(--color-accent)">
+              <span style="font-family:var(--c-mono);font-size:11px;color:var(--c-sub1)">#{{ renumberHolder.seq }}</span>
+              <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:8px;height:8px;border-radius:var(--r-xs);background:{{ renumberHolder.color }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ renumberHolder.title }}</span></span>
+              <span style="font-size:12px;color:var(--c-muted)">{{ renumberHolder.project }}</span>
+              <span style="text-align:right">{{ renumberHolder.total }}</span>
+              <span style="width:24px;height:24px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--c-link);border:1px solid var(--color-accent)">▶</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:0 14px 0 64px;font-size:12px;color:var(--c-muted)"><span style="color:var(--c-faint)">↳</span><span style="flex:1;min-width:0;text-wrap:pretty"><span style="font-family:var(--c-mono);color:var(--c-sub1)">#{{ renumberFirst.to }}</span> <span style="color:var(--c-sub1)">{{ renumberFirst.title }}</span> was renumbered from <span style="font-family:var(--c-mono)">#{{ renumberFirst.from }}</span></span><span style="color:var(--c-link);flex:none">Open #{{ renumberFirst.to }}</span></div>
+            <div style="margin-top:auto;padding:10px 14px;font-size:11.5px;color:var(--c-muted);border-top:1px solid var(--c-s0)">The hint row is not a result: it can't be selected with ↑↓ and never starts a timer. Click or <kbd>⌘⏎</kbd> opens #{{ renumberFirst.to }}. Shown for 90 days after the renumber.</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">6.2 · phone</span>Task search · old number · {{ t.name }} · 390×844</div>
+          <div data-screen-label="Phone search renumbered {{ t.name }}" style="width:390px;height:844px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-phone);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
+            <div style="height:54px;flex:none;display:flex;align-items:flex-end;padding:0 20px 6px;font-size:12px;color:var(--c-muted)"><span style="font-variant-numeric:tabular-nums">15:42</span></div>
+            <div style="padding:6px 14px 10px;border-bottom:1px solid var(--c-s0)"><div style="display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:1px solid var(--color-accent);border-radius:var(--radius-md);background:var(--c-mantle);font-size:14px"><span style="font-family:var(--c-mono)">#{{ renumberFirst.from }}</span><span style="width:1px;height:16px;background:var(--color-accent)"></span><span style="margin-left:auto;font-size:12px;color:var(--c-muted)">Cancel</span></div></div>
+            <div style="display:flex;align-items:center;gap:10px;min-height:60px;padding:8px 14px;border-bottom:1px solid var(--c-s0)"><span style="width:8px;height:8px;border-radius:var(--r-xs);background:{{ renumberHolder.color }};flex:none"></span><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><span style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ renumberHolder.title }}</span><span style="font-size:12px;color:var(--c-muted)"><span style="font-family:var(--c-mono)">#{{ renumberHolder.seq }}</span> · {{ renumberHolder.project }}</span></div><span style="font-size:12px;color:var(--c-muted)">{{ renumberHolder.total }}</span></div>
+            <div style="display:flex;align-items:center;gap:8px;min-height:48px;padding:6px 14px;font-size:12px;color:var(--c-muted)"><span style="color:var(--c-faint)">↳</span><span style="flex:1;min-width:0;text-wrap:pretty"><span style="font-family:var(--c-mono);color:var(--c-sub1)">#{{ renumberFirst.to }}</span> <span style="color:var(--c-sub1)">{{ renumberFirst.title }}</span> was renumbered from <span style="font-family:var(--c-mono)">#{{ renumberFirst.from }}</span></span><span style="color:var(--c-link);flex:none">Open #{{ renumberFirst.to }}</span></div>
+            <div style="margin-top:auto;height:64px;flex:none;border-top:1px solid var(--c-s0);background:var(--c-mantle);display:grid;grid-template-columns:repeat(4,1fr);font-size:11px;color:var(--c-muted);text-align:center;padding-top:10px"><span>Today</span><span style="color:var(--c-link)">Tasks</span><span>Reports</span><span>Settings</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:24px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">6.3 · ⌘K</span>Command palette · old number · {{ t.name }} · 640×360</div>
+          <div data-screen-label="Palette renumbered {{ t.name }}" style="width:640px;height:360px;background:color-mix(in srgb,var(--c-crust) 70%,transparent);border-radius:var(--r-frame);overflow:hidden;display:flex;justify-content:center;padding-top:40px;box-shadow:var(--frame-shadow);color:var(--c-text);font-size:13px">
+            <div style="width:560px;align-self:flex-start;background:var(--c-mantle);border-radius:var(--r-frame);box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column">
+              <div style="display:flex;align-items:center;gap:10px;height:46px;padding:0 14px;border-bottom:1px solid var(--c-s0);font-size:15px"><span style="color:var(--c-faint)">›</span><span style="flex:1;display:flex;align-items:center;gap:1px;font-family:var(--c-mono)">#{{ renumberFirst.from }}<span style="width:1px;height:18px;background:var(--color-accent)"></span></span><kbd>Esc</kbd></div>
+              <div style="padding:6px;display:flex;flex-direction:column;gap:1px">
+                <div style="display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:var(--r-2);background:var(--c-s0)"><span style="width:38px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--c-muted);flex:none">Task</span><span style="width:8px;height:8px;border-radius:var(--r-xs);background:{{ renumberHolder.color }};flex:none"></span><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="font-family:var(--c-mono)">#{{ renumberHolder.seq }}</span> {{ renumberHolder.title }}</span><span style="font-size:11px;color:var(--c-muted);flex:none">{{ renumberHolder.project }}</span><kbd>⏎</kbd></div>
+                <div style="display:flex;align-items:center;gap:8px;min-height:32px;padding:0 10px 0 58px;font-size:12px;color:var(--c-muted)"><span style="color:var(--c-faint)">↳</span><span style="flex:1;min-width:0;text-wrap:pretty"><span style="font-family:var(--c-mono);color:var(--c-sub1)">#{{ renumberFirst.to }}</span> <span style="color:var(--c-sub1)">{{ renumberFirst.title }}</span> was renumbered from <span style="font-family:var(--c-mono)">#{{ renumberFirst.from }}</span></span><span style="color:var(--c-link);flex:none">Open #{{ renumberFirst.to }}</span></div>
+              </div>
+              <div style="display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--c-s0);font-size:11px;color:var(--c-faint)"><span><kbd>⏎</kbd> open #{{ renumberHolder.seq }}</span><span><kbd>⌘⏎</kbd> open #{{ renumberFirst.to }}</span><span style="margin-left:auto">hint row is skipped by ↑↓</span></div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">6.4 · sync</span>Status bar · member, failover, offline + tooltips · {{ t.name }} · 640×360</div>
+          <div data-screen-label="Sync member status {{ t.name }}" style="width:640px;height:360px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;box-shadow:var(--frame-shadow);font-size:13px;display:flex;flex-direction:column;justify-content:space-between">
+            <div style="display:flex;gap:16px;padding:14px 10px 0">
+              <div style="width:290px;background:var(--c-mantle);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:12px;display:flex;flex-direction:column;gap:8px;font-size:12px"><div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:var(--ctp-green)"></span><span style="font-weight:500;font-size:13px">laptop-b</span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-faint)">c41e08b7</span></div><div style="display:grid;grid-template-columns:76px 1fr;gap:3px 10px;color:var(--c-muted)"><span>Last sync</span><span style="color:var(--c-text);font-variant-numeric:tabular-nums">15:41:28 · 14s ago</span><span>Pending</span><span style="color:var(--c-text)">0 changes</span></div><div style="color:var(--c-muted)">Also reachable: <span style="color:var(--c-sub1)">{{ alsoReachable }}</span></div></div>
+              <div style="width:290px;background:var(--c-mantle);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:12px;display:flex;flex-direction:column;gap:8px;font-size:12px"><div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:var(--ctp-green)"></span><span style="font-weight:500;font-size:13px">laptop-b</span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-faint)">c41e08b7</span></div><div style="display:grid;grid-template-columns:76px 1fr;gap:3px 10px;color:var(--c-muted)"><span>Last sync</span><span style="color:var(--c-text);font-variant-numeric:tabular-nums">15:41:28 · 14s ago</span></div><div style="color:var(--c-muted)">Other members: <span style="color:var(--c-sub1)">laptop-a</span> (unreachable)</div><div style="font-size:11px;color:var(--c-faint)">two members, the other one down</div></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="height:24px;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px;color:var(--c-sub1);padding:2px 6px;margin-left:-6px;border-radius:var(--radius-sm);background:var(--c-s0)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Synced · laptop-b · 14s ago</span><span style="margin-left:auto">synced · hover</span></div>
+              <div style="height:24px;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--ctp-blue) 28%,transparent)"></span>Syncing 3 changes · laptop-b</span><span style="margin-left:auto">syncing</span></div>
+              <div style="height:24px;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px;color:var(--c-sub1);padding:2px 6px;margin-left:-6px;border-radius:var(--radius-sm);background:color-mix(in srgb,var(--color-accent) 16%,transparent)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Switched to laptop-b</span><span style="margin-left:auto">failover · 4s, fades to synced</span></div>
+              <div style="height:24px;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px;color:var(--c-sub1)"><span style="width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--c-faint)"></span>Offline · 3 changes queued</span><span style="margin-left:auto">offline · several members</span></div>
+              <div style="height:24px;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px;color:var(--c-sub1)"><span style="width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--c-faint)"></span>Offline · laptop-a · 3 changes queued</span><span style="margin-left:auto">offline · one member</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:24px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">6.5 · settings</span>Settings → Sync · members · {{ t.name }} · 1008×640</div>
+          <div data-screen-label="Settings sync members {{ t.name }}" style="width:1008px;height:640px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
+            <div style="height:44px;flex:none;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid var(--c-s0);background:var(--c-mantle)"><div style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--c-link)">tt</div><div style="display:flex;gap:2px;font-size:13px"><span style="padding:5px 9px;color:var(--c-muted)">Timeline</span><span style="padding:5px 9px;color:var(--c-muted)">Tasks</span><span style="padding:5px 9px;color:var(--c-muted)">Reports</span><span style="padding:5px 9px;border-radius:var(--r-2);background:var(--c-s0);color:var(--c-text)">Settings</span></div><div style="margin-left:auto;width:26px;height:26px;border-radius:50%;background:var(--c-s0);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--c-sub1)">wo</div></div>
+            <div style="flex:1;display:flex;min-height:0">
+              <div style="width:200px;flex:none;border-right:1px solid var(--c-s0);padding:14px 10px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:var(--c-muted)"><span style="padding:6px 10px">General</span><span style="padding:6px 10px">Timeline</span><span style="padding:6px 10px;border-radius:var(--r-2);background:var(--c-s0);color:var(--c-text)">Sync</span><span style="padding:6px 10px">Server</span><span style="padding:6px 10px">Shortcuts</span><span style="padding:6px 10px">Account</span></div>
+              <div style="flex:1;padding:18px 28px;display:flex;flex-direction:column;gap:22px;min-width:0">
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted)">Status</div>
+                  <div style="display:grid;grid-template-columns:140px 1fr;gap:10px 20px;align-items:center;max-width:520px">
+                    <span style="color:var(--c-sub1)">Syncing with</span><span style="display:flex;align-items:center;gap:8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span><span style="font-weight:500">laptop-b</span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-faint)">c41e08b7</span></span>
+                    <span style="color:var(--c-sub1)">Last sync</span><span style="font-variant-numeric:tabular-nums">15:41:28 · 14s ago</span>
+                    <span style="color:var(--c-sub1)">Pending</span><span>0 changes</span>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <div style="display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted)">Members</span><span style="font-size:12px;color:var(--c-faint)">{{ memberSummary }}</span></div>
+                  <div style="border:1px solid var(--c-s0);border-radius:var(--radius-md);overflow:hidden">
+                    <div style="display:grid;grid-template-columns:220px 1fr 250px;gap:12px;align-items:center;height:32px;padding:0 12px;background:var(--c-mantle);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--c-muted)"><span>Member</span><span>URL</span><span>State</span></div>
+                    <sc-for list="{{ members }}" as="m" hint-placeholder-count="5">
+                      <div style="{{ m.rowStyle }}">
+                        <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="font-weight:500">{{ m.name }}</span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-faint)">{{ m.id }}</span><sc-if value="{{ m.inUse }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;padding:1px 6px;border-radius:var(--radius-sm);color:var(--c-link);box-shadow:inset 0 0 0 1px var(--color-accent)">in use</span></sc-if></span>
+                        <span style="font-family:var(--c-mono);font-size:12px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ m.url }}</span>
+                        <span style="display:flex;align-items:center;gap:8px;color:{{ m.stateColor }}"><span style="{{ m.dotStyle }}"></span>{{ m.stateLabel }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="font-size:12px;color:var(--c-muted);line-height:1.5;max-width:640px;text-wrap:pretty">Read-only. The app picks a member by itself and switches when the one in use stops answering. Members come from pairing on the servers.</div>
+                </div>
+              </div>
+            </div>
+            <div style="height:24px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Synced · laptop-b · 14s ago</span></div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">6.6 · phone</span>Sync · members · {{ t.name }} · 390×844</div>
+          <div data-screen-label="Phone sync members {{ t.name }}" style="width:390px;height:844px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-phone);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
+            <div style="height:54px;flex:none;display:flex;align-items:flex-end;padding:0 20px 6px;font-size:12px;color:var(--c-muted)"><span style="font-variant-numeric:tabular-nums">15:42</span></div>
+            <div style="height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--c-s0)"><span style="color:var(--c-link);font-size:14px">‹ Settings</span><span style="font-size:15px;font-weight:500">Sync</span><span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);font-size:12px;color:var(--c-sub1);"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>laptop-b</span></div>
+            <div style="flex:1;overflow:hidden;padding:14px;display:flex;flex-direction:column;gap:18px">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted)">Status</div>
+                <div style="background:var(--c-mantle);border-radius:var(--radius-md);display:flex;flex-direction:column">
+                  <div style="min-height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 12px"><span style="color:var(--c-sub1)">Syncing with</span><span style="font-weight:500">laptop-b</span></div>
+                  <div style="min-height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid var(--c-s0)"><span style="color:var(--c-sub1)">Last sync</span><span style="font-variant-numeric:tabular-nums">14s ago</span></div>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted)">Members</span><span style="font-size:12px;color:var(--c-faint)">{{ memberSummary }}</span></div>
+                <div style="background:var(--c-mantle);border-radius:var(--radius-md);display:flex;flex-direction:column;overflow:hidden">
+                  <sc-for list="{{ members }}" as="m" hint-placeholder-count="5">
+                    <div style="{{ m.phoneRowStyle }}">
+                      <span style="{{ m.dotStyle }}"></span>
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                        <span style="display:flex;align-items:center;gap:8px"><span style="font-weight:500">{{ m.name }}</span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-faint)">{{ m.id }}</span><sc-if value="{{ m.inUse }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;padding:1px 6px;border-radius:var(--radius-sm);color:var(--c-link);box-shadow:inset 0 0 0 1px var(--color-accent)">in use</span></sc-if></span>
+                        <span style="font-family:var(--c-mono);font-size:11px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ m.url }}</span>
+                        <span style="font-size:12px;color:{{ m.stateColor }}">{{ m.stateLabel }}</span>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="font-size:12px;color:var(--c-muted);line-height:1.5">Read-only. The app picks a member and switches by itself.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:24px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">6.7 · phone</span>Header chip · member, failover, offline · {{ t.name }} · 390×420</div>
+          <div data-screen-label="Phone member chip {{ t.name }}" style="width:390px;height:420px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;box-shadow:var(--frame-shadow);font-size:13px;display:flex;flex-direction:column">
+            <div style="height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--c-s0)"><span style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--c-link)">tt</span><span style="font-size:15px;font-weight:500">Today</span><span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);font-size:12px;color:var(--c-sub1);background:var(--c-s0)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>laptop-b</span><span style="width:26px;height:26px;border-radius:50%;background:var(--c-s0);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--c-sub1)">wo</span></div>
+            <div style="margin:6px 14px 0 auto;width:280px;background:var(--c-mantle);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:12px;display:flex;flex-direction:column;gap:6px;font-size:12px">
+              <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:var(--ctp-green)"></span><span style="font-weight:500;font-size:13px">laptop-b</span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-faint)">c41e08b7</span><span style="margin-left:auto;color:var(--c-muted)">14s ago</span></div>
+              <div style="color:var(--c-muted)">Also reachable: <span style="color:var(--c-sub1)">{{ alsoReachable }}</span></div>
+            </div>
+            <div style="margin-top:auto;display:flex;flex-direction:column;border-top:1px solid var(--c-s0)">
+              <div style="height:40px;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:12px;color:var(--c-muted)"><span style="width:84px">syncing</span><span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);font-size:12px;color:var(--c-sub1);"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--ctp-blue) 28%,transparent)"></span>laptop-b</span></div>
+              <div style="height:40px;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:12px;color:var(--c-muted);border-top:1px solid var(--c-s0)"><span style="width:84px">failover · 4s</span><span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);font-size:12px;color:var(--c-sub1);background:color-mix(in srgb,var(--color-accent) 16%,transparent);border-color:var(--color-accent)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Switched to laptop-b</span></div>
+              <div style="height:40px;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:12px;color:var(--c-muted);border-top:1px solid var(--c-s0)"><span style="width:84px">offline · 3+</span><span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);font-size:12px;color:var(--c-sub1);"><span style="width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--c-faint)"></span>Offline · 3 queued</span></div>
+              <div style="height:40px;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:12px;color:var(--c-muted);border-top:1px solid var(--c-s0)"><span style="width:84px">offline · 1</span><span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);font-size:12px;color:var(--c-sub1);"><span style="width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--c-faint)"></span>laptop-a · 3 queued</span></div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">6.8 · phone</span>Login · works on all members · {{ t.name }} · 390×844</div>
+          <div data-screen-label="Phone login {{ t.name }}" style="width:390px;height:844px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-phone);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
+            <div style="height:54px;flex:none;display:flex;align-items:flex-end;padding:0 20px 6px;font-size:12px;color:var(--c-muted)"><span style="font-variant-numeric:tabular-nums">15:42</span></div>
+            <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:18px;padding:0 22px 40px">
+              <div><div style="font-weight:600;font-size:24px;letter-spacing:-.03em;color:var(--c-link)">tt</div><div style="font-size:20px;font-weight:500;letter-spacing:-.02em;margin-top:12px">Sign in to laptop-a</div><div style="font-size:12px;color:var(--c-muted);margin-top:3px;font-family:var(--c-mono)">laptop-a.tail3e1.ts.net</div></div>
+              <div class="field"><label>Username</label><div style="display:flex;align-items:center;min-height:44px;padding:0 12px;border:1px solid var(--c-s1);border-radius:var(--radius-md);background:var(--c-mantle);font-size:15px">wochap</div></div>
+              <div class="field"><label>Password</label><div style="display:flex;align-items:center;min-height:44px;padding:0 12px;border:1px solid var(--color-accent);border-radius:var(--radius-md);background:var(--c-mantle);font-size:15px;letter-spacing:.2em">••••••••••</div></div>
+              <span class="btn btn-primary" style="font-size:15px;min-height:44px;justify-content:center">Sign in</span>
+              <span style="font-size:12px;color:var(--c-muted)">Works on all paired servers</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    </sc-for>
+    </div>
+  </div>
+
   <!-- ═══════ TURN 5 · SERVERS & PEERS ═══════ -->
   <div style="display:flex;flex-direction:column;gap:14px">
-    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--canvas-accent);padding-bottom:4px;border-bottom:1px solid var(--canvas-rule);max-width:2928px">Turn 5 · server identity, peers, not set up, account conflict, renumbering, multiple servers</div>
+    <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--canvas-accent);padding-bottom:4px;border-bottom:1px solid var(--canvas-rule);max-width:2928px">Turn 5 · server identity, peers, not set up, account conflict, renumbering</div>
     <p style="margin:0;max-width:880px;color:var(--canvas-muted);font-size:12.5px;line-height:1.5;text-wrap:pretty">Pairing happens in the CLI; the web app only names the server and reports peer state. One dot vocabulary everywhere: <strong style="color:var(--canvas-text);font-weight:500">green</strong> online / synced, <strong style="color:var(--canvas-text);font-weight:500">blue with halo</strong> syncing, <strong style="color:var(--canvas-text);font-weight:500">hollow</strong> offline, <strong style="color:var(--canvas-text);font-weight:500">red</strong> error. Existing frames now say "laptop-a" in the status bar, phone header, login and settings nav.</p>
     <div style="display:flex;gap:48px;align-items:flex-start">
     <sc-for list="{{ themes }}" as="t" hint-placeholder-count="2">
@@ -121,13 +303,13 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
             <div style="position:absolute;left:10px;top:20px;width:330px;background:var(--c-mantle);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:12px;display:flex;flex-direction:column;gap:8px;font-size:12px">
               <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:var(--ctp-green)"></span><span style="font-weight:500;font-size:13px">laptop-a</span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-faint)">7f3a9c21</span></div>
               <div style="display:grid;grid-template-columns:76px 1fr;gap:3px 10px;color:var(--c-muted)"><span>Last sync</span><span style="color:var(--c-text);font-variant-numeric:tabular-nums">15:41:28 · 14s ago</span><span>Pending</span><span style="color:var(--c-text)">0 changes</span></div>
-              <div style="color:var(--c-muted);line-height:1.45;text-wrap:pretty">Changes are saved on this device and sync when laptop-a is reachable.</div>
+              <div style="color:var(--c-muted);line-height:1.45">Also reachable: <span style="color:var(--c-sub1)">laptop-b, desk-mini</span></div>
               <span style="position:absolute;left:18px;bottom:-5px;width:10px;height:10px;background:var(--c-mantle);transform:rotate(45deg)"></span>
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;padding:0 0 0 0">
               <div style="height:24px;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px;color:var(--c-sub1);padding:2px 6px;margin-left:-6px;border-radius:var(--radius-sm);background:var(--c-s0)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Synced · laptop-a · 14s ago</span><span>Europe/Berlin</span><span style="margin-left:auto">hover</span></div>
               <div style="height:24px;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--ctp-blue) 28%,transparent)"></span>Syncing 3 changes · laptop-a</span><span style="margin-left:auto">syncing</span></div>
-              <div style="height:24px;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px;color:var(--c-sub1)"><span style="width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--c-faint)"></span>laptop-a unreachable · 5 changes saved here</span><span style="margin-left:auto">offline</span></div>
+              <div style="height:24px;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px;color:var(--c-sub1)"><span style="width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--c-faint)"></span>Offline · 5 changes queued</span><span style="margin-left:auto">offline</span></div>
             </div>
           </div>
         </div>
@@ -152,11 +334,11 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
             <div style="height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--c-s0)"><span style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--c-link)">tt</span><span style="font-size:15px;font-weight:500">Today</span><span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);font-size:12px;color:var(--c-sub1);background:var(--c-s0)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>laptop-a</span><span style="width:26px;height:26px;border-radius:50%;background:var(--c-s0);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--c-sub1)">wo</span></div>
             <div style="margin:6px 14px 0 auto;width:280px;background:var(--c-mantle);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);padding:12px;display:flex;flex-direction:column;gap:6px;font-size:12px">
               <div style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:var(--ctp-green)"></span><span style="font-weight:500;font-size:13px">laptop-a</span><span style="margin-left:auto;color:var(--c-muted)">14s ago</span></div>
-              <div style="color:var(--c-muted);line-height:1.45;text-wrap:pretty">Changes are saved on this device and sync when laptop-a is reachable.</div>
+              <div style="color:var(--c-muted);line-height:1.45">Also reachable: <span style="color:var(--c-sub1)">laptop-b, desk-mini</span></div>
             </div>
             <div style="margin-top:auto;display:flex;flex-direction:column;border-top:1px solid var(--c-s0)">
               <div style="height:40px;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:12px;color:var(--c-muted)"><span style="width:62px">syncing</span><span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);color:var(--c-sub1)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--ctp-blue) 28%,transparent)"></span>laptop-a</span></div>
-              <div style="height:40px;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:12px;color:var(--c-muted);border-top:1px solid var(--c-s0)"><span style="width:62px">offline</span><span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);color:var(--c-sub1)"><span style="width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--c-faint)"></span>laptop-a</span><span style="color:var(--c-faint)">5 saved here</span></div>
+              <div style="height:40px;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:12px;color:var(--c-muted);border-top:1px solid var(--c-s0)"><span style="width:62px">offline</span><span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);color:var(--c-sub1)"><span style="width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--c-faint)"></span>Offline · 5 queued</span></div>
             </div>
           </div>
         </div>
@@ -182,11 +364,12 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
                 <div style="display:flex;flex-direction:column;gap:10px">
                   <div style="display:flex;align-items:baseline;gap:10px"><span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted)">Peers</span><span style="font-size:12px;color:var(--c-faint)">{{ peerSummary }}</span></div>
                   <div style="border:1px solid var(--c-s0);border-radius:var(--radius-md);overflow:hidden">
-                    <div style="display:grid;grid-template-columns:200px 1fr 120px;gap:12px;align-items:center;height:32px;padding:0 12px;background:var(--c-mantle);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--c-muted)"><span>Server</span><span>State</span><span style="text-align:right">Last seen</span></div>
+                    <div style="display:grid;grid-template-columns:200px 1fr 250px 90px;gap:12px;align-items:center;height:32px;padding:0 12px;background:var(--c-mantle);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--c-muted)"><span>Server</span><span>State</span><span>Last reached at</span><span style="text-align:right">Last seen</span></div>
                     <sc-for list="{{ peers }}" as="p" hint-placeholder-count="4">
-                      <div style="display:grid;grid-template-columns:200px 1fr 120px;gap:12px;align-items:center;height:38px;padding:0 12px;border-top:1px solid var(--c-s0);font-size:13px">
+                      <div style="display:grid;grid-template-columns:200px 1fr 250px 90px;gap:12px;align-items:center;height:38px;padding:0 12px;border-top:1px solid var(--c-s0);font-size:13px">
                         <span style="display:flex;align-items:baseline;gap:8px;min-width:0"><span style="font-weight:500">{{ p.name }}</span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-faint)">{{ p.id }}</span></span>
-                        <span style="display:flex;align-items:center;gap:8px;color:{{ p.stateColor }}"><span style="{{ p.dotStyle }}"></span>{{ p.stateLabel }}<span style="font-size:11px;color:var(--c-faint)">· {{ p.via }}</span></span>
+                        <span style="display:flex;align-items:center;gap:8px;color:{{ p.stateColor }}"><span style="{{ p.dotStyle }}"></span>{{ p.stateLabel }}</span>
+                        <span style="font-family:var(--c-mono);font-size:12px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ p.addr }}</span>
                         <span style="text-align:right;color:var(--c-muted);font-variant-numeric:tabular-nums">{{ p.seen }}</span>
                       </div>
                     </sc-for>
@@ -219,7 +402,7 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
                   <sc-for list="{{ peers }}" as="p" hint-placeholder-count="4">
                     <div style="min-height:56px;display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--c-s0)">
                       <span style="{{ p.dotStyle }}"></span>
-                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-weight:500">{{ p.name }}</span><span style="font-size:12px;color:{{ p.stateColor }}">{{ p.stateLabel }}</span></div>
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="display:flex;align-items:baseline;gap:8px"><span style="font-weight:500">{{ p.name }}</span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-faint)">{{ p.id }}</span></span><span style="font-family:var(--c-mono);font-size:11px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.addr }}</span><span style="font-size:12px;color:{{ p.stateColor }}">{{ p.stateLabel }}</span></div>
                       <span style="font-size:12px;color:var(--c-muted);font-variant-numeric:tabular-nums">{{ p.seen }}</span>
                     </div>
                   </sc-for>
@@ -239,7 +422,7 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted)">Peers</div>
             <div style="border:1px dashed var(--c-s1);border-radius:var(--radius-md);padding:18px;display:flex;flex-direction:column;gap:8px">
               <div style="font-size:15px;font-weight:500">Not paired with other servers</div>
-              <div style="color:var(--c-muted);line-height:1.5;max-width:480px;text-wrap:pretty">Pairing lets laptop-a copy tasks and entries to and from another tt server whenever they can reach each other over LAN or Tailscale.</div>
+              <div style="color:var(--c-muted);line-height:1.5;max-width:480px;text-wrap:pretty">Pairing lets laptop-a copy tasks and entries to and from another tt server whenever they can reach each other.</div>
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--c-muted);margin-top:4px"><code style="font-family:var(--c-mono);font-size:11.5px;padding:2px 7px;border-radius:var(--radius-sm);background:var(--c-mantle);color:var(--c-text)">tt-server peer invite</code>here, then<code style="font-family:var(--c-mono);font-size:11.5px;padding:2px 7px;border-radius:var(--radius-sm);background:var(--c-mantle);color:var(--c-text)">tt-server peer join &lt;code&gt;</code>on the other server</div>
             </div>
           </div>
@@ -348,10 +531,10 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:8px">
-            <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">5.14 · task</span>Task detail header · previously · {{ t.name }} · 760×150</div>
-            <div data-screen-label="Task previously {{ t.name }}" style="width:760px;height:150px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
+            <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">5.14 · task</span>Task detail header · previously · {{ t.name }} · 760×170</div>
+            <div data-screen-label="Task previously {{ t.name }}" style="width:760px;height:170px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
               <div style="height:44px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--c-s0);background:var(--c-mantle);font-size:12.5px;color:var(--c-muted)"><span style="color:var(--c-link)">‹ Tasks</span><span style="color:var(--c-faint)">/</span><span style="font-family:var(--c-mono);color:var(--c-text)">#{{ renumberFirst.to }}</span><span style="font-size:11.5px;color:var(--c-faint)">previously <span style="font-family:var(--c-mono)">#{{ renumberFirst.from }}</span></span><span style="margin-left:auto;display:flex;gap:6px;align-items:center"><kbd>J</kbd><kbd>K</kbd> prev / next task</span></div>
-              <div style="padding:18px 22px;display:flex;flex-direction:column;gap:6px"><div style="font-size:22px;font-weight:500;letter-spacing:-.02em">{{ renumberFirst.title }}</div><div style="font-size:11.5px;color:var(--c-faint)">Tooltip on "previously": renumbered after sync with laptop-b · today 15:38. Old links to #{{ renumberFirst.from }} redirect here for 30 days.</div></div>
+              <div style="padding:18px 22px;display:flex;flex-direction:column;gap:6px"><div style="font-size:22px;font-weight:500;letter-spacing:-.02em">{{ renumberFirst.title }}</div><div style="font-size:11.5px;color:var(--c-faint)">Tooltip on "previously": renumbered after sync with laptop-b · today 15:38. #{{ renumberFirst.from }} stayed with {{ renumberHolder.title }}.</div><div style="font-size:11.5px;color:var(--c-faint)">Several old numbers: <span style="font-family:var(--c-mono);color:var(--c-muted)">previously #12, #14</span></div></div>
             </div>
           </div>
         </div>
@@ -366,46 +549,6 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
             </div>
             <div style="position:absolute;left:12px;right:12px;bottom:96px;display:flex;align-items:center;gap:10px;min-height:48px;padding:0 6px 0 14px;border-radius:var(--radius-md);background:var(--c-mantle);box-shadow:var(--shadow-lg)"><span style="flex:1">{{ renumberCount }}</span><span style="color:var(--c-link);min-height:44px;display:flex;align-items:center;padding:0 12px">View</span></div>
             <div style="margin-top:auto;height:64px;flex:none;border-top:1px solid var(--c-s0);background:var(--c-mantle);display:grid;grid-template-columns:repeat(4,1fr);font-size:11px;color:var(--c-muted);text-align:center;padding-top:10px"><span>Today</span><span style="color:var(--c-link)">Tasks</span><span>Reports</span><span>Settings</span></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ROW · multiple servers on one phone -->
-      <div style="display:flex;gap:24px;align-items:flex-start">
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">5.16 · home</span>Two installs on a home screen · {{ t.name }} · 390×844</div>
-          <div data-screen-label="Phone home screen {{ t.name }}" style="width:390px;height:844px;background:var(--c-crust);color:var(--c-text);border-radius:var(--r-phone);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
-            <div style="height:54px;flex:none;display:flex;align-items:flex-end;padding:0 20px 6px;font-size:12px;color:var(--c-muted)"><span style="font-variant-numeric:tabular-nums">15:42</span></div>
-            <div style="padding:28px 26px;display:grid;grid-template-columns:repeat(4,64px);justify-content:space-between;row-gap:22px">
-              <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><svg width="62" height="62" viewBox="0 0 64 64" style="display:block"><rect width="64" height="64" rx="14" fill="var(--c-base)"></rect><rect x="12" y="14" width="26" height="9" rx="3" fill="var(--ctp-mauve)"></rect><rect x="20" y="27.5" width="32" height="9" rx="3" fill="var(--ctp-peach)"></rect><rect x="12" y="41" width="24" height="9" rx="3" fill="var(--ctp-teal)"></rect><line x1="40" y1="45.5" x2="52" y2="45.5" stroke="var(--ctp-teal)" stroke-width="9" stroke-dasharray="3 4"></line></svg><span style="font-size:11px;white-space:nowrap">tt laptop-a</span></div>
-              <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><svg width="62" height="62" viewBox="0 0 64 64" style="display:block"><rect width="64" height="64" rx="14" fill="var(--c-base)"></rect><rect x="12" y="14" width="26" height="9" rx="3" fill="var(--ctp-mauve)"></rect><rect x="20" y="27.5" width="32" height="9" rx="3" fill="var(--ctp-peach)"></rect><rect x="12" y="41" width="24" height="9" rx="3" fill="var(--ctp-teal)"></rect><line x1="40" y1="45.5" x2="52" y2="45.5" stroke="var(--ctp-teal)" stroke-width="9" stroke-dasharray="3 4"></line></svg><span style="font-size:11px;white-space:nowrap">tt laptop-b</span></div>
-              <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:62px;height:62px;border-radius:14px;background:var(--c-s0)"></div><span style="font-size:11px;color:var(--c-muted)">Notes</span></div>
-              <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:62px;height:62px;border-radius:14px;background:var(--c-s0)"></div><span style="font-size:11px;color:var(--c-muted)">Mail</span></div>
-            </div>
-            <div style="margin:auto 22px 28px;background:var(--c-base);border-radius:var(--radius-md);padding:14px;display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--c-muted);line-height:1.5">
-              <span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em">Manifest per server</span>
-              <span><code style="font-family:var(--c-mono);color:var(--c-text)">name</code> "tt · laptop-a" &nbsp; <code style="font-family:var(--c-mono);color:var(--c-text)">short_name</code> "tt laptop-a"</span>
-              <span>Same icon on purpose — the label carries the server. short_name stays ≤ 12 characters so home screens don't truncate it.</span>
-            </div>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">5.17 · splash</span>Splash · laptop-a · {{ t.name }} · 390×844</div>
-          <div data-screen-label="Phone splash a {{ t.name }}" style="width:390px;height:844px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-phone);overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;box-shadow:var(--frame-shadow)">
-            <svg width="96" height="96" viewBox="0 0 64 64" style="display:block"><rect width="64" height="64" rx="14" fill="var(--c-mantle)"></rect><rect x="12" y="14" width="26" height="9" rx="3" fill="var(--ctp-mauve)"></rect><rect x="20" y="27.5" width="32" height="9" rx="3" fill="var(--ctp-peach)"></rect><rect x="12" y="41" width="24" height="9" rx="3" fill="var(--ctp-teal)"></rect><line x1="40" y1="45.5" x2="52" y2="45.5" stroke="var(--ctp-teal)" stroke-width="9" stroke-dasharray="3 4"></line></svg>
-            <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><span style="font-weight:600;font-size:22px;letter-spacing:-.03em;color:var(--c-link)">tt</span><span style="font-size:15px;color:var(--c-sub1)">laptop-a</span></div>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">5.18 · chip</span>laptop-b install, first screen · {{ t.name }} · 390×844</div>
-          <div data-screen-label="Phone header chip {{ t.name }}" style="width:390px;height:844px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-phone);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
-            <div style="height:54px;flex:none;display:flex;align-items:flex-end;padding:0 20px 6px;font-size:12px;color:var(--c-muted)"><span style="font-variant-numeric:tabular-nums">15:42</span></div>
-            <div style="height:46px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--c-s0)"><span style="font-weight:600;font-size:15px;letter-spacing:-.02em;color:var(--c-link)">tt</span><span style="font-size:15px;font-weight:500">Today</span><span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--c-s1);border-radius:var(--r-2);font-size:12px;color:var(--c-sub1);background:var(--c-s0)"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--ctp-blue) 28%,transparent)"></span>laptop-b</span><span style="width:26px;height:26px;border-radius:50%;background:var(--c-s0);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--c-sub1)">wo</span></div>
-            <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 28px;gap:8px">
-              <div style="font-size:15px;font-weight:500">Nothing tracked today on laptop-b</div>
-              <div style="color:var(--c-muted);line-height:1.5;text-wrap:pretty">The chip sits in every phone header, between the title and your avatar. Tap it for last sync and the reachability line.</div>
-            </div>
-            <div style="height:64px;flex:none;border-top:1px solid var(--c-s0);background:var(--c-mantle);display:grid;grid-template-columns:repeat(4,1fr);font-size:11px;color:var(--c-muted);text-align:center;padding-top:10px"><span style="color:var(--c-link)">Today</span><span>Tasks</span><span>Reports</span><span>Settings</span></div>
           </div>
         </div>
       </div>
@@ -504,8 +647,9 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
         </div>
         <div data-screen-label="Empty month {{ t.name }}" style="width:440px;height:330px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
           <div style="height:34px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--c-s0);font-size:12px"><span style="color:var(--c-link);box-shadow:inset 0 0 0 1px var(--color-accent);border-radius:var(--r-2);padding:2px 8px">Month</span><span style="font-weight:500">October</span></div>
+          <div style="flex:none;display:flex;align-items:center;gap:12px;margin:10px 12px 0;padding:10px 12px;background:var(--c-mantle);border-radius:var(--radius-md)"><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-size:13px;font-weight:500">No time tracked this month</span><span style="font-size:12px;color:var(--c-muted)">Days fill with totals and your top tasks as you track.</span></div><span style="color:var(--c-link);font-size:12.5px;display:flex;gap:6px;align-items:center;flex:none">Open today <kbd>T</kbd></span></div>
           <div style="flex:1;position:relative;display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(5,1fr);margin:10px 12px;border-top:1px solid var(--c-s0);border-left:1px solid var(--c-s0)"><sc-for list="{{ cal }}" as="c" hint-placeholder-count="35"><div style="border-right:1px solid var(--c-s0);border-bottom:1px solid var(--c-s0);padding:3px 5px;font-size:10px;color:var(--c-faint)">{{ c.num }}</div></sc-for>
-            <div style="position:absolute;left:50px;right:50px;top:90px;background:var(--c-mantle);border-radius:var(--radius-md);box-shadow:var(--shadow-md);padding:14px;display:flex;flex-direction:column;gap:8px;align-items:flex-start"><div style="font-size:13px;font-weight:500">No time tracked this month</div><div style="font-size:12px;color:var(--c-muted);line-height:1.5">Days fill with totals and your top tasks as you track.</div><span style="color:var(--c-link);font-size:12.5px;display:flex;gap:6px;align-items:center">Open today <kbd>T</kbd></span></div>
+            
           </div>
         </div>
         <div data-screen-label="Empty tasks {{ t.name }}" style="width:440px;height:330px;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--frame-shadow);font-size:13px">
@@ -794,6 +938,7 @@ Render invoices server-side with <span style="color:var(--ctp-peach)">`pdfkit`</
             <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--c-sub1)"><span style="width:14px;height:14px;border-radius:var(--radius-sm);border:1px solid var(--color-accent);background:color-mix(in srgb,var(--color-accent) 20%,transparent);display:flex;align-items:center;justify-content:center;color:var(--c-link);font-size:10px">✓</span>Stay signed in on this device</div>
           </div>
           <span class="btn btn-primary" style="font-size:14px;padding:8px 18px;gap:10px">Sign in <kbd style="color:inherit;border-color:currentColor;opacity:.7">⏎</kbd></span>
+          <span style="font-size:12px;color:var(--c-muted);margin-top:-8px">Works on all paired servers</span>
           <div style="font-size:11.5px;color:var(--c-faint);display:flex;flex-direction:column;gap:3px"><span>Wrong server? <span style="color:var(--c-link)">change</span> · Sign in once; works offline after that.</span><span>Your data is stored on this device and synced to the server when online.</span></div>
         </div>
       </div>
@@ -956,7 +1101,8 @@ Render invoices server-side with <span style="color:var(--ctp-peach)">`pdfkit`</
             </sc-for>
           </div>
           <div style="height:44px;flex:none;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--c-s0)"><span style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-2);color:var(--c-muted);border:1px solid var(--c-s1)">‹</span><span style="flex:1;text-align:center;font-size:14px;font-weight:500">Thu 8 Oct <span style="font-size:11px;color:var(--c-faint);font-weight:400">· {{ day.sum }}</span></span><span style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-2);color:var(--c-muted);border:1px solid var(--c-s1)">›</span></div>
-          <div style="flex:1;min-height:0;overflow:hidden;padding:10px 12px 0 10px">
+          <div style="flex:1;min-height:0;overflow:hidden;padding:10px 12px 0 10px;position:relative">
+            <div style="position:absolute;left:0;right:0;bottom:0;height:56px;background:linear-gradient(to bottom,transparent,var(--c-base));pointer-events:none;z-index:3"></div><div style="position:absolute;right:3px;top:12px;width:3px;height:96px;border-radius:var(--r-xs);background:var(--c-s1);z-index:3"></div>
             <div style="position:relative;height:528px">
               <sc-for list="{{ hours }}" as="h" hint-placeholder-count="12"><div style="height:44px;border-top:1px solid var(--c-s0);position:relative"><span style="position:absolute;left:0;top:-7px;width:34px;font-size:10px;color:var(--c-faint);font-family:var(--c-mono)">{{ h }}</span></div></sc-for>
               <div style="position:absolute;left:42px;right:0;top:0;bottom:0">
@@ -1582,10 +1728,10 @@ class Component extends DCLogic {
       ...(() => {
         const dot = { online: 'var(--ctp-green)', syncing: 'var(--ctp-blue)', offline: 'transparent', error: 'var(--ctp-red)' };
         const raw = [
-          { name: 'laptop-b', id: 'c41e08b7', state: 'syncing', pending: 14, seen: 'now', via: 'LAN' },
-          { name: 'desk-mini', id: '9a2d51f0', state: 'online', seen: '2m ago', via: 'Tailscale' },
-          { name: 'travel-pi', id: '5be7a3c2', state: 'offline', seen: '12m ago', via: 'Tailscale' },
-          { name: 'old-nas', id: 'e0f4192d', state: 'error', seen: '1h ago', via: 'LAN', err: 'version 1.2.0 too old' },
+          { name: 'laptop-b', id: 'c41e08b7', state: 'syncing', pending: 14, seen: 'now', addr: 'laptop-b.tail3e1.ts.net:8772' },
+          { name: 'desk-mini', id: '9a2d51f0', state: 'online', seen: '2m ago', addr: 'desk-mini.tail3e1.ts.net:8772' },
+          { name: 'travel-pi', id: '5be7a3c2', state: 'offline', seen: '12m ago', addr: 'travel-pi.tail3e1.ts.net:8772' },
+          { name: 'old-nas', id: 'e0f4192d', state: 'error', seen: '1h ago', addr: '192.168.1.40:8772', err: 'version 1.2.0 too old' },
         ];
         const peers = raw.map((p) => ({
           ...p,
@@ -1599,7 +1745,26 @@ class Component extends DCLogic {
           { from: 13, to: 16, title: 'Billing CSV export' },
           { from: 14, to: 17, title: 'Rotate staging certs' },
         ];
+        const mDot = { connected: 'background:var(--ctp-green);', reachable: 'box-shadow:inset 0 0 0 1.5px var(--ctp-green);', unreachable: 'box-shadow:inset 0 0 0 1.5px var(--c-faint);', skipped: 'background:var(--ctp-peach);' };
+        const mLabel = { connected: 'Connected', reachable: 'Reachable', unreachable: 'Unreachable', skipped: 'Skipped: incompatible version (1.2.0)' };
+        const members = [
+          { name: 'laptop-b', id: 'c41e08b7', url: 'https://laptop-b.tail3e1.ts.net:8772', state: 'connected', inUse: true },
+          { name: 'laptop-a', id: '7f3a9c21', url: 'https://laptop-a.tail3e1.ts.net:8772', state: 'reachable' },
+          { name: 'desk-mini', id: '9a2d51f0', url: 'https://desk-mini.tail3e1.ts.net:8772', state: 'reachable' },
+          { name: 'travel-pi', id: '5be7a3c2', url: 'https://travel-pi.tail3e1.ts.net:8772', state: 'unreachable' },
+          { name: 'old-nas', id: 'e0f4192d', url: 'http://192.168.1.40:8772', state: 'skipped' },
+        ].map((m) => ({
+          ...m, inUse: !!m.inUse, stateLabel: mLabel[m.state],
+          stateColor: m.state === 'unreachable' ? 'var(--c-muted)' : 'var(--c-sub1)',
+          dotStyle: 'width:8px;height:8px;border-radius:50%;flex:none;' + mDot[m.state],
+          rowStyle: 'display:grid;grid-template-columns:220px 1fr 250px;gap:12px;align-items:center;height:38px;padding:0 12px;border-top:1px solid var(--c-s0);' + (m.inUse ? 'background:color-mix(in srgb,var(--color-accent) 8%,transparent);box-shadow:inset 2px 0 0 var(--color-accent);' : ''),
+          phoneRowStyle: 'min-height:72px;display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--c-s0);' + (m.inUse ? 'box-shadow:inset 2px 0 0 var(--color-accent);' : ''),
+        }));
+        const reachM = members.filter((m) => m.state === 'connected' || m.state === 'reachable').length;
         return {
+          members, memberSummary: `${members.length} members · ${reachM} reachable`,
+          alsoReachable: members.filter((m) => m.state === 'reachable').map((m) => m.name).join(', '),
+          renumberHolder: { seq: renumbers[0].from, title: 'Update onboarding copy', project: 'Atlas', color: 'var(--ctp-mauve)', total: '3h 20m' },
           peers, peerSummary: `${peers.length} peers · ${reach} reachable`,
           renumbers, renumberFirst: renumbers[0], renumberCount: `${renumbers.length} tasks renumbered`,
         };
