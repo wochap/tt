@@ -6,8 +6,8 @@ import { type Entry, formatClock, formatDuration, totals, type View } from "@tt/
 import { taskColor, taskTextColor } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
-import { type Preview, deltaLabel, rangeLabel } from "./drag.ts";
-import { EntryBlock, OriginGhost } from "./EntryBlock.tsx";
+import { type Preview, deltaLabel, isEntryPreview, rangeLabel } from "./drag.ts";
+import { EntryBlock, OriginGhost, ResizeHandle } from "./EntryBlock.tsx";
 import { type Column, type Placed, placeColumn, wallMinutes } from "./geometry.ts";
 import { NowLine } from "./NowLine.tsx";
 
@@ -46,7 +46,7 @@ export function TimelineGrid(props: TimelineGridProps) {
 
   // Entries as drawn: the dragged one at its preview position.
   const drawn = useMemo(() => {
-    if (!preview || preview.kind === "create" || preview.overTask) return entries;
+    if (!preview || !isEntryPreview(preview) || preview.overTask) return entries;
     return entries.map((e) => (e.id === preview.entry.id ? { ...e, start: preview.start, end: preview.end } : e));
   }, [entries, preview]);
 
@@ -95,6 +95,11 @@ function DayColumn(
 ) {
   const { tz, column, entries, now, firstHour, pxPerHour, density, preview, pendingCreate, todayKey, columns } = props;
   const create = useDraggable({ id: `create:${column.key}`, data: { kind: "create", column } });
+  const adjustable = !!pendingCreate && pendingCreate.end !== null && pendingCreate.column.key === column.key;
+  const range = adjustable ? { start: pendingCreate.start, end: pendingCreate.end! } : undefined;
+  const pmove = useDraggable({ id: `pmove:${column.key}`, data: { kind: "pending-move", column, range }, disabled: !adjustable });
+  const ptop = useDraggable({ id: `ptop:${column.key}`, data: { kind: "pending-resize-start", column, range }, disabled: !adjustable });
+  const pbottom = useDraggable({ id: `pbottom:${column.key}`, data: { kind: "pending-resize-end", column, range }, disabled: !adjustable });
   const placed = placeColumn(tz, column, entries, now, firstHour, pxPerHour);
   const isToday = column.key === todayKey;
   const yOf = (at: number) => ((wallMinutes(tz, column, at) - firstHour * 60) / 60) * pxPerHour;
@@ -102,12 +107,20 @@ function DayColumn(
   // Dashed outline at the origin while a block is moved.
   const origin = preview && preview.kind === "move" && !preview.overTask ? ghostFor(props, column, preview.entry) : null;
 
+  // While a pending range is adjusted it is drawn from the drag preview (in the target column).
+  const adjusting = preview && !isEntryPreview(preview) && preview.kind !== "create" ? preview : null;
   const createBox =
     preview?.kind === "create" && preview.column.key === column.key
       ? { start: preview.start, end: preview.end, label: true }
-      : pendingCreate && pendingCreate.column.key === column.key
-        ? { start: pendingCreate.start, end: pendingCreate.end ?? now, label: false }
-        : null;
+      : adjusting
+        ? adjusting.column.key === column.key
+          ? { start: adjusting.start, end: adjusting.end, label: false }
+          : null
+        : pendingCreate && pendingCreate.column.key === column.key
+          ? { start: pendingCreate.start, end: pendingCreate.end ?? now, label: false }
+          : null;
+  const ghostActive = !!createBox && (adjusting ? true : !preview && !!range);
+  const ghostHeight = createBox ? Math.max(yOf(createBox.end) - yOf(createBox.start) - 2, 14) : 0;
 
   return (
     <div
@@ -135,19 +148,31 @@ function DayColumn(
         ))}
         {createBox && (
           <div
-            ref={props.ghostRef}
+            ref={(element) => {
+              props.ghostRef?.(element);
+              pmove.setNodeRef(element);
+            }}
+            {...(ghostActive ? pmove.listeners : {})}
+            {...(ghostActive ? pmove.attributes : {})}
             data-testid="create-ghost"
             className={cn(
-              "pointer-events-none absolute inset-x-0 z-30 flex items-center gap-2 border border-dashed border-accent bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] px-[9px] text-[11px] text-link",
+              "absolute inset-x-0 z-30 flex items-center gap-2 border border-dashed border-accent bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] px-[9px] text-[11px] text-link",
+              ghostActive ? (adjusting ? "cursor-grabbing" : "cursor-grab") : "pointer-events-none",
               density === "day" ? "rounded-2" : "rounded-sm",
             )}
-            style={{ top: yOf(createBox.start), height: Math.max(yOf(createBox.end) - yOf(createBox.start) - 2, 14) }}
+            style={{ top: yOf(createBox.start), height: ghostHeight }}
           >
             <span className="whitespace-nowrap">
               {rangeLabel(tz, createBox.start, pendingCreate?.end === null && !createBox.label ? null : createBox.end)}
               {density !== "week" && ` · ${formatDuration((createBox.end - createBox.start) / 1000)}`}
             </span>
             {createBox.label && density === "day" && <span className="truncate text-faint">release to pick a task{props.snapLabel ? ` · ${props.snapLabel}` : ""}</span>}
+            {ghostActive && (
+              <>
+                <ResizeHandle edge="top" handleRef={ptop.setNodeRef} height={ghostHeight} color="var(--color-accent)" label="Resize start" {...ptop.listeners} {...ptop.attributes} />
+                <ResizeHandle edge="bottom" handleRef={pbottom.setNodeRef} height={ghostHeight} color="var(--color-accent)" label="Resize end" {...pbottom.listeners} {...pbottom.attributes} />
+              </>
+            )}
           </div>
         )}
         {isToday && now >= column.from && now < column.to && (
@@ -169,7 +194,7 @@ function ghostFor(props: TimelineGridProps & { firstHour: number }, column: Colu
 function PlacedBlock({ placed, ...props }: TimelineGridProps & { placed: Placed }) {
   const { view, tz, now, density, preview } = props;
   const task = view.workspace.tasks.get(placed.entry.task);
-  const active = preview && preview.kind !== "create" && preview.entry.id === placed.entry.id ? preview : null;
+  const active = preview && isEntryPreview(preview) && preview.entry.id === placed.entry.id ? preview : null;
   const dragging = !!active;
   const relinking = !!active?.overTask;
   return (

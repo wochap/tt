@@ -67,4 +67,35 @@ describe("drag preview", () => {
     const bottom = preview({ kind: "resize-end", column: columns[0]!, entry: running, pointer: p(150, y(13, 42)) }, p(150, y(18, 0)), metrics());
     expect(bottom).toMatchObject({ end: Date.UTC(2026, 9, 8, 13, 42) });
   });
+
+  describe("pending range", () => {
+    const range = { start: local(13, 0), end: local(14, 0) };
+    const base = { column: columns[0]!, range };
+
+    it("move by 30 min snaps and keeps the duration", () => {
+      const origin = { ...base, kind: "pending-move" as const, pointer: p(150, y(13, 10)) };
+      expect(preview(origin, p(150, y(13, 42)), metrics())).toMatchObject({ kind: "pending-move", start: local(13, 30), end: local(14, 30) });
+    });
+
+    it("move: Shift locks the column, otherwise it crosses days", () => {
+      const origin = { ...base, kind: "pending-move" as const, pointer: p(150, y(13, 10)) };
+      expect(preview(origin, p(450, y(13, 10)), metrics())).toMatchObject({ column: columns[1], start: local(13, 0, 9) });
+      expect(preview(origin, p(450, y(13, 10), false, true), metrics())).toMatchObject({ column: columns[0], start: local(13, 0) });
+    });
+
+    it("resize bottom to 14:55 gives 13:00–15:00", () => {
+      const origin = { ...base, kind: "pending-resize-end" as const, pointer: p(150, y(14, 0)) };
+      expect(preview(origin, p(150, y(14, 55)), metrics())).toMatchObject({ start: local(13, 0), end: local(15, 0) });
+    });
+
+    it("resize top below the bottom clamps to one grid step", () => {
+      const origin = { ...base, kind: "pending-resize-start" as const, pointer: p(150, y(13, 0)) };
+      expect(preview(origin, p(150, y(16, 0)), metrics())).toMatchObject({ start: local(13, 45), end: local(14, 0) });
+    });
+
+    it("Alt frees the snap to one minute", () => {
+      const origin = { ...base, kind: "pending-resize-end" as const, pointer: p(150, y(14, 0)) };
+      expect(preview(origin, p(150, y(14, 50), true), metrics())).toMatchObject({ end: local(14, 50) });
+    });
+  });
 });

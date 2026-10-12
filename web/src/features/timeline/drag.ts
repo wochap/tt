@@ -7,7 +7,13 @@ import { diffDays, type Entry, formatClock, formatDuration, localDate, localPart
 
 import { type Column, fromWall, snapCeil, snapFloor, snapRound, wallMinutes } from "./geometry.ts";
 
-export type DragKind = "create" | "move" | "resize-start" | "resize-end";
+export type PendingKind = "pending-move" | "pending-resize-start" | "pending-resize-end";
+export type DragKind = "create" | "move" | "resize-start" | "resize-end" | PendingKind;
+
+export interface Span {
+  start: Millis;
+  end: Millis;
+}
 
 export interface Pointer {
   x: number;
@@ -32,6 +38,8 @@ export interface DragOrigin {
   pointer: Pointer;
   column: Column;
   entry?: Entry;
+  /** The pending (dotted) range being adjusted, for the `pending-*` kinds. */
+  range?: Span;
 }
 
 export interface CreatePreview {
@@ -54,7 +62,19 @@ export interface EntryPreview {
   overTask?: Uuid;
 }
 
-export type Preview = CreatePreview | EntryPreview;
+/** Adjusted pending range (create-shaped: there is no entry behind it). */
+export interface PendingPreview {
+  kind: PendingKind;
+  column: Column;
+  start: Millis;
+  end: Millis;
+}
+
+export type Preview = CreatePreview | EntryPreview | PendingPreview;
+
+export function isEntryPreview(p: Preview): p is EntryPreview {
+  return p.kind === "move" || p.kind === "resize-start" || p.kind === "resize-end";
+}
 
 export function gridOf(pointer: Pointer, metrics: GridMetrics): number {
   return pointer.alt || metrics.snapMinutes <= 0 ? 1 : metrics.snapMinutes;
@@ -97,30 +117,35 @@ export function preview(origin: DragOrigin, pointer: Pointer, metrics: GridMetri
     };
   }
 
+  if (origin.range) {
+    const span = origin.range;
+    if (origin.kind === "pending-move") {
+      const moved = movedSpan(origin, span, pointer, metrics, grid, originIndex);
+      return { kind: "pending-move", column: moved.column, start: moved.start, end: moved.end };
+    }
+    const at = pointerTime(origin, pointer, metrics, grid, originIndex);
+    if (origin.kind === "pending-resize-start") {
+      return { kind: "pending-resize-start", column: origin.column, start: Math.min(at, span.end - grid * 60_000), end: span.end };
+    }
+    return { kind: "pending-resize-end", column: origin.column, start: span.start, end: Math.max(at, span.start + grid * 60_000) };
+  }
+
   const entry = origin.entry!;
   const end = entry.end ?? metrics.now;
   const minDuration = grid * 60_000;
 
   if (origin.kind === "move") {
     if (overTask) return { kind: "move", entry, start: entry.start, end: entry.end, deltaMinutes: 0, overTask };
-    const deltaY = pointer.y - origin.pointer.y;
-    const deltaMinutes = (deltaY / metrics.pxPerHour) * 60;
-    const targetIndex = pointer.shift ? originIndex : columnIndexAt(metrics, pointer.x, originIndex);
-    const target = metrics.columns[targetIndex] ?? origin.column;
-    const days = diffDays(target.date, origin.column.date);
-    const startOwn = startMinutes(tz, origin.column, entry.start);
-    const startMin = snapRound(startOwn + deltaMinutes, grid);
-    let start = fromWall(tz, origin.column.date, startMin + days * 1440);
+    const moved = movedSpan(origin, { start: entry.start, end }, pointer, metrics, grid, originIndex);
     if (entry.end === null) {
       // Running entries move their start only; the end stays "now".
-      start = Math.min(start, metrics.now - 60_000);
+      const start = Math.min(moved.start, metrics.now - 60_000);
       return { kind: "move", entry, start, end: null, deltaMinutes: Math.round((start - entry.start) / 60_000) };
     }
-    return { kind: "move", entry, start, end: start + (end - entry.start), deltaMinutes: Math.round((start - entry.start) / 60_000) };
+    return { kind: "move", entry, start: moved.start, end: moved.end, deltaMinutes: Math.round((moved.start - entry.start) / 60_000) };
   }
 
-  const pointerMin = minutesAt(metrics, originIndex, pointer.y);
-  const at = fromWall(tz, origin.column.date, clamp(snapRound(pointerMin, grid), 0, 1440));
+  const at = pointerTime(origin, pointer, metrics, grid, originIndex);
   if (origin.kind === "resize-start") {
     const start = Math.min(at, end - minDuration);
     return { kind: "resize-start", entry, start, end: entry.end, deltaMinutes: Math.round((start - entry.start) / 60_000) };
@@ -128,6 +153,24 @@ export function preview(origin: DragOrigin, pointer: Pointer, metrics: GridMetri
   // Bottom handle: a running entry is stopped at the dropped time.
   const newEnd = clamp(at, entry.start + minDuration, entry.end === null ? metrics.now : Infinity);
   return { kind: "resize-end", entry, start: entry.start, end: Math.max(newEnd, entry.start + 60_000), deltaMinutes: Math.round((newEnd - end) / 60_000) };
+}
+
+/** Snapped time under the pointer in the origin column (resize edges). */
+function pointerTime(origin: DragOrigin, pointer: Pointer, metrics: GridMetrics, grid: number, originIndex: number): Millis {
+  const pointerMin = minutesAt(metrics, originIndex, pointer.y);
+  return fromWall(metrics.tz, origin.column.date, clamp(snapRound(pointerMin, grid), 0, 1440));
+}
+
+/** A span moved by the pointer delta: start snapped, duration kept, column from the pointer unless Shift. */
+function movedSpan(origin: DragOrigin, span: Span, pointer: Pointer, metrics: GridMetrics, grid: number, originIndex: number): Span & { column: Column } {
+  const { tz } = metrics;
+  const deltaMinutes = ((pointer.y - origin.pointer.y) / metrics.pxPerHour) * 60;
+  const targetIndex = pointer.shift ? originIndex : columnIndexAt(metrics, pointer.x, originIndex);
+  const column = metrics.columns[targetIndex] ?? origin.column;
+  const days = diffDays(column.date, origin.column.date);
+  const startMin = snapRound(startMinutes(tz, origin.column, span.start) + deltaMinutes, grid);
+  const start = fromWall(tz, origin.column.date, startMin + days * 1440);
+  return { column, start, end: start + (span.end - span.start) };
 }
 
 /** Minutes of `at` past the midnight of `column` (negative before it, > 1440 after). */

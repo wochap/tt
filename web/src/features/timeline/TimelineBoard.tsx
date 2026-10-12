@@ -19,7 +19,7 @@ import { useView } from "@/data/react";
 import { usePhone } from "@/lib/media";
 import { useSettings, useTz } from "@/lib/settings";
 
-import { type DragOrigin, type GridMetrics, type Pointer, type Preview, preview as computePreview } from "./drag.ts";
+import { type DragOrigin, type GridMetrics, type Pointer, type Preview, isEntryPreview, preview as computePreview } from "./drag.ts";
 import { type Column, renderedHours } from "./geometry.ts";
 import { ScrollFade, useMoreBelow } from "./ScrollFade.tsx";
 import { SidePanel } from "./SidePanel.tsx";
@@ -126,7 +126,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const onDragStart = (event: DragStartEvent) => {
-    const data = event.active.data.current as { kind: DragOrigin["kind"]; entry?: Entry; column?: Column };
+    const data = event.active.data.current as { kind: DragOrigin["kind"]; entry?: Entry; column?: Column; range?: DragOrigin["range"] };
     const start = event.activatorEvent as PointerEvent;
     const startPointer = { x: start.clientX, y: start.clientY, alt: start.altKey, shift: start.shiftKey };
     let column = data.column;
@@ -136,8 +136,12 @@ export function TimelineBoard(props: TimelineBoardProps) {
       column = columns.find((c) => c.key === key) ?? columns[0];
     }
     if (!column) return;
-    props.setPendingCreate(null);
-    origin.current = { kind: data.kind, entry: data.entry, column, pointer: startPointer };
+    if (data.kind.startsWith("pending-")) {
+      // Adjusting the pending range: keep it, but close the picker while it moves.
+      if (!data.range) return;
+      if (props.pendingCreate) props.setPendingCreate({ ...props.pendingCreate, rect: null });
+    } else props.setPendingCreate(null);
+    origin.current = { kind: data.kind, entry: data.entry, range: data.range, column, pointer: startPointer };
     pointer.current = startPointer;
     overTask.current = undefined;
     setPreview(computePreview(origin.current, startPointer, metrics()));
@@ -165,7 +169,12 @@ export function TimelineBoard(props: TimelineBoardProps) {
     if (!o) return finish();
     const result = computePreview(o, pointer.current, metrics(), overTask.current);
     finish();
-    if (result.kind === "create") {
+    if (result.kind === "pending-move" || result.kind === "pending-resize-start" || result.kind === "pending-resize-end") {
+      // rect: null makes the layout effect re-anchor the picker to the adjusted ghost.
+      props.setPendingCreate({ column: result.column, start: result.start, end: result.end, rect: null });
+      return;
+    }
+    if (!isEntryPreview(result) && result.kind === "create") {
       // Below 5 min the ghost is discarded (a click, not a drag); the small
       // tolerance keeps an exact 5 min drag with ⌥ from rounding below it.
       if (result.rawMinutes < 4.5) return;
@@ -173,6 +182,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
       props.setPendingCreate({ column: result.column, start: result.start, end: result.end, rect: null });
       return;
     }
+    if (!isEntryPreview(result)) return;
     if (result.overTask) {
       actions.relink(result.entry.id, result.overTask);
       return;
@@ -287,7 +297,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
             range={range}
             entries={entries}
             now={now}
-            overTask={preview && preview.kind !== "create" ? preview.overTask : undefined}
+            overTask={preview && isEntryPreview(preview) ? preview.overTask : undefined}
             dragging={!!preview}
           />
         )}

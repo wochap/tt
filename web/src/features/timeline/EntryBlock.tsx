@@ -1,5 +1,5 @@
 import { useDraggable } from "@dnd-kit/core";
-import type { CSSProperties, KeyboardEvent, MouseEvent } from "react";
+import type { CSSProperties, HTMLAttributes, KeyboardEvent, MouseEvent, Ref } from "react";
 
 import { type Entry, entryDuration, formatClock, formatDuration, formatElapsed, laneGeometry, type Task } from "@tt/domain";
 
@@ -140,27 +140,52 @@ export function EntryBlock(props: EntryBlockProps) {
         )}
       </div>
       {props.draggable && !props.clippedStart && (
-        <div
-          ref={topHandle.setNodeRef}
-          {...topHandle.listeners}
-          {...topHandle.attributes}
-          tabIndex={-1}
-          aria-label="Resize start"
-          className="absolute inset-x-0 -top-[3px] h-2 cursor-ns-resize rounded-t-sm hover:bg-[color-mix(in_srgb,var(--entry-color)_45%,transparent)]"
-          style={{ "--entry-color": color } as CSSProperties}
-        />
+        <ResizeHandle edge="top" handleRef={topHandle.setNodeRef} height={height} color={color} label="Resize start" {...topHandle.listeners} {...topHandle.attributes} />
       )}
       {props.draggable && !props.clippedEnd && (
-        <div
-          ref={bottomHandle.setNodeRef}
-          {...bottomHandle.listeners}
-          {...bottomHandle.attributes}
-          tabIndex={-1}
-          aria-label={running ? "Drag to stop" : "Resize end"}
-          className="absolute inset-x-0 -bottom-[3px] h-2 cursor-ns-resize rounded-b-sm hover:bg-[color-mix(in_srgb,var(--entry-color)_45%,transparent)]"
-          style={{ "--entry-color": color } as CSSProperties}
-        />
+        <ResizeHandle edge="bottom" handleRef={bottomHandle.setNodeRef} height={height} color={color} label={running ? "Drag to stop" : "Resize end"} {...bottomHandle.listeners} {...bottomHandle.attributes} />
       )}
+    </div>
+  );
+}
+
+/**
+ * Resize edge: an 8 px strip for fine pointers; on coarse pointers a ~44 px
+ * transparent hit box centered on the edge (clamped to a third of the block so
+ * the body stays draggable) with the same visible 8 px hover strip inside.
+ */
+export function ResizeHandle({
+  edge,
+  handleRef,
+  height,
+  color,
+  label,
+  ...rest
+}: { edge: "top" | "bottom"; handleRef: Ref<HTMLDivElement>; height: number; color: string; label: string } & HTMLAttributes<HTMLDivElement>) {
+  const top = edge === "top";
+  return (
+    <div
+      ref={handleRef}
+      {...rest}
+      tabIndex={-1}
+      aria-label={label}
+      className={cn(
+        "group/handle absolute inset-x-0 h-2 cursor-ns-resize",
+        top ? "-top-[3px]" : "-bottom-[3px]",
+        top
+          ? "[@media(pointer:coarse)]:-top-[calc(var(--hit)/2)]"
+          : "[@media(pointer:coarse)]:-bottom-[calc(var(--hit)/2)]",
+        "[@media(pointer:coarse)]:h-(--hit)",
+      )}
+      style={{ "--entry-color": color, "--hit": `min(44px, ${height / 3}px)` } as CSSProperties}
+    >
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-x-0 h-2 group-hover/handle:bg-[color-mix(in_srgb,var(--entry-color)_45%,transparent)]",
+          top ? "top-0 rounded-t-sm" : "bottom-0 rounded-b-sm",
+          top ? "[@media(pointer:coarse)]:top-[calc(50%-3px)]" : "[@media(pointer:coarse)]:bottom-[calc(50%-3px)]",
+        )}
+      />
     </div>
   );
 }

@@ -61,6 +61,51 @@ test("two tabs: an entry started in one runs in the other", async ({ page, conte
   await expect(page.getByTestId("running-chip")).toHaveCount(0, { timeout: 1500 });
 });
 
+test("pending range can be moved and resized; empty space replaces it", async ({ page }) => {
+  await login(page, user(12));
+  const column = page.getByTestId("day-column").first();
+  const ghost = page.getByTestId("create-ghost");
+
+  await drag(page, await at(column, 13, 7), await at(column, 13, 52));
+  await expect(ghost).toContainText("13:00 – 14:00");
+  await expect(page.getByTestId("task-picker")).toBeVisible();
+
+  // Move by +30 min; the picker follows and no new range is created.
+  await drag(page, await at(column, 13, 30, 200), await at(column, 14, 0, 200));
+  await expect(ghost).toHaveCount(1);
+  await expect(ghost).toContainText("13:30 – 14:30");
+  await expect(page.getByTestId("task-picker")).toBeVisible();
+
+  // Resize the bottom edge to 15:00.
+  const box = (await ghost.boundingBox())!;
+  await drag(page, { x: box.x + 60, y: box.y + box.height }, await at(column, 15, 0, 200));
+  await expect(ghost).toContainText("13:30 – 15:00");
+
+  // A press on empty space replaces the range.
+  await drag(page, await at(column, 17, 0, 200), await at(column, 18, 0, 200));
+  await expect(ghost).toHaveCount(1);
+  await expect(ghost).toContainText("17:00 – 18:00");
+});
+
+test.describe("coarse pointer", () => {
+  test.use({ hasTouch: true });
+
+  test("resize handle hit area extends beyond the visible edge", async ({ page }) => {
+    await login(page, user(13));
+    const column = page.getByTestId("day-column").first();
+    await drag(page, await at(column, 17, 0, 200), await at(column, 18, 0, 200));
+    const ghost = page.getByTestId("create-ghost");
+    const handle = ghost.getByLabel("Resize end");
+    const box = (await ghost.boundingBox())!;
+    const hit = (await handle.boundingBox())!;
+    const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
+    // Fine pointers keep the 8 px strip; coarse ones get ~44 px centered on the edge.
+    expect(hit.height).toBeGreaterThanOrEqual(coarse ? 18 : 8);
+    expect(hit.height).toBeLessThanOrEqual(coarse ? 44 : 8);
+    expect(Math.abs(hit.y + hit.height / 2 - (box.y + box.height))).toBeLessThanOrEqual(2);
+  });
+});
+
 test("drag to create (snapped), move, resize and re-link", async ({ page }) => {
   await login(page, user(5));
   await createTask(page, "Invoice PDF rendering @Billing");
