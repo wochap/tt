@@ -25,14 +25,14 @@ export async function memoryStore(): Promise<TtStore> {
   return store;
 }
 
-export function renderWithStore(store: TtStore, ui: ReactNode) {
+export function renderWithStore(store: TtStore, ui: ReactNode, route = "/") {
   const session = {
     store,
     client: {} as SyncClient,
     auth: { server: "http://localhost", token: "t", indexDoc: "i", user: { id: "u", name: "mara" } },
   };
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[route]}>
       <SessionContext.Provider value={session}>
         <UiProvider>
           <TooltipProvider>{ui}</TooltipProvider>

@@ -248,3 +248,40 @@ test("data created by the daemon and CLI shows up in the web app", async ({ page
     daemon.kill();
   }
 });
+
+test("delete a task: unused at once, with entries after confirming; undo restores both", async ({ page }) => {
+  await login(page, user(11));
+  await expect(page.getByRole("button", { name: /New task/ })).toBeVisible();
+  await createTask(page, "Unused scratch");
+  await expect(page.getByTestId("side-task")).toHaveCount(1);
+  await createTask(page, "Billable work");
+  await expect(page.getByTestId("side-task")).toHaveCount(2);
+  await page.getByRole("button", { name: "Start Billable work" }).click(); // one running entry
+  await expect(page.getByTestId("running-chip")).toHaveCount(1);
+
+  // Unused task: no dialog, toast, back on the list, undo brings it back.
+  await page.keyboard.press("2");
+  await page.getByTestId("task-row").filter({ hasText: "Unused scratch" }).getByRole("button", { name: "Unused scratch", exact: true }).click();
+  await page.getByTestId("task-delete").click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/tasks$/);
+  await expect(page.locator("[data-sonner-toast]").first()).toContainText("Deleted #1 Unused scratch");
+  await expect(page.getByTestId("task-row").filter({ hasText: "Unused scratch" })).toHaveCount(0);
+  await page.keyboard.press("Control+z");
+  await expect(page.getByTestId("task-row").filter({ hasText: "Unused scratch" })).toHaveCount(1);
+
+  // Task with an entry: confirm first.
+  await page.getByTestId("task-row").filter({ hasText: "Billable work" }).getByRole("button", { name: "Billable work", exact: true }).click();
+  await page.getByTestId("task-delete").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("This task has 1 time entry");
+  await dialog.getByRole("button", { name: "Delete task and 1 entry" }).click();
+  await expect(page).toHaveURL(/\/tasks$/);
+  await expect(page.getByTestId("task-row").filter({ hasText: "Billable work" })).toHaveCount(0);
+  await expect(page.getByTestId("running-chip")).toHaveCount(0);
+
+  // One Ctrl+Z restores the task and its entry.
+  await page.keyboard.press("Control+z");
+  await expect(page.getByTestId("running-chip")).toHaveCount(1);
+  await expect(page.getByTestId("task-row").filter({ hasText: "Billable work" })).toHaveCount(1);
+});

@@ -237,6 +237,43 @@ export class Actions {
     this.updateTask(id, { state }, `Marked #${task.seq} ${state}`);
   }
 
+  entriesOf(task: Uuid): Entry[] {
+    return [...this.view.entries.values()].filter((e) => e.task === task);
+  }
+
+  /**
+   * Deletes a task and (with `force`) its entries as one undoable op. Resolves
+   * `false` when nothing was deleted: still loading, entries without `force`.
+   */
+  async deleteTask(id: Uuid, options: { force?: boolean } = {}): Promise<boolean> {
+    const snap = this.#store.getSnapshot();
+    const task = snap.view.workspace.tasks.get(id);
+    if (!task) return false;
+    const listed = this.#store.index?.entries.keys() ?? [];
+    if (snap.state !== "ready" || [...listed].some((year) => !snap.years.includes(year))) {
+      toast.error("Still loading your entries…");
+      return false;
+    }
+    const entries = this.entriesOf(id);
+    if (entries.length && !options.force) {
+      reportError(new DomainError("invalid", `#${task.seq} has ${entries.length} entries`));
+      return false;
+    }
+    const changes: RecordChange[] = [
+      { kind: "task", id, before: task, after: null },
+      ...entries.map((before): RecordChange => ({ kind: "entry", id: before.id, before, after: null })),
+    ];
+    const notify = entries.length ? `Deleted #${task.seq} and ${entries.length} entries` : `Deleted #${task.seq} ${task.title}`;
+    try {
+      await this.#store.commit({ label: `Deleted #${task.seq} ${task.title}`, changes });
+      this.#notify(notify);
+      return true;
+    } catch (error) {
+      reportError(error);
+      return false;
+    }
+  }
+
   // ---------- history ----------
 
   async undo(): Promise<void> {

@@ -1,4 +1,4 @@
-import { CaretLeft, CaretRight, Play, X } from "@phosphor-icons/react";
+import { CaretLeft, CaretRight, Play, Trash, X } from "@phosphor-icons/react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -35,6 +35,7 @@ import { MOD, cn } from "@/lib/utils";
 
 import { useStatusHints } from "../shell/ui-state.tsx";
 import { columnFor } from "../timeline/geometry.ts";
+import { useDeleteTask } from "./delete-task.tsx";
 
 const STATE_LABEL: Record<TaskState, string> = { open: "Open", done: "Done", archived: "Archive" };
 
@@ -99,6 +100,8 @@ export function TaskDetailPage() {
 
 function TaskDetail({ task }: { task: Task }) {
   const actions = useActions();
+  const navigate = useNavigate();
+  const del = useDeleteTask();
   const now = useNow(1000);
   const [editingTitle, setEditingTitle] = useState(false);
   const running = actions.runningFor(task.id);
@@ -108,6 +111,7 @@ function TaskDetail({ task }: { task: Task }) {
     s: () => actions.toggle(task.id),
     e: () => setEditingTitle(true),
     x: () => actions.setState(task.id, task.state === "done" ? "open" : "done"),
+    backspace: () => del.request(task, () => void navigate("/tasks")),
   });
 
   return (
@@ -131,6 +135,9 @@ function TaskDetail({ task }: { task: Task }) {
                   </SegmentedItem>
                 ))}
               </Segmented>
+              <Button variant="destructive" size="sm" className="gap-1" data-testid="task-delete" onClick={() => del.request(task, () => void navigate("/tasks"))}>
+                <Trash size={12} /> Delete <Kbd inherit>⌫</Kbd>
+              </Button>
             </div>
           </div>
           {running.length ? (
@@ -150,6 +157,7 @@ function TaskDetail({ task }: { task: Task }) {
         </div>
         <EntriesList task={task} now={now} />
       </div>
+      {del.dialog}
     </div>
   );
 }

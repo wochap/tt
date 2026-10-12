@@ -22,6 +22,7 @@ import { useStatusHints } from "../shell/ui-state.tsx";
 import { columnFor, todayIn } from "../timeline/geometry.ts";
 import { Board } from "./Board.tsx";
 import { DEFAULT_FILTERS, filterTasks, MultiMenu, SortMenu, StateMenu, type TaskFilters } from "./filters.tsx";
+import { TaskMenu, useDeleteTask } from "./delete-task.tsx";
 import { type QuickCreateHandle, QuickCreateInput } from "./QuickCreateInput.tsx";
 import { RenumberHint, renumberHints } from "./renumber-hints.tsx";
 
@@ -37,6 +38,8 @@ export function TasksPage() {
   const [filters, setFilters] = useState<TaskFilters>(() => ({ ...DEFAULT_FILTERS, query: params.get("q") ?? "" }));
   const [focus, setFocus] = useState<Uuid>();
   const [renaming, setRenaming] = useState<Uuid>();
+  const [menuFor, setMenuFor] = useState<Uuid>();
+  const del = useDeleteTask();
   const searchInput = useRef<HTMLInputElement>(null);
   const quick = useRef<QuickCreateHandle>(null);
 
@@ -83,6 +86,8 @@ export function TasksPage() {
     s: () => (focused ? actions.toggle(focused.id) : false),
     e: () => (focused ? setRenaming(focused.id) : false),
     x: () => (focused ? actions.setState(focused.id, focused.state === "done" ? "open" : "done") : false),
+    backspace: () => (focused ? del.request(focused) : false),
+    ".": () => (focused ? setMenuFor(focused.id) : false),
     b: () => setMode("board"),
     l: () => setMode("list"),
     n: () => quick.current?.focus(),
@@ -145,10 +150,12 @@ export function TasksPage() {
                 </span>
               </button>
               <PlayButton task={task} running={running.has(task.id)} size={44} />
+              <TaskMenu task={task} onDelete={() => del.request(task)} className="size-11 text-muted" />
             </div>
           ))}
           {empty && <EmptyTasks onStart={() => quick.current?.focus()} />}
         </div>
+        {del.dialog}
       </div>
     );
   }
@@ -203,7 +210,7 @@ export function TasksPage() {
         </div>
       </div>
       {mode === "board" ? (
-        <Board hits={hits} totals={totalAll} focus={focus} setFocus={setFocus} />
+        <Board hits={hits} totals={totalAll} focus={focus} setFocus={setFocus} onDelete={del.request} menuFor={menuFor} setMenuFor={setMenuFor} />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <div
@@ -216,6 +223,7 @@ export function TasksPage() {
             <span>Metadata</span>
             <span className="text-right">Today</span>
             <span className="text-right">Total</span>
+            <span />
             <span />
           </div>
           <div className="tt-scroll min-h-0 flex-1 overflow-y-auto" role="list" aria-label="Tasks">
@@ -231,6 +239,9 @@ export function TasksPage() {
                 renaming={renaming === hit.task.id}
                 onRenamed={() => setRenaming(undefined)}
                 onFocus={() => setFocus(hit.task.id)}
+                menuOpen={menuFor === hit.task.id}
+                onMenuOpenChange={(open) => setMenuFor(open ? hit.task.id : undefined)}
+                onDelete={() => del.request(hit.task)}
               />,
               index === holder && hintRows,
             ])}
@@ -261,11 +272,12 @@ export function TasksPage() {
           </div>
         </div>
       )}
+      {del.dialog}
     </div>
   );
 }
 
-const COLUMNS = (searching: boolean) => `40px minmax(0,1fr) 230px ${searching ? 160 : 110}px 80px 80px 32px`;
+const COLUMNS = (searching: boolean) => `40px minmax(0,1fr) 230px ${searching ? 160 : 110}px 80px 80px 32px 32px`;
 
 function metadataCell(task: Task, matches: FieldMatch[]) {
   const hit = matches.find((m) => m.kind === "meta");
@@ -290,6 +302,9 @@ function TaskRow({
   renaming,
   onRenamed,
   onFocus,
+  menuOpen,
+  onMenuOpenChange,
+  onDelete,
 }: {
   hit: Hit;
   searching: boolean;
@@ -300,6 +315,9 @@ function TaskRow({
   renaming: boolean;
   onRenamed: () => void;
   onFocus: () => void;
+  menuOpen: boolean;
+  onMenuOpenChange: (open: boolean) => void;
+  onDelete: () => void;
 }) {
   const view = useView();
   const actions = useActions();
@@ -354,6 +372,16 @@ function TaskRow({
       <span className="text-right tabular-nums text-sub1">{today ? formatDuration(today) : ""}</span>
       <span className="text-right tabular-nums">{total ? formatDuration(total) : "—"}</span>
       <PlayButton task={task} running={running} focused={focused} onToggle={() => actions.toggle(task.id)} />
+      <TaskMenu
+        task={task}
+        onDelete={onDelete}
+        open={menuOpen}
+        onOpenChange={onMenuOpenChange}
+        className={cn(
+          "size-6 opacity-0 transition-opacity duration-[120ms] group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100",
+          focused && "opacity-100",
+        )}
+      />
     </div>
   );
 }

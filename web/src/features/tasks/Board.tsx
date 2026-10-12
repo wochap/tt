@@ -23,11 +23,19 @@ import { useView } from "@/data/react";
 import { taskColor } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
+import { TaskMenu } from "./delete-task.tsx";
+
 const TITLES: Record<TaskState, string> = { open: "Open", done: "Done", archived: "Archived" };
 const DROP_TEXT: Record<TaskState, string> = { open: "Drop to reopen", done: "Drop to mark done", archived: "Drop to archive" };
 
 /** Frame 21: tasks by state; drag cards between columns (undoable). */
-export function Board({ hits, totals, focus, setFocus }: { hits: Hit[]; totals: Map<Uuid, number>; focus?: Uuid; setFocus: (id: Uuid) => void }) {
+interface MenuProps {
+  onDelete: (task: Task) => void;
+  menuFor?: Uuid;
+  setMenuFor: (id: Uuid | undefined) => void;
+}
+
+export function Board({ hits, totals, focus, setFocus, ...menu }: { hits: Hit[]; totals: Map<Uuid, number>; focus?: Uuid; setFocus: (id: Uuid) => void } & MenuProps) {
   const actions = useActions();
   const [dragging, setDragging] = useState<Task>();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }), useSensor(KeyboardSensor));
@@ -45,7 +53,7 @@ export function Board({ hits, totals, focus, setFocus }: { hits: Hit[]; totals: 
     <DndContext sensors={sensors} onDragStart={onStart} onDragEnd={onEnd} onDragCancel={() => setDragging(undefined)}>
       <div className="grid min-h-0 flex-1 grid-cols-3 gap-3 p-[14px]">
         {TASK_STATES.map((state) => (
-          <Column key={state} state={state} tasks={byState(state)} totals={totals} focus={focus} setFocus={setFocus} dragging={dragging} />
+          <Column key={state} state={state} tasks={byState(state)} totals={totals} focus={focus} setFocus={setFocus} dragging={dragging} {...menu} />
         ))}
       </div>
       <div className="flex gap-[14px] border-t px-[14px] py-2 text-[11.5px] text-muted">
@@ -59,7 +67,7 @@ export function Board({ hits, totals, focus, setFocus }: { hits: Hit[]; totals: 
   );
 }
 
-function Column({ state, tasks, totals, focus, setFocus, dragging }: { state: TaskState; tasks: Task[]; totals: Map<Uuid, number>; focus?: Uuid; setFocus: (id: Uuid) => void; dragging?: Task }) {
+function Column({ state, tasks, totals, focus, setFocus, dragging, ...menu }: { state: TaskState; tasks: Task[]; totals: Map<Uuid, number>; focus?: Uuid; setFocus: (id: Uuid) => void; dragging?: Task } & MenuProps) {
   const drop = useDroppable({ id: `state:${state}`, data: { state } });
   const showDrop = dragging && dragging.state !== state;
   return (
@@ -81,23 +89,23 @@ function Column({ state, tasks, totals, focus, setFocus, dragging }: { state: Ta
           </div>
         )}
         {tasks.map((task) => (
-          <DraggableCard key={task.id} task={task} total={totals.get(task.id)} focused={focus === task.id} onFocus={() => setFocus(task.id)} hidden={dragging?.id === task.id} />
+          <DraggableCard key={task.id} task={task} total={totals.get(task.id)} focused={focus === task.id} onFocus={() => setFocus(task.id)} hidden={dragging?.id === task.id} {...menu} />
         ))}
       </div>
     </section>
   );
 }
 
-function DraggableCard({ task, total, focused, onFocus, hidden }: { task: Task; total?: number; focused: boolean; onFocus: () => void; hidden: boolean }) {
+function DraggableCard({ task, total, focused, onFocus, hidden, ...menu }: { task: Task; total?: number; focused: boolean; onFocus: () => void; hidden: boolean } & MenuProps) {
   const drag = useDraggable({ id: `card:${task.id}`, data: { task } });
   return (
     <div ref={drag.setNodeRef} {...drag.listeners} {...drag.attributes} onFocus={onFocus} className={cn("outline-none", hidden && "opacity-30")} data-testid="board-card" data-seq={task.seq}>
-      <Card task={task} total={total} focused={focused} />
+      <Card task={task} total={total} focused={focused} menu={menu} />
     </div>
   );
 }
 
-function Card({ task, total, focused, overlay }: { task: Task; total?: number; focused?: boolean; overlay?: boolean }) {
+function Card({ task, total, focused, overlay, menu }: { task: Task; total?: number; focused?: boolean; overlay?: boolean; menu?: MenuProps }) {
   const view = useView();
   const navigate = useNavigate();
   const project = task.project ? view.workspace.projects.get(task.project) : undefined;
@@ -105,7 +113,7 @@ function Card({ task, total, focused, overlay }: { task: Task; total?: number; f
     <div
       onDoubleClick={() => navigate(`/tasks/${task.seq}`)}
       className={cn(
-        "flex cursor-grab flex-col gap-[6px] rounded-md bg-base px-[10px] py-2",
+        "group relative flex cursor-grab flex-col gap-[6px] rounded-md bg-base px-[10px] py-2",
         overlay ? "rotate-[-2deg] cursor-grabbing shadow-[var(--shadow-lg)]" : "shadow-[var(--shadow-sm)]",
         focused && "outline-2 outline-offset-1 outline-accent",
       )}
@@ -113,8 +121,21 @@ function Card({ task, total, focused, overlay }: { task: Task; total?: number; f
       <div className="flex min-w-0 items-center gap-2">
         <ColorDot color={taskColor(view.workspace, task)} />
         <Seq seq={task.seq} />
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{task.title}</span>
+        <span className="min-w-0 flex-1 truncate pr-[26px] text-[12.5px] font-medium">{task.title}</span>
       </div>
+      {menu && (
+        <TaskMenu
+          task={task}
+          stopPointer
+          onDelete={() => menu.onDelete(task)}
+          open={menu.menuFor === task.id}
+          onOpenChange={(open) => menu.setMenuFor(open ? task.id : undefined)}
+          className={cn(
+            "absolute right-1 top-1 size-6 cursor-pointer opacity-0 transition-opacity duration-[120ms] group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 pointer-coarse:size-11 pointer-coarse:opacity-100",
+            focused && "opacity-100",
+          )}
+        />
+      )}
       <div className="flex flex-wrap items-center gap-1">
         <TagChips view={view} task={task} />
         <span className="text-[11px] text-muted">{project?.name}</span>

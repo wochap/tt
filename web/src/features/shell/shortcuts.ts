@@ -39,6 +39,8 @@ export const SHORTCUTS: { scope: string; keys: [string, string][] }[] = [
       ["S", "Toggle tracking on row"],
       ["E", "Rename inline"],
       ["X", "Mark done / reopen"],
+      ["⌫", "Delete task (undoable)"],
+      [".", "Open row menu"],
       ["B · L", "Board / list view"],
     ],
   },
@@ -61,6 +63,7 @@ export const SHORTCUTS: { scope: string; keys: [string, string][] }[] = [
       ["E", "Edit title"],
       [`${MOD}E`, "Toggle description edit / preview"],
       ["X", "Mark done"],
+      ["⌫", "Delete task (undoable)"],
     ],
   },
 ];
