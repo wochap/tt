@@ -32,6 +32,7 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 ciborium = "0.2"
 clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
 csv = "1"
 dialoguer = { version = "0.12", default-features = false, features = ["fuzzy-select", "password"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

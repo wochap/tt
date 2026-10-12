@@ -53,6 +53,10 @@ nix build .#tt-web                       # static web bundle for --web-dir
 From source: `cargo build --release -p tt-cli -p tt-server` (binaries in
 `target/release`) and `pnpm install && pnpm build` for the web app (`web/dist`).
 
+Zsh completions for `tt` and `tt-server` are installed with the nix package. Otherwise
+generate them: `tt completions zsh > ~/.zfunc/_tt` (and `tt-server completions zsh >
+~/.zfunc/_tt-server`), with `fpath+=~/.zfunc` before `compinit`. `bash` and `fish` work too.
+
 ## Usage
 
 ```sh

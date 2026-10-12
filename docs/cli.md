@@ -105,6 +105,8 @@ Options:
 
       --state <STATE>
           open|done|archived|all
+          
+          [possible values: open, done, archived, all]
 
       --tag <TAG>
           
@@ -206,6 +208,8 @@ Options:
 
       --state <STATE>
           open|done|archived
+          
+          [possible values: open, done, archived]
 
   -h, --help
           Print help
@@ -277,7 +281,7 @@ Options:
           JSON output (stable schema: uuids, seqs, UTC timestamps, durations in seconds)
 
       --state <STATE>
-          
+          [possible values: open, done, archived, all]
 
   -h, --help
           Print help
@@ -773,6 +777,7 @@ Options:
           task|tag|project|day
           
           [default: task]
+          [possible values: task, tag, project, day]
 
   -j, --json
           JSON output (stable schema: uuids, seqs, UTC timestamps, durations in seconds)
@@ -800,6 +805,7 @@ Options:
           json|csv
           
           [default: json]
+          [possible values: json, csv]
 
   -j, --json
           JSON output (stable schema: uuids, seqs, UTC timestamps, durations in seconds)
@@ -809,9 +815,13 @@ Options:
 
       --mode <MODE>
           up|nearest
+          
+          [possible values: up, nearest]
 
       --group <GROUP>
           entry|task-day
+          
+          [possible values: entry, task-day]
 
   -o, --output <OUTPUT>
           Write to a file instead of stdout
@@ -995,7 +1005,7 @@ Usage: tt config get [OPTIONS] [KEY]
 
 Arguments:
   [KEY]
-          
+          [possible values: server.url, server.token, server.ca_cert, user.index_doc, user.id, user.name, week_start, snap, tz, editor]
 
 Options:
   -j, --json
@@ -1019,7 +1029,7 @@ Usage: tt config set [OPTIONS] <KEY> [VALUE]
 
 Arguments:
   <KEY>
-          
+          [possible values: server.url, server.token, server.ca_cert, user.index_doc, user.id, user.name, week_start, snap, tz, editor]
 
   [VALUE]
           

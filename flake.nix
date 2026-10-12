@@ -40,6 +40,7 @@
           };
 
           cargoLock.lockFile = ./Cargo.lock;
+          nativeBuildInputs = [ pkgs.installShellFiles ];
           cargoBuildFlags = [
             "-p"
             "tt-cli"
@@ -53,6 +54,9 @@
           postInstall = ''
             install -Dm644 contrib/tt.service -t $out/share/systemd/user
             install -Dm644 contrib/tt-server.service -t $out/share/systemd/system
+          '' + lib.optionalString (pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform) ''
+            installShellCompletion --zsh --name _tt <($out/bin/tt completions zsh)
+            installShellCompletion --zsh --name _tt-server <($out/bin/tt-server completions zsh)
           '';
 
           meta = {

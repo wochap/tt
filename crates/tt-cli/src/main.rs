@@ -12,7 +12,8 @@ use std::{
 
 use chrono::Utc;
 use chrono_tz::Tz;
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueHint, builder::PossibleValuesParser};
+use clap_complete::Shell;
 use serde_json::{Value, json};
 use tt_core::{ops::TaskPatch, text, time};
 use tt_daemon::{
@@ -71,6 +72,47 @@ impl From<anyhow::Error> for Failure {
 
 type CliResult<T = ()> = Result<T, Failure>;
 
+const FORMAT_VALUES: [&str; 2] = ["json", "csv"];
+const MODE_VALUES: [&str; 2] = ["up", "nearest"];
+
+/// Allowed `--state` values, parsed later by `tt_core::model::TaskState`
+/// (plus `all` for listings).
+fn task_state_values(with_all: bool) -> PossibleValuesParser {
+    let mut values = vec!["open", "done", "archived"];
+    if with_all {
+        values.push("all");
+    }
+    PossibleValuesParser::new(values)
+}
+
+/// Allowed `report --by` values, parsed later by `tt_core::report::GroupBy`.
+fn group_by_values() -> PossibleValuesParser {
+    PossibleValuesParser::new(["task", "tag", "project", "day"])
+}
+
+/// Allowed `export --group` values; the old spellings stay valid but are not
+/// offered.
+fn round_group_values() -> PossibleValuesParser {
+    PossibleValuesParser::new([
+        clap::builder::PossibleValue::new("entry"),
+        clap::builder::PossibleValue::new("task-day")
+            .alias("taskday")
+            .alias("task_day"),
+    ])
+}
+
+fn config_keys() -> PossibleValuesParser {
+    PossibleValuesParser::new(tt_daemon::config::KEYS.iter().copied())
+}
+
+/// The completion script for `shell`, generated from the clap definitions.
+fn completion_script(shell: Shell) -> String {
+    let mut command = command();
+    let mut out = Vec::new();
+    clap_complete::generate(shell, &mut command, "tt", &mut out);
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 #[derive(Parser)]
 #[command(
     name = "tt",
@@ -126,7 +168,7 @@ enum Cmd {
         #[arg(default_value = "week")]
         range: String,
         /// task|tag|project|day
-        #[arg(long, default_value = "task")]
+        #[arg(long, default_value = "task", value_parser = group_by_values())]
         by: String,
     },
     /// Export data as JSON or CSV, optionally rounded and flattened
@@ -134,23 +176,26 @@ enum Cmd {
         /// Range (default: everything)
         range: Option<String>,
         /// json|csv
-        #[arg(long, default_value = "json")]
+        #[arg(long, default_value = "json", value_parser = PossibleValuesParser::new(FORMAT_VALUES))]
         format: String,
         /// Rounding grid, e.g. 15m (default: config `snap` when --mode/--group given)
         #[arg(long)]
         round: Option<String>,
         /// up|nearest
-        #[arg(long)]
+        #[arg(long, value_parser = PossibleValuesParser::new(MODE_VALUES))]
         mode: Option<String>,
         /// entry|task-day
-        #[arg(long)]
+        #[arg(long, value_parser = round_group_values())]
         group: Option<String>,
         /// Write to a file instead of stdout
-        #[arg(short, long)]
+        #[arg(short, long, value_hint = ValueHint::FilePath)]
         output: Option<PathBuf>,
     },
     /// Import a JSON export, matching records by uuid
-    Import { file: PathBuf },
+    Import {
+        #[arg(value_hint = ValueHint::FilePath)]
+        file: PathBuf,
+    },
     /// Stream events as NDJSON (first line: snapshot of running entries)
     Watch(WatchArgs),
     /// Daemon, sync and running entries
@@ -172,7 +217,7 @@ enum Cmd {
         username: Option<String>,
         /// PEM file with an extra CA to trust (private or local CA); its
         /// absolute path is stored as server.ca_cert
-        #[arg(long, value_name = "PEM")]
+        #[arg(long, value_name = "PEM", value_hint = ValueHint::FilePath)]
         ca_cert: Option<std::path::PathBuf>,
     },
     /// Revoke the server token and stop syncing; local data stays
@@ -182,6 +227,9 @@ enum Cmd {
     Config(ConfigCmd),
     #[command(name = "__docs-cli", hide = true)]
     DocsCli,
+    /// Print a shell completion script
+    #[command(hide = true)]
+    Completions { shell: Shell },
 }
 
 #[derive(Subcommand)]
@@ -194,7 +242,7 @@ enum TaskCmd {
     /// List tasks (default: open)
     Ls {
         /// open|done|archived|all
-        #[arg(long)]
+        #[arg(long, value_parser = task_state_values(true))]
         state: Option<String>,
         #[arg(long)]
         tag: Option<String>,
@@ -229,7 +277,7 @@ enum TaskCmd {
         #[arg(long = "rm-meta")]
         rm_meta: Vec<String>,
         /// open|done|archived
-        #[arg(long)]
+        #[arg(long, value_parser = task_state_values(false))]
         state: Option<String>,
     },
     /// Mark done
@@ -244,7 +292,7 @@ enum TaskCmd {
     Find {
         #[arg(required = true)]
         query: Vec<String>,
-        #[arg(long)]
+        #[arg(long, value_parser = task_state_values(true))]
         state: Option<String>,
     },
 }
@@ -335,14 +383,21 @@ struct WatchArgs {
 #[derive(Subcommand)]
 enum ConfigCmd {
     /// Print one key, or the whole file
-    Get { key: Option<String> },
+    Get {
+        #[arg(value_parser = config_keys())]
+        key: Option<String>,
+    },
     /// Set a key; omit the value to unset
     ///
     /// Keys: server.url, server.token, server.ca_cert, user.index_doc, user.id,
     /// user.name, week_start, snap, tz, editor. server.ca_cert takes a PEM file
     /// with an extra CA to trust; it is stored as an absolute path and must
     /// hold at least one certificate.
-    Set { key: String, value: Option<String> },
+    Set {
+        #[arg(value_parser = config_keys())]
+        key: String,
+        value: Option<String>,
+    },
     /// Print the config file path
     Path,
 }
@@ -434,6 +489,10 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> CliResult<u8> {
+    if let Cmd::Completions { shell } = cli.command {
+        print!("{}", completion_script(shell));
+        return Ok(0);
+    }
     let paths = Paths::from_env();
     if let Cmd::Daemon { spawned } = cli.command {
         let runtime = tokio::runtime::Runtime::new().map_err(|e| Failure::new(1, e.to_string()))?;
@@ -503,7 +562,9 @@ fn run(cli: Cli) -> CliResult<u8> {
         } => login(&mut ctx, &url, username, ca_cert.as_deref())?,
         Cmd::Logout => logout(&mut ctx)?,
         Cmd::Config(command) => config_cmd(&mut ctx, command)?,
-        Cmd::Daemon { .. } | Cmd::DocsCli => unreachable!("handled above"),
+        Cmd::Daemon { .. } | Cmd::DocsCli | Cmd::Completions { .. } => {
+            unreachable!("handled above")
+        }
     }
     Ok(0)
 }
@@ -1199,4 +1260,44 @@ fn config_cmd(ctx: &mut Ctx, command: ConfigCmd) -> CliResult {
 #[must_use]
 pub fn command() -> clap::Command {
     Cli::command()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn offered(parser: &PossibleValuesParser) -> Vec<String> {
+        use clap::builder::TypedValueParser;
+        parser
+            .possible_values()
+            .expect("enumerated")
+            .map(|value| value.get_name().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn offered_values_parse_in_core() {
+        for value in offered(&task_state_values(false)) {
+            value.parse::<tt_core::model::TaskState>().unwrap();
+        }
+        for value in offered(&group_by_values()) {
+            value.parse::<tt_core::report::GroupBy>().unwrap();
+        }
+        for value in MODE_VALUES {
+            value.parse::<tt_core::round::RoundMode>().unwrap();
+        }
+        for value in offered(&round_group_values()) {
+            value.parse::<tt_core::round::RoundGroup>().unwrap();
+        }
+    }
+
+    #[test]
+    fn config_keys_are_the_daemon_keys() {
+        assert_eq!(offered(&config_keys()), tt_daemon::config::KEYS);
+    }
+
+    #[test]
+    fn command_definition_is_valid() {
+        command().debug_assert();
+    }
 }

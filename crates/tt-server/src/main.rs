@@ -11,7 +11,8 @@ use std::{
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueHint};
+use clap_complete::Shell;
 use tt_server::{
     ServerOptions, UserRef, admin, admin::AdminError, identity::id_prefix, serve,
     transport::PeerState,
@@ -21,7 +22,13 @@ use tt_server::{
 #[command(name = "tt-server", version, about = "tt sync server")]
 struct Cli {
     /// SQLite database holding the root, tokens, and documents
-    #[arg(long, global = true, env = "TT_SERVER_DB", default_value = "server.db")]
+    #[arg(
+        long,
+        global = true,
+        env = "TT_SERVER_DB",
+        default_value = "server.db",
+        value_hint = ValueHint::FilePath
+    )]
     db: PathBuf,
     #[command(subcommand)]
     command: Cmd,
@@ -29,6 +36,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Print a shell completion script
+    #[command(hide = true)]
+    Completions { shell: Shell },
     /// Serve the API, the sync websocket, the admin socket, and the web bundle
     Serve(ServeArgs),
     /// Create this server's root (the registry document); once per database
@@ -98,13 +108,13 @@ struct ServeArgs {
     #[arg(long, default_value = "0.0.0.0:8443")]
     listen: SocketAddr,
     /// Built web bundle (directory with index.html), served at /
-    #[arg(long)]
+    #[arg(long, value_hint = ValueHint::DirPath)]
     web_dir: Option<PathBuf>,
     /// TLS certificate chain (PEM)
-    #[arg(long)]
+    #[arg(long, value_hint = ValueHint::FilePath)]
     tls_cert: Option<PathBuf>,
     /// TLS private key (PEM)
-    #[arg(long)]
+    #[arg(long, value_hint = ValueHint::FilePath)]
     tls_key: Option<PathBuf>,
     /// Serve plain HTTP; only behind a TLS-terminating reverse proxy on this host
     #[arg(long)]
@@ -432,8 +442,23 @@ fn init_logging() {
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
+/// The shell completion script for `shell`, generated from the clap definitions.
+fn completion_script(shell: Shell) -> String {
+    let mut out = Vec::new();
+    clap_complete::generate(shell, &mut command(), "tt-server", &mut out);
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn command() -> clap::Command {
+    Cli::command()
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if let Cmd::Completions { shell } = cli.command {
+        print!("{}", completion_script(shell));
+        return ExitCode::SUCCESS;
+    }
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(runtime) => runtime,
         Err(error) => {
@@ -443,6 +468,7 @@ fn main() -> ExitCode {
     };
     let result = runtime.block_on(async {
         match cli.command {
+            Cmd::Completions { .. } => unreachable!("handled above"),
             Cmd::Serve(args) => {
                 let transport =
                     match serve::transport(args.tls_cert, args.tls_key, args.insecure_http) {

@@ -27,6 +27,7 @@ bytes.workspace = true
 ciborium.workspace = true
 chrono.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
 dialoguer.workspace = true
 futures-util.workspace = true
 if-addrs.workspace = true
