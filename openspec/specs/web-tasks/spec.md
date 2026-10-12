@@ -6,11 +6,15 @@ TBD - created by syncing change web. List, board, detail, quick-create, fuzzy se
 ## Requirements
 
 ### Requirement: Task list and board
-Tasks SHALL be shown as a table (seq, title, tags, metadata, today, total, start button) or a board by state with drag between columns, filterable by state, tags and project, with fuzzy search over title, tag names and metadata values that highlights matched metadata.
+Tasks SHALL be shown as a table (seq, title, tags, metadata, today, total, start button) or a board by state with drag between columns, filterable by state, tags and project, with fuzzy search over title, tag names and metadata values that highlights matched metadata. On touch devices a board card SHALL start dragging only after a press-and-hold of about 250 ms; a quicker vertical swipe SHALL scroll instead and a tap SHALL NOT drag.
 
 #### Scenario: Board move
 - **WHEN** a card is dragged from Open to Done
 - **THEN** the task state becomes done and the card stays in the Done column
+
+#### Scenario: Touch long-press moves a card
+- **WHEN** on a touch device the user presses and holds a board card for about 250 ms and drags it onto the Done column
+- **THEN** the task state becomes done, whereas a quick swipe starting on the same card scrolls the board and does not move it
 
 ### Requirement: Quick create
 A single input SHALL parse `title +tag @project key:value`, creating tags and projects as needed; Ctrl+Enter SHALL create and start tracking.

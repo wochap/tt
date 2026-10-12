@@ -31,7 +31,7 @@ A persistent strip SHALL list every running entry with task title, elapsed time 
 - **THEN** both receive the same end time and the strip empties
 
 ### Requirement: Drag interactions
-Using dnd-kit the timeline SHALL support: drag on empty space to create (task picker on release), drag body to move, drag top/bottom edge to resize, drop onto the task side panel to re-link, snapping to the configured grid with Alt disabling snap and Shift locking the column in week view, and a 4 px drag threshold. The dotted pending range left by a create drag SHALL itself be adjustable until a task is picked or it is dismissed: dragging its body SHALL move it and dragging its top or bottom edge SHALL resize it, with the same snapping, Alt and Shift behavior and one-grid-step minimum duration as entries, and a press on it SHALL NOT start a new create. The task picker SHALL follow the range to its new position after an adjust. Resize edges of the pending range and of entries SHALL have a touch-sized hit area (at least 40 px tall) without changing their visible appearance, while a block's body SHALL remain draggable even when the block is short.
+Using dnd-kit the timeline SHALL support: drag on empty space to create (task picker on release), drag body to move, drag top/bottom edge to resize, drop onto the task side panel to re-link, snapping to the configured grid with Alt disabling snap and Shift locking the column in week view, and a 4 px drag threshold. With a mouse or pen a drag SHALL begin once the pointer has moved past the threshold. With touch, a drag to create on empty space SHALL begin only after the finger has been held in place for a hold delay of about 250 ms; a touch that moves beyond a small tolerance before the hold completes SHALL scroll the timeline instead and SHALL NOT create anything. The dotted pending range left by a create drag SHALL itself be adjustable until a task is picked or it is dismissed: dragging its body SHALL move it and dragging its top or bottom edge SHALL resize it, with the same snapping, Alt and Shift behavior and one-grid-step minimum duration as entries, and a press on it SHALL NOT start a new create. The task picker SHALL follow the range to its new position after an adjust. Resize edges of the pending range and of entries SHALL have a touch-sized hit area (at least 40 px tall) without changing their visible appearance, while a block's body SHALL remain draggable even when the block is short.
 
 #### Scenario: Create with snap
 - **WHEN** snap is 15 min and the user drags from 13:07 to 13:52 on empty space
@@ -60,6 +60,37 @@ Using dnd-kit the timeline SHALL support: drag on empty space to create (task pi
 #### Scenario: Touch-sized edge
 - **WHEN** a finger presses 15 px outside the visible bottom edge of a one-hour entry and drags down
 - **THEN** the entry's end is resized rather than a new range being created
+
+#### Scenario: Touch long-press then drag creates a range
+- **WHEN** on a touch device the user presses empty space in the day column, holds still for the hold delay, then drags down 45 minutes' worth of grid and lifts
+- **THEN** the proposed range spans the dragged interval snapped to the grid and the task picker opens anchored to it, exactly as for a mouse drag
+
+#### Scenario: Quick swipe scrolls
+- **WHEN** on a touch device the user swipes vertically on empty space in the day column before the hold delay elapses
+- **THEN** the timeline scrolls, no range is proposed and no task picker opens
+
+#### Scenario: Mouse behaviour unchanged
+- **WHEN** the user presses the mouse on empty space and moves more than 4 px
+- **THEN** the range is proposed immediately with no hold delay
+
+### Requirement: Touch range creation feedback and scrolling
+When a touch hold on empty space completes, the timeline SHALL signal that creation is armed with a visible cue on the pressed position and, where the device supports it, a short haptic pulse. From that moment until the finger lifts, the page SHALL NOT scroll, select text or show the long-press context menu because of that touch. While the finger is held within an edge zone at the top or bottom of the scrolling timeline, the timeline SHALL scroll in that direction and the proposed range SHALL keep following the finger. A tap that does not complete the hold SHALL behave as before and SHALL NOT arm creation.
+
+#### Scenario: Armed cue
+- **WHEN** a touch hold on empty space reaches the hold delay
+- **THEN** a visible armed cue appears at the pressed time, a haptic pulse is emitted on devices that support it, and further finger movement resizes the proposed range instead of scrolling
+
+#### Scenario: No context menu or selection
+- **WHEN** the user long-presses empty space on an Android browser
+- **THEN** no context menu or text-selection handles appear
+
+#### Scenario: Edge auto-scroll while creating
+- **WHEN** the user is dragging a new range with touch and holds the finger near the bottom edge of the scrolling timeline with more hours below
+- **THEN** the timeline scrolls down and the range end keeps following the finger
+
+#### Scenario: Tap does not arm
+- **WHEN** the user lifts the finger before the hold delay
+- **THEN** no armed cue or haptic pulse occurs and no drag is started
 
 ### Requirement: Entry sheet
 Clicking an entry SHALL open a sheet with task picker, start, end (or "now" when running), ±15 min and round chips, note, split at time, move to task, duplicate, delete; all edits apply immediately and are undoable.
