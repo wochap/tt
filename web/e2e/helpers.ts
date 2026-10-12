@@ -102,3 +102,24 @@ export async function createEntry(page: Page, from: [number, number], to: [numbe
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("task-picker")).toBeHidden();
 }
+
+type TouchPoint = { x: number; y: number };
+
+/** Touch input through CDP: Playwright has no touch-drag, and a long-press needs real timing. */
+export async function touchGesture(page: Page, steps: { type: "start" | "move" | "end"; at?: TouchPoint; wait?: number }[]) {
+  const cdp = await page.context().newCDPSession(page);
+  for (const step of steps) {
+    if (step.wait) await page.waitForTimeout(step.wait);
+    const type = ({ start: "touchStart", move: "touchMove", end: "touchEnd" } as const)[step.type];
+    await cdp.send("Input.dispatchTouchEvent", { type, touchPoints: step.at ? [{ x: step.at.x, y: step.at.y }] : [] });
+  }
+  await cdp.detach();
+}
+
+/** Long-press at `from`, then drag to `to` in small steps and lift. */
+export function longPressDrag(from: TouchPoint, to: TouchPoint, hold = 400) {
+  const steps: Parameters<typeof touchGesture>[1] = [{ type: "start", at: from }, { type: "move", at: from, wait: hold }];
+  for (let i = 1; i <= 10; i++) steps.push({ type: "move", at: { x: from.x + ((to.x - from.x) * i) / 10, y: from.y + ((to.y - from.y) * i) / 10 }, wait: 16 });
+  steps.push({ type: "end" });
+  return steps;
+}

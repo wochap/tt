@@ -4,10 +4,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
   DndContext,
-  PointerSensor,
   pointerWithin,
-  useSensor,
-  useSensors,
 } from "@dnd-kit/core";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -17,13 +14,15 @@ import { TaskPicker } from "@/components/TaskPicker";
 import { useActions } from "@/data/actions";
 import { useView } from "@/data/react";
 import { usePhone } from "@/lib/media";
+import { useTouchAwareSensors } from "@/lib/sensors";
 import { useSettings, useTz } from "@/lib/settings";
 
-import { type DragOrigin, type GridMetrics, type Pointer, type Preview, isEntryPreview, preview as computePreview } from "./drag.ts";
+import { type DragOrigin, type GridMetrics, type Pointer, type Preview, isEntryPreview, minutesOfDayAt, pointFromEvent, pulseIfTouch, preview as computePreview } from "./drag.ts";
 import { type Column, renderedHours } from "./geometry.ts";
 import { ScrollFade, useMoreBelow } from "./ScrollFade.tsx";
 import { SidePanel } from "./SidePanel.tsx";
 import { TimelineGrid } from "./TimelineGrid.tsx";
+import { useEdgeScroll } from "./useEdgeScroll.ts";
 
 export interface PendingCreate {
   column: Column;
@@ -92,18 +91,23 @@ export function TimelineBoard(props: TimelineBoardProps) {
 
   // Track pointer and modifiers during a drag (dnd-kit reports only deltas).
   useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      pointer.current = { x: e.clientX, y: e.clientY, alt: e.altKey, shift: e.shiftKey };
+    // pointermove can stop once the browser takes or cancels a touch, so touchmove feeds it too.
+    const onMove = (e: PointerEvent | TouchEvent) => {
+      if ("touches" in e && !e.touches.length) return;
+      const next = pointFromEvent(e);
+      pointer.current = "touches" in e ? { ...next, alt: pointer.current.alt, shift: pointer.current.shift } : next;
     };
     const onKey = (e: KeyboardEvent) => {
       pointer.current = { ...pointer.current, alt: e.altKey, shift: e.shiftKey };
       if (origin.current) setPreview(computePreview(origin.current, pointer.current, metrics(), overTask.current));
     };
     window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("touchmove", onMove, true);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("keyup", onKey, true);
     return () => {
       window.removeEventListener("pointermove", onMove, true);
+    window.removeEventListener("touchmove", onMove, true);
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("keyup", onKey, true);
     };
@@ -123,12 +127,24 @@ export function TimelineBoard(props: TimelineBoardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns[0]?.key, density]);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const sensors = useTouchAwareSensors();
+
+  // dnd-kit's auto-scroll follows the dragged node (the whole column for create), so create scrolls itself.
+  const creating = preview?.kind === "create";
+  useEdgeScroll(
+    creating,
+    scroller,
+    () => pointer.current.y,
+    () => {
+      if (origin.current) setPreview(computePreview(origin.current, pointer.current, metrics(), overTask.current));
+    },
+  );
 
   const onDragStart = (event: DragStartEvent) => {
     const data = event.active.data.current as { kind: DragOrigin["kind"]; entry?: Entry; column?: Column; range?: DragOrigin["range"] };
-    const start = event.activatorEvent as PointerEvent;
-    const startPointer = { x: start.clientX, y: start.clientY, alt: start.altKey, shift: start.shiftKey };
+    const start = event.activatorEvent as MouseEvent | TouchEvent;
+    const startPointer = pointFromEvent(start);
+    pulseIfTouch(start);
     let column = data.column;
     if (!column) {
       // Entry drags: the column the block was grabbed in.
@@ -142,6 +158,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
       if (props.pendingCreate) props.setPendingCreate({ ...props.pendingCreate, rect: null });
     } else props.setPendingCreate(null);
     origin.current = { kind: data.kind, entry: data.entry, range: data.range, column, pointer: startPointer };
+    if (data.kind === "create") origin.current.anchorMinutes = minutesOfDayAt(metrics(), column, startPointer.y);
     pointer.current = startPointer;
     overTask.current = undefined;
     setPreview(computePreview(origin.current, startPointer, metrics()));
@@ -237,7 +254,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
     <DndContext
       sensors={sensors}
       collisionDetection={pointerWithin}
-      autoScroll={{ threshold: { x: 0, y: 0.12 } }}
+      autoScroll={creating ? false : { threshold: { x: 0, y: 0.12 } }}
       onDragStart={onDragStart}
       onDragMove={onDragMove}
       onDragOver={onDragOver}

@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { newEntry } from "@tt/domain";
 
-import { type GridMetrics, preview } from "./drag.ts";
+import { edgeScrollSpeed, type GridMetrics, minutesOfDayAt, pointFromEvent, preview, pulseIfTouch } from "./drag.ts";
 import { columnsFrom } from "./geometry.ts";
 
 const tz = "Europe/Berlin";
@@ -41,6 +41,55 @@ describe("drag preview", () => {
     const origin = { kind: "create" as const, column: columns[0]!, pointer: p(150, y(13, 7)) };
     const result = preview(origin, p(150, y(13, 52), true), metrics());
     expect(result).toMatchObject({ start: local(13, 7), end: local(13, 52) });
+  });
+
+  it("create: the anchor stays fixed when the column rect shifts by a scroll offset", () => {
+    const m = metrics();
+    const anchorMinutes = minutesOfDayAt(m, columns[0]!, y(13, 7));
+    const origin = { kind: "create" as const, column: columns[0]!, pointer: p(150, y(13, 7)), anchorMinutes };
+    // Scrolled 224 px (4 h) up: the finger is still at the same screen y, 4 h further down the content.
+    const scrolled: GridMetrics = { ...m, rects: () => columns.map((_, i) => new DOMRect(100 + i * 300, 100 - 224, 300, 17 * PX)) };
+    const result = preview(origin, p(150, y(13, 7)), scrolled);
+    expect(result).toMatchObject({ start: local(13, 0), end: local(17, 15) });
+  });
+
+  describe("pointFromEvent", () => {
+    it("reads mouse/pointer events with modifiers", () => {
+      const e = new MouseEvent("mousedown", { clientX: 12, clientY: 34, altKey: true });
+      expect(pointFromEvent(e)).toEqual({ x: 12, y: 34, alt: true, shift: false });
+    });
+
+    it("reads the first touch and ignores modifiers", () => {
+      const e = { touches: [{ clientX: 5, clientY: 6 }], changedTouches: [], altKey: true, shiftKey: true } as unknown as TouchEvent;
+      expect(pointFromEvent(e)).toEqual({ x: 5, y: 6, alt: false, shift: false });
+      const end = { touches: [], changedTouches: [{ clientX: 7, clientY: 8 }] } as unknown as TouchEvent;
+      expect(pointFromEvent(end)).toEqual({ x: 7, y: 8, alt: false, shift: false });
+    });
+  });
+
+  it("pulseIfTouch vibrates for touch only", () => {
+    const vibrate = vi.fn();
+    Object.defineProperty(navigator, "vibrate", { value: vibrate, configurable: true });
+    pulseIfTouch({ touches: [] } as unknown as TouchEvent);
+    expect(vibrate).toHaveBeenCalledWith(10);
+    vibrate.mockClear();
+    pulseIfTouch(new MouseEvent("mousedown"));
+    expect(vibrate).not.toHaveBeenCalled();
+  });
+
+  describe("edgeScrollSpeed", () => {
+    const rect = { top: 100, bottom: 1100, height: 1000 };
+    it("is 0 outside the zone and at its boundary", () => {
+      expect(edgeScrollSpeed(600, rect)).toBe(0);
+      expect(edgeScrollSpeed(220, rect)).toBe(0);
+      expect(edgeScrollSpeed(980, rect)).toBe(0);
+    });
+    it("is signed and proportional inside the zone, capped at the edge", () => {
+      expect(edgeScrollSpeed(160, rect, 0.12, 20)).toBeCloseTo(-10);
+      expect(edgeScrollSpeed(1040, rect, 0.12, 20)).toBeCloseTo(10);
+      expect(edgeScrollSpeed(100, rect, 0.12, 20)).toBe(-20);
+      expect(edgeScrollSpeed(2000, rect, 0.12, 20)).toBe(20);
+    });
   });
 
   const entry = newEntry("018f0000-0000-7000-8000-0000000000c1", local(10, 0), local(10, 45), undefined, 0);

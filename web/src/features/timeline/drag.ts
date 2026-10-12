@@ -37,6 +37,8 @@ export interface DragOrigin {
   kind: DragKind;
   pointer: Pointer;
   column: Column;
+  /** Create only: the pressed time in minutes of day, fixed at drag start so scrolling cannot shift it. */
+  anchorMinutes?: number;
   entry?: Entry;
   /** The pending (dotted) range being adjusted, for the `pending-*` kinds. */
   range?: Span;
@@ -94,6 +96,40 @@ function columnIndexAt(metrics: GridMetrics, x: number, fallback: number): numbe
   return x < rects[0]!.left ? 0 : rects.length - 1;
 }
 
+/** Minutes of day under `y` in the given column (the create anchor, captured at drag start). */
+export function minutesOfDayAt(metrics: GridMetrics, column: Column, y: number): number {
+  return minutesAt(metrics, Math.max(0, metrics.columns.findIndex((c) => c.key === column.key)), y);
+}
+
+/** Position and modifiers of a mouse/pointer or touch event (touch: first touch, no modifiers). */
+export function pointFromEvent(e: MouseEvent | PointerEvent | TouchEvent): Pointer {
+  if ("touches" in e) {
+    const t = e.touches[0] ?? e.changedTouches[0];
+    return { x: t?.clientX ?? 0, y: t?.clientY ?? 0, alt: false, shift: false };
+  }
+  return { x: e.clientX, y: e.clientY, alt: e.altKey, shift: e.shiftKey };
+}
+
+/** Short haptic pulse when a touch hold arms a drag (no-op for mouse and where unsupported). */
+export function pulseIfTouch(e: Event): void {
+  if ("touches" in e) navigator.vibrate?.(10);
+}
+
+/**
+ * Auto-scroll speed (px per frame) for a pointer at `pointerY` over the scroller `rect`:
+ * 0 outside the edge zone (`zone` = fraction of the height), negative near the top,
+ * positive near the bottom, proportional to the depth into the zone.
+ */
+export function edgeScrollSpeed(pointerY: number, rect: { top: number; bottom: number; height: number }, zone = 0.12, max = 18): number {
+  const size = rect.height * zone;
+  if (size <= 0) return 0;
+  const top = pointerY - rect.top;
+  const bottom = rect.bottom - pointerY;
+  if (top < size) return -max * Math.min(1, (size - top) / size);
+  if (bottom < size) return max * Math.min(1, (size - bottom) / size);
+  return 0;
+}
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 export function preview(origin: DragOrigin, pointer: Pointer, metrics: GridMetrics, overTask?: Uuid): Preview {
@@ -102,7 +138,7 @@ export function preview(origin: DragOrigin, pointer: Pointer, metrics: GridMetri
   const originIndex = Math.max(0, metrics.columns.findIndex((c) => c.key === origin.column.key));
 
   if (origin.kind === "create") {
-    const anchor = minutesAt(metrics, originIndex, origin.pointer.y);
+    const anchor = origin.anchorMinutes ?? minutesAt(metrics, originIndex, origin.pointer.y);
     const current = minutesAt(metrics, originIndex, pointer.y);
     const lo = clamp(Math.min(anchor, current), 0, 1440);
     const hi = clamp(Math.max(anchor, current), 0, 1440);

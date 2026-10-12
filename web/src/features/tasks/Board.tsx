@@ -3,12 +3,10 @@ import {
   type DragEndEvent,
   DragOverlay,
   type DragStartEvent,
-  PointerSensor,
   KeyboardSensor,
   useDraggable,
   useDroppable,
   useSensor,
-  useSensors,
 } from "@dnd-kit/core";
 import { useState } from "react";
 import { useNavigate } from "react-router";
@@ -21,6 +19,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { useActions } from "@/data/actions";
 import { useView } from "@/data/react";
 import { taskColor } from "@/lib/colors";
+import { useTouchAwareSensors } from "@/lib/sensors";
 import { cn } from "@/lib/utils";
 
 import { TaskMenu } from "./delete-task.tsx";
@@ -38,7 +37,7 @@ interface MenuProps {
 export function Board({ hits, totals, focus, setFocus, ...menu }: { hits: Hit[]; totals: Map<Uuid, number>; focus?: Uuid; setFocus: (id: Uuid) => void } & MenuProps) {
   const actions = useActions();
   const [dragging, setDragging] = useState<Task>();
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }), useSensor(KeyboardSensor));
+  const sensors = useTouchAwareSensors([useSensor(KeyboardSensor)]);
   const byState = (state: TaskState) => hits.filter((h) => h.task.state === state).map((h) => h.task);
 
   const onStart = (event: DragStartEvent) => setDragging((event.active.data.current as { task: Task }).task);

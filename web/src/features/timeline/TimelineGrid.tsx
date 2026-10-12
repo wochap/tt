@@ -132,10 +132,14 @@ function DayColumn(
       {...create.attributes}
       tabIndex={-1}
       role="presentation"
+      // A long-press arms creation: no context menu or text selection.
+      onContextMenu={(event) => {
+        if ((event.nativeEvent as PointerEvent).pointerType === "touch") event.preventDefault();
+      }}
       data-column={column.key}
       data-testid="day-column"
       className={cn(
-        "relative h-full cursor-crosshair outline-none",
+        "relative h-full cursor-crosshair select-none outline-none [-webkit-touch-callout:none]",
         density !== "day" && "border-l px-[3px]",
         density === "week" && isToday && "bg-[color-mix(in_srgb,var(--color-accent)_4%,transparent)]",
       )}
