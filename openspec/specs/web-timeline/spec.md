@@ -31,7 +31,7 @@ A persistent strip SHALL list every running entry with task title, elapsed time 
 - **THEN** both receive the same end time and the strip empties
 
 ### Requirement: Drag interactions
-Using dnd-kit the timeline SHALL support: drag on empty space to create (task picker on release), drag body to move, drag top/bottom edge (8 px handles) to resize, drop onto the task side panel to re-link, snapping to the configured grid with Alt disabling snap and Shift locking the column in week view, and a 4 px drag threshold.
+Using dnd-kit the timeline SHALL support: drag on empty space to create (task picker on release), drag body to move, drag top/bottom edge to resize, drop onto the task side panel to re-link, snapping to the configured grid with Alt disabling snap and Shift locking the column in week view, and a 4 px drag threshold. The dotted pending range left by a create drag SHALL itself be adjustable until a task is picked or it is dismissed: dragging its body SHALL move it and dragging its top or bottom edge SHALL resize it, with the same snapping, Alt and Shift behavior and one-grid-step minimum duration as entries, and a press on it SHALL NOT start a new create. The task picker SHALL follow the range to its new position after an adjust. Resize edges of the pending range and of entries SHALL have a touch-sized hit area (at least 40 px tall) without changing their visible appearance, while a block's body SHALL remain draggable even when the block is short.
 
 #### Scenario: Create with snap
 - **WHEN** snap is 15 min and the user drags from 13:07 to 13:52 on empty space
@@ -40,6 +40,26 @@ Using dnd-kit the timeline SHALL support: drag on empty space to create (task pi
 #### Scenario: Re-link by drop
 - **WHEN** an entry is dropped onto task #30 in the side panel
 - **THEN** the entry's task becomes #30 and an undo toast appears
+
+#### Scenario: Move the pending range
+- **WHEN** a pending range 13:00–14:00 is shown, snap is 15 min, and the user drags its body down by 30 min
+- **THEN** the pending range becomes 13:30–14:30, no new range is created, and the task picker is anchored to the moved range
+
+#### Scenario: Resize the pending range
+- **WHEN** a pending range 13:00–14:00 is shown and the user drags its bottom edge to 14:50
+- **THEN** the pending range becomes 13:00–15:00 and its start is unchanged
+
+#### Scenario: Minimum duration while resizing
+- **WHEN** snap is 15 min and the user drags the top edge of a pending range 13:00–14:00 below its bottom edge
+- **THEN** the range is 13:45–14:00
+
+#### Scenario: Empty space still creates
+- **WHEN** a pending range is shown and the user drags on empty column space outside it
+- **THEN** the old pending range is replaced by the newly drawn one
+
+#### Scenario: Touch-sized edge
+- **WHEN** a finger presses 15 px outside the visible bottom edge of a one-hour entry and drags down
+- **THEN** the entry's end is resized rather than a new range being created
 
 ### Requirement: Entry sheet
 Clicking an entry SHALL open a sheet with task picker, start, end (or "now" when running), ±15 min and round chips, note, split at time, move to task, duplicate, delete; all edits apply immediately and are undoable.
