@@ -36,3 +36,34 @@ When the task search query or the command palette query is a short id `#<n>` and
 #### Scenario: Palette skips the hint
 - **WHEN** the command palette shows a renumber hint row and the user presses the down arrow from the row above it
 - **THEN** the selection moves past the hint to the next selectable item
+
+### Requirement: Delete task
+The web app SHALL let the user delete a task from the task detail page and from a `⋯` overflow menu on the task list rows (desktop and phone) and on the board cards (also via the ⌫ shortcut on the focused row, card or open task; `.` opens the menu of the focused row or card). Delete SHALL be the last item of that menu, preceded by a separator, in destructive style. Opening the menu on a board card SHALL NOT start dragging the card. Deleting a task that has no time entries SHALL happen immediately and show an undo toast. Deleting a task that has time entries, in any year, SHALL NOT delete anything until the user confirms in a dialog that states the number of entries and offers "Delete task and N entries"; confirming deletes the task and all its entries. Cancelling SHALL leave the task and its entries unchanged. A running entry of the task counts as an entry. The deletion, including any entries, SHALL be a single undoable operation: undo restores the task with the same id and short id `#<seq>` and every deleted entry with the same id and fields, and redo deletes them again. Deleting the task shown on the detail page SHALL return the user to the task list. The short id of a deleted task SHALL NOT be reused.
+
+#### Scenario: Delete an unused task
+- **WHEN** task #31 has no entries and the user chooses Delete on its detail page
+- **THEN** the task disappears from the list and board without a dialog, the app returns to the task list, and an undo toast is shown
+
+#### Scenario: Task with entries asks first
+- **WHEN** task #12 has 3 entries (one of them in a previous year) and the user chooses Delete
+- **THEN** a dialog states that the task has 3 entries and offers "Delete task and 3 entries" and Cancel, and nothing is deleted yet
+
+#### Scenario: Confirm force delete
+- **WHEN** the user confirms "Delete task and 3 entries"
+- **THEN** task #12 and its 3 entries are gone from the list, board and timeline, and one undo toast is shown
+
+#### Scenario: Cancel keeps everything
+- **WHEN** the dialog is open and the user presses Cancel or Escape
+- **THEN** task #12 and its 3 entries are unchanged
+
+#### Scenario: Undo restores task and entries
+- **WHEN** task #12 and its 3 entries were deleted and the user presses Ctrl+Z
+- **THEN** task #12 returns with its title, tags, project, metadata and state, and the 3 entries return on the timeline with their original ids and times
+
+#### Scenario: Seq is not reused
+- **WHEN** task #31 (the highest seq) is deleted and a new task is created
+- **THEN** the new task receives #32
+
+#### Scenario: Board menu does not drag
+- **WHEN** the user presses the `⋯` button on a board card and opens the menu
+- **THEN** the menu opens, the card does not move, and choosing Delete starts the same flow as on the detail page
