@@ -13,6 +13,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { useView } from "@/data/react";
 import { pickerTasks, runningTaskIds } from "@/data/select";
 import { taskColor } from "@/lib/colors";
+import { useDefaultProject } from "@/lib/default-project";
 import { MOD } from "@/lib/utils";
 
 export interface PickOptions {
@@ -63,6 +64,7 @@ function PickerBody({ onPick, onCreate, onClose, headerHint, canKeepRunning = fa
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
   const running = runningTaskIds(view);
+  const defaultProject = useDefaultProject();
   const hits = useMemo(() => {
     const q = query.trim();
     const filter = (t: Task) => t.state !== "archived" && t.id !== exclude;
@@ -73,7 +75,7 @@ function PickerBody({ onPick, onCreate, onClose, headerHint, canKeepRunning = fa
   const pick = (task: Task, keepRunning: boolean) => onPick(task, { keepRunning: keepRunning && canKeepRunning });
   const create = (keepRunning: boolean) => {
     const input = parseQuick(query);
-    if (input.title.trim()) onCreate(input, { keepRunning: keepRunning && canKeepRunning });
+    if (input.title.trim()) onCreate({ ...input, project: input.project ?? defaultProject }, { keepRunning: keepRunning && canKeepRunning });
   };
 
   return (
@@ -132,7 +134,10 @@ function PickerBody({ onPick, onCreate, onClose, headerHint, canKeepRunning = fa
             {hits.length > 0 && <CommandSeparator />}
             <CommandItem value="__create" onSelect={() => create(false)} className="text-muted">
               <span className="w-2 text-center text-link">+</span>
-              <span className="flex-1 truncate">Create task “{parseQuick(query).title || query}”</span>
+              <span className="flex-1 truncate">
+                Create task “{parseQuick(query).title || query}”
+                {(parseQuick(query).project ?? defaultProject) && <> · @{parseQuick(query).project ?? defaultProject}</>}
+              </span>
               <Kbd>{MOD}⏎</Kbd>
             </CommandItem>
           </>

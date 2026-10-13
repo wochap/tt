@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { Select, SelectItem } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Segmented, SegmentedItem } from "@/components/ui/toggle-group";
 import { useSession, useSyncStatus } from "@/data/react";
 import { useSessionControl } from "@/data/session-control";
@@ -122,6 +123,21 @@ export function SettingsPage() {
                   </SelectItem>
                 ))}
               </Select>
+            </Row>
+            <Row label="Last project">
+              <div className="flex flex-col gap-[6px]">
+                <label className="flex items-center gap-[10px]">
+                  <Switch
+                    aria-label="New tasks use the last project"
+                    checked={settings.stickyProject}
+                    onCheckedChange={(stickyProject) => updateSettings({ stickyProject })}
+                  />
+                  New tasks use the last project
+                </label>
+                <span className="pl-[42px] text-[11.5px] text-faint">
+                  Quick create starts with that @project as a chip. Press ⌫ to drop it for one task.
+                </span>
+              </div>
             </Row>
           </Section>
 

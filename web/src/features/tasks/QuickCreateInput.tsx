@@ -4,6 +4,7 @@ import { type NewTask, parseQuick, projectByName, tagByName, tokenizeQuick } fro
 
 import { Kbd } from "@/components/ui/kbd";
 import { useView } from "@/data/react";
+import { useDefaultProject } from "@/lib/default-project";
 import { cssColor, cssTextColor, PALETTE, projectColorName } from "@/lib/colors";
 import { MOD, cn } from "@/lib/utils";
 
@@ -30,22 +31,36 @@ export const QuickCreateInput = forwardRef<
   const [scroll, setScroll] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const view = useView();
+  // The sticky default project, shown as a chip until a typed @project replaces
+  // it or ⌫ at the start drops it (for the task being typed only).
+  const defaultProject = useDefaultProject();
+  const [chipDropped, setChipDropped] = useState(false);
   useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }));
 
   const tokens = tokenizeQuick(value);
+  const typedProject = parseQuick(value).project !== undefined;
+  const chip = defaultProject && !chipDropped && !typedProject ? defaultProject : undefined;
   const submit = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Backspace" && chip && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
+      event.preventDefault();
+      setChipDropped(true);
+      return;
+    }
     if (event.key === "Escape") {
       setValue("");
+      setChipDropped(false);
       input.current?.blur();
       return;
     }
     if (event.key !== "Enter") return;
     event.preventDefault();
-    const task = parseQuick(value);
-    if (!task.title.trim()) return;
+    const parsed = parseQuick(value);
+    if (!parsed.title.trim()) return;
+    const task = { ...parsed, project: parsed.project ?? chip };
     if (event.metaKey || event.ctrlKey) onCreateAndStart(task);
     else onCreate(task);
     setValue("");
+    setChipDropped(false);
   };
 
   const tokenStyle = (kind: string, text: string): CSSProperties | undefined => {
@@ -75,6 +90,11 @@ export const QuickCreateInput = forwardRef<
       data-testid="quick-create"
     >
       <span className="text-link">+</span>
+      {chip && (
+        <span className="shrink-0 rounded-2 text-[14px]" data-testid="project-chip" style={tokenStyle("project", `@${chip}`)}>
+          @{chip}
+        </span>
+      )}
       <div className="relative min-w-0 flex-1 text-[14px]">
         <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre leading-[38px]">
           <div style={{ transform: `translateX(${-scroll}px)` }}>

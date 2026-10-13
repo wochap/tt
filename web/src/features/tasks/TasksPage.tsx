@@ -13,6 +13,7 @@ import { useActions } from "@/data/actions";
 import { useNow, useView } from "@/data/react";
 import { runningTaskIds, taskTotals } from "@/data/select";
 import { taskColor } from "@/lib/colors";
+import { updateView } from "@/lib/device-state";
 import { useKeys } from "@/lib/keys";
 import { usePhone } from "@/lib/media";
 import { useTz } from "@/lib/settings";
@@ -35,6 +36,9 @@ export function TasksPage() {
   const now = useNow(30_000);
   const [params, setParams] = useSearchParams();
   const mode = params.get("view") === "board" && !phone ? "board" : "list";
+  useEffect(() => {
+    if (!phone) updateView({ tasksMode: mode });
+  }, [phone, mode]);
   const [filters, setFilters] = useState<TaskFilters>(() => ({ ...DEFAULT_FILTERS, query: params.get("q") ?? "" }));
   const [focus, setFocus] = useState<Uuid>();
   const [renaming, setRenaming] = useState<Uuid>();
@@ -61,8 +65,7 @@ export function TasksPage() {
 
   const setMode = (next: "list" | "board") => {
     const q = new URLSearchParams(params);
-    if (next === "board") q.set("view", "board");
-    else q.delete("view");
+    q.set("view", next);
     setParams(q, { replace: true });
   };
 

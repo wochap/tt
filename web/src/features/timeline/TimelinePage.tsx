@@ -37,6 +37,7 @@ import { MOD, cn } from "@/lib/utils";
 import { useStatusHints } from "../shell/ui-state.tsx";
 import { EmptyDay, EmptyMonth, EmptyWeek } from "./EmptyStates.tsx";
 import { EntrySheet } from "./EntrySheet.tsx";
+import { updateView } from "@/lib/device-state";
 import { type Column, columnsFrom, todayIn } from "./geometry.ts";
 import { JumpToDate } from "./JumpToDate.tsx";
 import { MonthView, monthCells, monthSummary } from "./MonthView.tsx";
@@ -61,6 +62,12 @@ export function TimelinePage() {
   const today = todayIn(tz, now);
   const date = parseDate(search.get("date") ?? "") ?? today;
   const entryParam = search.get("entry");
+  // Remember the shown range and date for the next bare /timeline (not on phone layouts).
+  const dateText = formatDate(date);
+  const todayText = formatDate(today);
+  useEffect(() => {
+    if (!phone) updateView({ range: kind, date: dateText, savedOn: todayText });
+  }, [phone, kind, dateText, todayText]);
   const [snap, setSnap] = useState<SnapMinutes>(settings.snapMinutes);
   useEffect(() => setSnap(settings.snapMinutes), [settings.snapMinutes]);
   const [jumpOpen, setJumpOpen] = useState(search.get("jump") === "1");

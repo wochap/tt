@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -25,5 +25,16 @@ describe("RunningStrip", () => {
     const ends = [...store.getSnapshot().view.entries.values()].map((e) => e.end);
     expect(ends[0]).not.toBeNull();
     expect(ends[0]).toBe(ends[1]);
+  });
+
+  it("shows the idle S/N hint on the timeline only", async () => {
+    cleanup();
+    const store = await memoryStore();
+    for (const [route, shown] of [["/timeline/day", true], ["/reports", false], ["/settings", false], ["/tasks", false]] as const) {
+      const { unmount } = renderWithStore(store, <RunningStrip />, route);
+      expect(await screen.findByText("Nothing running")).toBeInTheDocument();
+      expect(screen.queryByText(/new entry at now/) !== null).toBe(shown);
+      unmount();
+    }
   });
 });

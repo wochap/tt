@@ -303,6 +303,15 @@
     color: var(--c-link);
     box-shadow: inset 0 0 0 1px var(--color-accent);
   }
+  /* The ring follows the container's inner clip curve (radius minus its border). */
+  .tt-seg > [data-seg-item]:first-child {
+    border-top-left-radius: calc(var(--radius-2) - 1px);
+    border-bottom-left-radius: calc(var(--radius-2) - 1px);
+  }
+  .tt-seg > [data-seg-item]:last-child {
+    border-top-right-radius: calc(var(--radius-2) - 1px);
+    border-bottom-right-radius: calc(var(--radius-2) - 1px);
+  }
   .tt-seg > [data-seg-item]:focus-visible {
     outline-offset: -2px;
   }

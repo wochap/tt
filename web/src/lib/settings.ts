@@ -19,6 +19,8 @@ export interface Settings {
   visibleHours: [number, number];
   /** Month view: how many top tasks a day cell lists. */
   monthTopTasks: number;
+  /** Quick create starts with the project of the last created task. */
+  stickyProject: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -28,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   timeZone: "",
   visibleHours: [7, 19],
   monthTopTasks: 3,
+  stickyProject: true,
 };
 
 const KEY = "tt.settings";
@@ -37,7 +40,9 @@ let current: Settings = read();
 function read(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Settings>;
-    return { ...DEFAULT_SETTINGS, ...raw };
+    const merged = { ...DEFAULT_SETTINGS, ...raw };
+    if (typeof merged.stickyProject !== "boolean") merged.stickyProject = true;
+    return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

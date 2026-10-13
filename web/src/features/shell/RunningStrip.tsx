@@ -1,5 +1,7 @@
 import { Stop } from "@phosphor-icons/react";
 
+import { useLocation } from "react-router";
+
 import { type Entry, entryDuration, formatClock, formatElapsed } from "@tt/domain";
 
 import { Seq } from "@/components/task-bits";
@@ -18,6 +20,8 @@ export function RunningStrip({ phone = false }: { phone?: boolean }) {
   const actions = useActions();
   const tz = useTz();
   const now = useNow(1000);
+  // S and N are bound on the timeline only.
+  const onTimeline = /^\/timeline(\/|$)/.test(useLocation().pathname);
   const running = [...view.entries.values()]
     .filter((e) => e.end === null)
     .sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
@@ -84,11 +88,11 @@ export function RunningStrip({ phone = false }: { phone?: boolean }) {
         >
           Stop all <Kbd>⇧S</Kbd>
         </button>
-      ) : (
+      ) : onTimeline ? (
         <span className="ml-auto shrink-0 text-[12px] text-muted">
           <Kbd>S</Kbd> start the focused task · <Kbd>N</Kbd> new entry at now
         </span>
-      )}
+      ) : null}
     </div>
   );
 }

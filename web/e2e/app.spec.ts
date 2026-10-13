@@ -330,3 +330,35 @@ test("delete a task: unused at once, with entries after confirming; undo restore
   await expect(page.getByTestId("running-chip")).toHaveCount(1);
   await expect(page.getByTestId("task-row").filter({ hasText: "Billable work" })).toHaveCount(1);
 });
+
+// Spec: one Escape closes the picker and drops the pending range. This case passes on the
+// code as of web-polish (the two-press report did not reproduce here); kept as a regression guard.
+test("Escape closes the task picker in one press and drops the pending range", async ({ page }) => {
+  await login(page, user(16));
+  await createTask(page, "Login flow +auth");
+  const column = page.getByTestId("day-column").first();
+  await drag(page, await at(column, 13, 7), await at(column, 13, 52));
+  await expect(page.getByTestId("task-picker")).toBeVisible();
+  await page.getByPlaceholder("Search tasks, tags, ticket ids…").press("l");
+  await page.keyboard.type("og");
+  await expect(page.getByRole("option", { name: /Login flow/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("task-picker")).toHaveCount(0);
+  await expect(page.getByTestId("create-ghost")).toHaveCount(0);
+});
+
+test("Timeline and Tasks reopen on the last range and mode", async ({ page }) => {
+  await login(page, user(16));
+  await page.getByRole("radio", { name: /Week/ }).click();
+  await expect(page).toHaveURL(/\/timeline\/week/);
+  await page.getByRole("link", { name: /Tasks/ }).first().click();
+  await page.keyboard.press("1");
+  await expect(page).toHaveURL(/\/timeline\/week/);
+
+  await page.keyboard.press("2");
+  await page.getByRole("radio", { name: /Board/ }).click();
+  await expect(page).toHaveURL(/view=board/);
+  await page.getByRole("link", { name: /Reports/ }).first().click();
+  await page.keyboard.press("2");
+  await expect(page).toHaveURL(/\/tasks\?view=board/);
+});

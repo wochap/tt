@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
+import { createBrowserRouter, RouterProvider } from "react-router";
 
 import { ClientProvider, SessionProvider } from "@/data/react";
 import { SessionControlContext } from "@/data/session-control";
@@ -11,11 +11,11 @@ import type { Auth } from "@/sync/protocol";
 
 import { LoginPage } from "./features/login/LoginPage.tsx";
 import { ReportsPage } from "./features/reports/ReportsPage.tsx";
+import { RememberedTasks, RememberedTimeline } from "./features/shell/remembered.tsx";
 import { SettingsPage } from "./features/settings/SettingsPage.tsx";
 import { SetupGate } from "./features/setup/SetupGate.tsx";
 import { AppShell } from "./features/shell/AppShell.tsx";
 import { TaskDetailPage } from "./features/tasks/TaskDetailPage.tsx";
-import { TasksPage } from "./features/tasks/TasksPage.tsx";
 import { TimelinePage } from "./features/timeline/TimelinePage.tsx";
 
 const router = createBrowserRouter([
@@ -23,14 +23,14 @@ const router = createBrowserRouter([
     path: "/",
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/timeline/day" replace /> },
-      { path: "timeline", element: <Navigate to="/timeline/day" replace /> },
+      { index: true, element: <RememberedTimeline /> },
+      { path: "timeline", element: <RememberedTimeline /> },
       { path: "timeline/:range", element: <TimelinePage /> },
-      { path: "tasks", element: <TasksPage /> },
+      { path: "tasks", element: <RememberedTasks /> },
       { path: "tasks/:seq", element: <TaskDetailPage /> },
       { path: "reports", element: <ReportsPage /> },
       { path: "settings", element: <SettingsPage /> },
-      { path: "*", element: <Navigate to="/timeline/day" replace /> },
+      { path: "*", element: <RememberedTimeline /> },
     ],
   },
 ]);

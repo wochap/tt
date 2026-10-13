@@ -22,6 +22,7 @@ import {
   type View,
 } from "@tt/domain";
 
+import { setLastProject } from "@/lib/device-state";
 import { getSettings, effectiveTz } from "@/lib/settings";
 import { MOD } from "@/lib/utils";
 
@@ -208,6 +209,7 @@ export class Actions {
   createTask(input: NewTask, options: { start?: boolean; quiet?: boolean } = {}): Task | undefined {
     try {
       const task = this.#store.createTask(input);
+      if (task.project) setLastProject(task.project);
       if (options.start) {
         const entry = newEntry(task.id, Date.now(), null, undefined, Date.now());
         void this.#store.commit({ label: `Started #${task.seq}`, changes: [{ kind: "entry", id: entry.id, before: null, after: entry }] });

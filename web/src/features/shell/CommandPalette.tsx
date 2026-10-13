@@ -24,6 +24,7 @@ import { useActions } from "@/data/actions";
 import { useNow, useView } from "@/data/react";
 import { pickerTasks, runningTaskIds } from "@/data/select";
 import { taskColor } from "@/lib/colors";
+import { useDefaultProject } from "@/lib/default-project";
 import { useSettings, useTz } from "@/lib/settings";
 import { MOD } from "@/lib/utils";
 
@@ -73,6 +74,7 @@ function PaletteBody({ initial, mode, close }: { initial: string; mode: "all" | 
   const tz = useTz();
   const { weekStart } = useSettings();
   const running = runningTaskIds(view);
+  const defaultProject = useDefaultProject();
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
@@ -82,16 +84,20 @@ function PaletteBody({ initial, mode, close }: { initial: string; mode: "all" | 
       const ticket = Object.values(task.metadata)[0];
       return [`#${task.seq}`, project, running.has(task.id) ? "running" : ticket].filter(Boolean).join(" · ");
     };
+    const newTask = () => {
+      const input = parseQuick(q);
+      return { ...input, project: input.project ?? defaultProject };
+    };
     const create: Row | undefined = q
       ? {
           id: "create",
           kind: "New",
-          label: `Create task “${parseQuick(q).title || q}”`,
+          label: `Create task “${parseQuick(q).title || q}”${parseQuick(q).project ?? defaultProject ? ` · @${parseQuick(q).project ?? defaultProject}` : ""}`,
           hint: "+tags @project key:value",
           kbd: "C",
-          run: () => void actions.createTask(parseQuick(q)),
+          run: () => void actions.createTask(newTask()),
           alt: () => {
-            actions.createTask(parseQuick(q), { start: true });
+            actions.createTask(newTask(), { start: true });
           },
         }
       : undefined;
@@ -177,7 +183,7 @@ function PaletteBody({ initial, mode, close }: { initial: string; mode: "all" | 
       { id: "view-day", kind: "View", label: "Switch to day", kbd: "D", run: () => navigate("/timeline/day") },
       { id: "view-week", kind: "View", label: "Switch to week", kbd: "W", run: () => navigate("/timeline/week") },
       { id: "view-month", kind: "View", label: "Switch to month", kbd: "M", run: () => navigate("/timeline/month") },
-      { id: "view-tasks", kind: "View", label: "Tasks · list", kbd: "2", run: () => navigate("/tasks") },
+      { id: "view-tasks", kind: "View", label: "Tasks · list", kbd: "2", run: () => navigate("/tasks?view=list") },
       { id: "view-board", kind: "View", label: "Tasks · board", run: () => navigate("/tasks?view=board") },
       { id: "view-reports", kind: "View", label: "Reports", kbd: "3", run: () => navigate("/reports") },
       { id: "stop-all", kind: "Stop", label: "Stop all running", kbd: "⇧S", run: () => actions.stopAll() },
@@ -202,7 +208,7 @@ function PaletteBody({ initial, mode, close }: { initial: string; mode: "all" | 
         run: () => undefined,
       });
     return out;
-  }, [query, mode, view, running, now, tz, weekStart, actions, navigate]);
+  }, [query, mode, view, running, now, tz, weekStart, actions, navigate, defaultProject]);
 
   const runRow = (row: Row, alt = false) => {
     if (row.id === "new" || row.renumbered) return; // needs a title: keep typing; hints only open
