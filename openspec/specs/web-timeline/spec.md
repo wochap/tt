@@ -108,11 +108,19 @@ Clicking an entry SHALL open a sheet with task picker, start, end (or "now" when
 - **THEN** the field shows an inline error and the entry is unchanged
 
 ### Requirement: Totals
-Day and week views SHALL show summed, wall-clock and overlap durations for the visible range, and month cells SHALL show the day total with top tasks; all totals SHALL be computed from the same entries that are rendered.
+Day and week views SHALL show summed, wall-clock and overlap durations for the visible range, and month cells SHALL show the day total with top tasks; all totals SHALL be computed from the same entries that are rendered. When a timeline filter is active, every total (the totals bar, the side panel, week day headers, the week and month footers and the month cells with their top tasks) SHALL count only the entries that match the filter, and the totals bar, side panel and footers SHALL mark the figures as filtered and show the unfiltered figure alongside, in the form "Filtered · 3h 37m of 7h 29m".
 
 #### Scenario: Overlap shown
 - **WHEN** two entries overlap by 10 minutes
 - **THEN** overlap shows 10 min and summed minus wall-clock equals 10 min
+
+#### Scenario: Filtered totals
+- **WHEN** the day has 7h 29m tracked, of which 3h 37m on Atlas tasks, and the user filters to Atlas
+- **THEN** the totals read "Filtered · 3h 37m of 7h 29m" and wall-clock and overlap are computed from the Atlas entries only
+
+#### Scenario: Filtered month cells
+- **WHEN** month view is filtered to tag meeting
+- **THEN** each day cell shows only the time and top tasks of entries tagged meeting, and the month footer shows the filtered sum with the unfiltered sum alongside
 
 ### Requirement: Undo and redo
 Every timeline and task edit SHALL be undoable with Ctrl+Z and redoable with Ctrl+Shift+Z within the session.
@@ -131,3 +139,50 @@ When the task picker opened by a create drag is open, a single press of Escape S
 #### Scenario: Escape with an empty query
 - **WHEN** the picker has just opened with an empty query and the user presses Escape once
 - **THEN** the picker is closed and the pending range is gone
+
+### Requirement: Filter by project and tag
+The timeline SHALL offer a Filter control in day, week and month views that opens a popover with a search field and two multi-select sections, Projects and Tags. Projects SHALL include a "No project" option. Each option SHALL show its color and the time tracked for it in the visible range; options with tracked time in the visible range SHALL be listed by default, and the search field SHALL find any project or tag of the workspace. An entry SHALL match the filter through its task: when projects are selected, the task's project SHALL be one of them ("No project" matches a task without a project and an entry whose task no longer exists); when tags are selected, the task SHALL carry at least one of them; when both sections have selections, both conditions SHALL hold. With no selection the timeline SHALL be unfiltered. Each active selection SHALL be shown as a removable chip near the toolbar, together with a Clear action and the note that other entries are dimmed and left out of totals. Entries that do not match SHALL remain at their position and size, and overlap lanes SHALL be computed from all entries as if unfiltered, but they SHALL be visibly dimmed and SHALL NOT be opened, dragged, resized, re-linked, focused with J/K, or selected. Creating a new entry by dragging on empty space SHALL work unchanged while a filter is active. `F` SHALL open the popover with the search field focused; inside it ↑/↓ SHALL move, Space SHALL toggle the highlighted option, Enter SHALL toggle it and close the popover, Backspace in an empty search SHALL remove the last selection, and Escape SHALL close it. `⇧F` SHALL clear all selections. The active selections SHALL be kept in the page URL, so they persist across switching between day, week and month and moving between dates, follow browser Back/Forward, and are restored when the URL is opened; leaving the timeline SHALL NOT carry them elsewhere. Selections that refer to a project or tag that no longer exists SHALL be ignored.
+
+#### Scenario: Filter by one project
+- **WHEN** the day has entries for tasks in Atlas, Billing and no project, and the user selects Atlas
+- **THEN** the Atlas entries look as before, the other entries are dimmed in place, and a chip "project Atlas" with Clear is shown
+
+#### Scenario: OR within a section
+- **WHEN** the user selects projects Atlas and Billing in week view
+- **THEN** entries of Atlas tasks and entries of Billing tasks are undimmed and all others are dimmed
+
+#### Scenario: AND across sections
+- **WHEN** the user selects project Atlas and tag urgent
+- **THEN** only entries whose task is in Atlas and tagged urgent are undimmed
+
+#### Scenario: No project
+- **WHEN** the user selects "No project"
+- **THEN** entries whose task has no project, and entries of deleted tasks, are undimmed and all others are dimmed
+
+#### Scenario: Lanes do not reshuffle
+- **WHEN** three entries overlap and a filter dims the middle one
+- **THEN** each entry keeps its third of the column width and its position
+
+#### Scenario: Dimmed entries are inert
+- **WHEN** an entry is dimmed and the user clicks it, drags it, or presses J/K to move focus
+- **THEN** no sheet opens, the entry does not move, and focus skips it
+
+#### Scenario: Create while filtered
+- **WHEN** a filter is active and the user drags on empty space
+- **THEN** a pending range is proposed and the task picker opens as without a filter
+
+#### Scenario: Keyboard
+- **WHEN** the user presses F, types "atl", presses Enter, then presses ⇧F
+- **THEN** the popover opens with search focused, Atlas is selected and the popover closes, and then the filter is cleared
+
+#### Scenario: Persists across views and Back
+- **WHEN** Atlas is selected in day view and the user presses W, then →, then browser Back
+- **THEN** week view, the next week, and the previous week are all filtered to Atlas
+
+#### Scenario: Shared URL
+- **WHEN** the user opens a timeline URL that carries the Atlas filter
+- **THEN** the timeline opens filtered to Atlas with its chip shown
+
+#### Scenario: Unknown selection ignored
+- **WHEN** the URL refers to a project that has been deleted
+- **THEN** that selection is ignored and no chip is shown for it
