@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
 
 import { newEntry } from "@tt/domain";
@@ -73,5 +74,89 @@ describe("Actions.deleteTask", () => {
     await actions.deleteTask(second.id);
     await settle();
     expect(store.createTask({ title: "Third" }).seq).toBe(3);
+  });
+});
+
+describe("Actions.deleteEntries", () => {
+  it("deletes entries across years in one op with one toast; missing ids ignored", async () => {
+    const { store, actions, a, b } = await setup();
+    await addEntries(store, a, b);
+    vi.mocked(toast).mockClear();
+    actions.deleteEntries([a.id, b.id, "missing" as typeof a.id]);
+    await settle();
+    expect(store.view.entries.size).toBe(0);
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast).mock.calls[0]![0]).toBe("Deleted 2 entries");
+    expect(store.getSnapshot().undoLabel).toBe("Deleted 2 entries");
+  });
+
+  it("uses singular wording and one undo restores everything; redo deletes again", async () => {
+    const { store, actions, a, b } = await setup();
+    await addEntries(store, a, b);
+    actions.deleteEntries([a.id]);
+    await settle();
+    expect(vi.mocked(toast).mock.calls.at(-1)?.[0]).toBe("Deleted 1 entry");
+    await store.undo();
+    await settle();
+    actions.deleteEntries([a.id, b.id]);
+    await settle();
+    await store.undo();
+    await settle();
+    expect(store.view.entries.get(a.id)).toEqual(a);
+    expect(store.view.entries.get(b.id)).toEqual(b);
+    await store.redo();
+    await settle();
+    expect(store.view.entries.size).toBe(0);
+  });
+});
+
+describe("Actions.deleteTasks", () => {
+  it("deletes unused tasks in one op", async () => {
+    const { store, actions, task } = await setup();
+    const other = store.createTask({ title: "Other" });
+    await settle();
+    const base = store.view.workspace.tasks.size - 2;
+    vi.mocked(toast).mockClear();
+    expect(await actions.deleteTasks([task.id, other.id])).toBe(true);
+    await settle();
+    expect(store.view.workspace.tasks.size).toBe(base);
+    expect(vi.mocked(toast).mock.calls[0]![0]).toBe("Deleted 2 tasks");
+    await store.undo();
+    await settle();
+    expect(store.view.workspace.tasks.get(task.id)).toEqual(task);
+    expect(store.view.workspace.tasks.get(other.id)).toEqual(other);
+  });
+
+  it("refuses entries without force, deletes everything with force and undoes in one step", async () => {
+    const { store, actions, task, a, b } = await setup();
+    const other = store.createTask({ title: "Other" });
+    await addEntries(store, a, b);
+    await settle();
+    const base = store.view.workspace.tasks.size - 2;
+    expect(await actions.deleteTasks([task.id, other.id])).toBe(false);
+    expect(store.view.workspace.tasks.size).toBe(base + 2);
+    vi.mocked(toast).mockClear();
+    expect(await actions.deleteTasks([task.id, other.id], { force: true })).toBe(true);
+    await settle();
+    expect(vi.mocked(toast).mock.calls[0]![0]).toBe("Deleted 2 tasks and 2 entries");
+    expect(store.view.entries.size).toBe(0);
+    await store.undo();
+    await settle();
+    expect(store.view.workspace.tasks.size).toBe(base + 2);
+    expect(store.view.entries.get(a.id)).toEqual(a);
+    expect(store.view.entries.get(b.id)).toEqual(b);
+    await store.redo();
+    await settle();
+    expect(store.view.workspace.tasks.size).toBe(base);
+  });
+
+  it("refuses while entries are still loading", async () => {
+    const { store, actions, task } = await setup();
+    const snap = store.getSnapshot();
+    vi.spyOn(store, "getSnapshot").mockReturnValue({ ...snap, state: "loading" } as typeof snap);
+    expect(await actions.deleteTasks([task.id], { force: true })).toBe(false);
+    expect(toast.error).toHaveBeenCalledWith("Still loading your entries…");
+    vi.restoreAllMocks();
+    expect(store.view.workspace.tasks.has(task.id)).toBe(true);
   });
 });

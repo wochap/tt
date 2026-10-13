@@ -14,6 +14,46 @@ test.describe("phone touch", () => {
     await expect(page.getByTestId("task-picker")).toBeVisible();
   });
 
+  test("Select from the entry sheet, tap toggles, Done exits; long-press still moves an entry", async ({ page }) => {
+    await login(page, user(20));
+    await createTask(page, "Phone select");
+    const column = page.getByTestId("day-column").first();
+    for (const [from, to] of [[9, 10], [11, 12]] as const) {
+      await touchGesture(page, longPressDrag(await at(column, from, 5), await at(column, to, 5)));
+      await expect(page.getByTestId("task-picker")).toBeVisible();
+      await page.keyboard.type("Phone");
+      await page.keyboard.press("Enter");
+      await expect(page.getByTestId("task-picker")).toBeHidden();
+    }
+    const blocks = page.getByTestId("entry-block");
+    await expect(blocks).toHaveCount(2);
+
+    // Tap opens the sheet; "Select" closes it and seeds the selection.
+    await page.waitForTimeout(400); // clicks right after a drag end are swallowed
+    await blocks.first().locator("[role=button]").first().click();
+    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await expect(page.getByTestId("entry-sheet")).toBeHidden();
+    const bar = page.getByTestId("phone-selection-bar");
+    await expect(bar).toContainText("1 entry");
+
+    // While selecting, a tap toggles instead of opening.
+    await blocks.nth(1).locator("[role=button]").first().click();
+    await expect(bar).toContainText("2 entries");
+    await expect(page.getByTestId("entry-sheet")).toBeHidden();
+
+    await bar.getByRole("button", { name: "Done" }).click();
+    await expect(bar).toBeHidden();
+    await blocks.first().locator("[role=button]").first().click();
+    await expect(page.getByTestId("entry-sheet")).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // Long-press then drag still moves an entry and starts no selection.
+    const before = (await blocks.first().boundingBox())!;
+    await touchGesture(page, longPressDrag({ x: before.x + before.width / 2, y: before.y + before.height / 2 }, { x: before.x + before.width / 2, y: before.y + before.height / 2 + 60 }));
+    await expect.poll(async () => (await blocks.first().boundingBox())!.y).toBeGreaterThan(before.y + 20);
+    await expect(bar).toBeHidden();
+  });
+
   test("quick swipe scrolls and creates nothing; a tap arms nothing", async ({ page }) => {
     await login(page, user(13));
     const scroller = page.getByTestId("timeline-scroll");
@@ -52,6 +92,30 @@ test.describe("phone touch", () => {
     expect(await scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(before);
     await expect(page.getByTestId("task-picker")).toBeVisible();
     await expect(page.getByTestId("create-ghost")).not.toContainText("09:00 – 10:00");
+  });
+});
+
+test.describe("phone task selection", () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test("checkboxes and the action bar at 390 px", async ({ page }) => {
+    await login(page, user(21));
+    await page.goto("/tasks");
+    const rows = page.locator("[data-task-row]");
+    await createTask(page, "Phone task one");
+    await expect(rows).toHaveCount(1);
+    await createTask(page, "Phone task two");
+    await expect(rows).toHaveCount(2);
+    await rows.nth(0).getByRole("checkbox").check();
+    const bar = page.getByTestId("phone-task-bar");
+    await expect(bar).toContainText("1 task");
+    await rows.nth(1).getByRole("checkbox").check();
+    await expect(bar).toContainText("2 tasks");
+    const box = (await bar.boundingBox())!;
+    expect(box.y).toBeGreaterThan(650);
+    await bar.getByRole("button", { name: "Delete" }).click();
+    await expect(rows).toHaveCount(0);
+    await bar.waitFor({ state: "detached" });
   });
 });
 

@@ -1,4 +1,4 @@
-import { ArrowArcLeft, ArrowArcRight, CaretDown, CaretLeft, CaretRight, CaretUp } from "@phosphor-icons/react";
+import { ArrowArcLeft, ArrowArcRight, CaretDown, CaretLeft, CaretRight, CaretUp, Trash } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
@@ -7,6 +7,7 @@ import {
   addMonths,
   type CivilDate,
   type Entry,
+  entryDuration,
   formatDate,
   formatDayLong,
   formatDayShort,
@@ -29,7 +30,7 @@ import { useActions } from "@/data/actions";
 import { useNow, useSnapshot, useView } from "@/data/react";
 import { entriesInRange, entryMatcher, taskTotals } from "@/data/select";
 import { projectColor, NEUTRAL } from "@/lib/colors";
-import { useKeys } from "@/lib/keys";
+import { isEditable, useKeys } from "@/lib/keys";
 import { usePhone } from "@/lib/media";
 import { type SnapMinutes, useSettings, useTz } from "@/lib/settings";
 import { MOD, cn } from "@/lib/utils";
@@ -48,6 +49,8 @@ import { type PendingCreate, TimelineBoard } from "./TimelineBoard.tsx";
 import { TotalsInline } from "./TotalsBar.tsx";
 
 type RangeKind = "day" | "week" | "month";
+
+const EMPTY_SET: ReadonlySet<string> = new Set();
 
 export function TimelinePage() {
   const params = useParams();
@@ -162,7 +165,75 @@ export function TimelinePage() {
     document.querySelector<HTMLElement>(`[data-entry-id="${next.id}"] [role=button]`)?.focus();
   };
 
+  // ---------- bulk selection ----------
+  // Desktop: a Select/Create mode (day and week). Phone: selecting = a non-empty set.
+  const [mode, setMode] = useState<"create" | "select">("create");
+  const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
+  const [anchorId, setAnchorId] = useState<string>();
+  const selectMode = !phone && kind !== "month" && mode === "select";
+  const selecting = selectMode || (phone && selection.size > 0);
+  // Only entries that exist, are visible in the range and are not dimmed stay selected.
+  const picked = useMemo(() => {
+    if (!selecting) return EMPTY_SET;
+    const visible = new Set(sorted.map((e) => e.id));
+    const keep = [...selection].filter((id) => visible.has(id));
+    return keep.length === selection.size ? selection : new Set(keep);
+  }, [selecting, selection, sorted]);
+  useEffect(() => {
+    if (picked !== selection) setSelection(picked);
+  }, [picked, selection]);
+  useEffect(() => {
+    if (mode === "select" && (phone || kind === "month")) setMode("create");
+  }, [mode, phone, kind]);
+  const switchMode = (next: "create" | "select") => {
+    setMode(next);
+    setSelection(EMPTY_SET);
+    setAnchorId(undefined);
+    if (next === "select") setPending(null);
+  };
+  const clearSelection = () => {
+    setSelection(EMPTY_SET);
+    setAnchorId(undefined);
+  };
+  const pick = (entry: Entry, event?: { shiftKey: boolean }) => {
+    setFocusedId(entry.id);
+    const from = event?.shiftKey && anchorId ? sorted.findIndex((e) => e.id === anchorId) : -1;
+    const to = sorted.findIndex((e) => e.id === entry.id);
+    if (from >= 0 && to >= 0) {
+      const [lo, hi] = from < to ? [from, to] : [to, from];
+      setSelection(new Set([...picked, ...sorted.slice(lo, hi + 1).map((e) => e.id)]));
+    } else {
+      const next = new Set(picked);
+      if (!next.delete(entry.id)) next.add(entry.id);
+      setSelection(next);
+    }
+    setAnchorId(entry.id);
+  };
+  const marquee = (ids: string[], op: "replace" | "add" | "remove") => {
+    const next = new Set(op === "replace" ? [] : picked);
+    for (const id of ids) {
+      if (op === "remove") next.delete(id);
+      else next.add(id);
+    }
+    setSelection(next);
+    setAnchorId(ids.at(-1) ?? anchorId);
+  };
+  const selectAll = (event: KeyboardEvent) => {
+    if (!selectMode || isEditable(event.target)) return false;
+    setSelection(new Set(sorted.map((e) => e.id)));
+  };
+  const deleteSelection = () => {
+    if (!picked.size) return false;
+    actions.deleteEntries(picked);
+    clearSelection();
+  };
+  const pickedDuration = useMemo(
+    () => [...picked].reduce((sum, id) => sum + entryDuration(view.entries.get(id) ?? ({ start: 0, end: 0 } as Entry), now), 0),
+    [picked, view, now],
+  );
+
   const startAtNow = () => {
+    if (selecting) return;
     const column = columns.find((c) => now >= c.from && now < c.to) ?? columnsFrom(tz, today, 1)[0]!;
     if (!columns.some((c) => c.key === column.key)) go({ date: today });
     setPending({ column, start: now, end: null, rect: null });
@@ -178,11 +249,37 @@ export function TimelinePage() {
     g: () => setJumpOpen(true),
     f: () => setFilterOpen(true),
     "shift+f": () => changeFilter(EMPTY_FILTER),
+    ...(!phone && kind !== "month" ? { v: () => switchMode(selectMode ? "create" : "select") } : {}),
+    ...(selecting
+      ? {
+          escape: () => {
+            if (picked.size) clearSelection();
+            else if (selectMode) switchMode("create");
+            else return false;
+          },
+          "mod+a": selectAll,
+          "backspace|delete": deleteSelection,
+        }
+      : {}),
     ...(kind !== "month"
       ? {
           j: () => moveFocus(1),
           k: () => moveFocus(-1),
-          enter: () => (focusedId ? go({ entry: focusedId }) : false),
+          enter: () => {
+            if (!focusedId) return false;
+            const focused = view.entries.get(focusedId);
+            if (selecting && focused) pick(focused);
+            else go({ entry: focusedId });
+          },
+          ...(selectMode
+            ? {
+                space: () => {
+                  const focused = focusedId ? sorted.find((e) => e.id === focusedId) : undefined;
+                  if (!focused) return false;
+                  pick(focused);
+                },
+              }
+            : {}),
           s: () => {
             const focused = focusedId ? view.entries.get(focusedId) : undefined;
             if (focused) actions.toggle(focused.task);
@@ -198,7 +295,18 @@ export function TimelinePage() {
   });
 
   useStatusHints(
-    kind === "day" ? (
+    selectMode ? (
+      <>
+        <span>Select mode</span>
+        <span>{picked.size ? `${picked.size} selected` : "none selected"}</span>
+        <span><Kbd>J</Kbd><Kbd>K</Kbd> move</span>
+        <span><Kbd>Space</Kbd> toggle</span>
+        <span><Kbd>{MOD}A</Kbd> all</span>
+        <span><Kbd>⌫</Kbd> delete</span>
+        <span><Kbd>V</Kbd> create</span>
+        <span><Kbd>Esc</Kbd> {picked.size ? "clear" : "exit"}</span>
+      </>
+    ) : kind === "day" ? (
       <>
         <span><Kbd>J</Kbd><Kbd>K</Kbd> move</span>
         <span><Kbd>←</Kbd><Kbd>→</Kbd> day</span>
@@ -223,11 +331,12 @@ export function TimelinePage() {
         <span><Kbd>?</Kbd> all shortcuts</span>
       </>
     ),
-    [kind],
+    [kind, selectMode, picked.size],
   );
 
   const todayKey = formatDate(today);
-  const openEntry = (entry: Entry) => {
+  const openEntry = (entry: Entry, event?: { shiftKey: boolean }) => {
+    if (selecting) return pick(entry, event);
     setFocusedId(entry.id);
     go({ entry: entry.id });
   };
@@ -279,12 +388,22 @@ export function TimelinePage() {
         setPending={setPending}
         entryParam={entryParam}
         closeSheet={closeSheet}
+        picked={selecting ? picked : undefined}
+        pickedDuration={pickedDuration}
+        onDeleteSelection={deleteSelection}
+        onDoneSelecting={clearSelection}
+        onSelectEntry={(id) => {
+          setSelection(new Set([id]));
+          setAnchorId(id);
+          setFocusedId(id);
+          closeSheet();
+        }}
       />
     );
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div className="flex h-10 flex-none items-center gap-3 border-b px-[14px]">
         <Segmented label="Range" value={kind} onValueChange={(next: RangeKind) => go({ kind: next })}>
           <SegmentedItem value="day">
@@ -297,6 +416,17 @@ export function TimelinePage() {
             Month<Kbd>M</Kbd>
           </SegmentedItem>
         </Segmented>
+        {!phone && (
+          <Segmented label="Mode" value={selectMode ? "select" : "create"} onValueChange={(next: "create" | "select") => switchMode(next)}>
+            <SegmentedItem value="create" disabled={kind === "month"}>
+              Create
+            </SegmentedItem>
+            <SegmentedItem value="select" disabled={kind === "month"}>
+              Select<Kbd>V</Kbd>
+            </SegmentedItem>
+          </Segmented>
+        )}
+        {!phone && kind === "month" && <span className="text-[11px] text-faint">day &amp; week only</span>}
         <div className="flex items-center gap-[2px]">
           <button type="button" className="tt-icon-btn" aria-label={`Previous ${kind}`} onClick={() => step(-1)}>
             <CaretLeft size={12} />
@@ -366,6 +496,9 @@ export function TimelinePage() {
             nowLine={nowLine}
             todayKey={todayKey}
             selectedId={entryParam ?? undefined}
+            pickedIds={selectMode ? picked : undefined}
+            selecting={selectMode}
+            onMarquee={marquee}
             focusedId={focusedId}
             onOpen={openEntry}
             side={kind === "day" ? { width: 292, title: sameDate(date, today) ? "Today" : formatDayShort(date), showToday: true } : { width: 228, title: "This week", showToday: false }}
@@ -378,7 +511,31 @@ export function TimelinePage() {
           {kind === "week" && <WeekFooter columns={columns} entries={matching} all={filtered ? entries : undefined} now={now} range={range} />}
         </>
       )}
+      {selectMode && picked.size > 0 && (
+        <SelectionBar count={picked.size} duration={pickedDuration} onDelete={deleteSelection} />
+      )}
       <EntrySheet entryId={entryParam} onClose={closeSheet} />
+    </div>
+  );
+}
+
+function SelectionBar({ count, duration, onDelete }: { count: number; duration: number; onDelete: () => void }) {
+  return (
+    <div
+      role="toolbar"
+      aria-label="Selection"
+      data-testid="selection-bar"
+      className="pointer-events-auto absolute bottom-10 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-3 border bg-mantle py-[6px] pl-4 pr-[6px] text-[12px] shadow-[var(--shadow-md)]"
+    >
+      <span className="tabular-nums">
+        {count === 1 ? "1 entry" : `${count} entries`} · {formatDuration(duration)} selected
+      </span>
+      <button type="button" className="tt-chip-btn text-red-fg" onClick={onDelete}>
+        <Trash size={12} /> Delete <Kbd>⌫</Kbd>
+      </button>
+      <span className="text-faint">
+        <Kbd>Esc</Kbd>
+      </span>
     </div>
   );
 }
@@ -534,6 +691,12 @@ function PhoneDay(props: {
   setPending: (pending: PendingCreate | null) => void;
   entryParam: string | null;
   closeSheet: () => void;
+  /** Phone selection: set while at least one entry is selected. */
+  picked?: ReadonlySet<string>;
+  pickedDuration: number;
+  onDeleteSelection: () => void;
+  onDoneSelecting: () => void;
+  onSelectEntry: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const t = totals(props.matching, props.now, props.range);
@@ -565,10 +728,24 @@ function PhoneDay(props: {
         nowLine={props.nowLine}
         todayKey={formatDate(props.today)}
         selectedId={props.entryParam ?? undefined}
+        pickedIds={props.picked}
         onOpen={props.onOpen}
         pendingCreate={props.pending}
         setPendingCreate={props.setPending}
       />
+      {props.picked && props.picked.size > 0 ? (
+        <div className="flex flex-none items-center gap-2 border-t bg-mantle px-[14px] py-2 text-[12px] tabular-nums" data-testid="phone-selection-bar">
+          <span className="flex-1">
+            {props.picked.size === 1 ? "1 entry" : `${props.picked.size} entries`} · {formatDuration(props.pickedDuration)}
+          </span>
+          <button type="button" className="tt-chip-btn min-h-8 px-3 text-red-fg" onClick={props.onDeleteSelection}>
+            <Trash size={13} /> Delete
+          </button>
+          <button type="button" className="tt-chip-btn min-h-8 px-3" onClick={props.onDoneSelecting}>
+            Done
+          </button>
+        </div>
+      ) : (
       <div className="flex flex-none flex-col gap-[6px] border-t bg-mantle px-[14px] py-2 text-[12px] tabular-nums" data-testid="phone-totals">
         <button type="button" className="flex min-h-7 items-center justify-between" onClick={() => setOpen(!open)} aria-expanded={open}>
           <span className="tt-label">{all ? "Filtered" : "Today"} · {t.count} entries</span>
@@ -588,7 +765,8 @@ function PhoneDay(props: {
           </div>
         )}
       </div>
-      <EntrySheet entryId={props.entryParam} onClose={props.closeSheet} />
+      )}
+      <EntrySheet entryId={props.entryParam} onClose={props.closeSheet} onSelect={props.onSelectEntry} />
     </div>
   );
 }

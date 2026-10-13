@@ -4,7 +4,7 @@ import { type Locator, type Page, expect } from "@playwright/test";
 
 export const PASSWORD = "password123";
 
-/** Server account `n` (e2e/serve.sh creates e2e1 … e2e17); one per test. */
+/** Server account `n` (e2e/serve.sh creates e2e1 … e2e21); one per test. */
 export function user(n: number): string {
   return `e2e${n}`;
 }

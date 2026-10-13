@@ -10,7 +10,7 @@ import type { TtStore } from "@/data/store";
 import { memoryStore, renderWithStore } from "@/test/harness";
 
 import { Board } from "./Board.tsx";
-import { TaskMenu } from "./delete-task.tsx";
+import { TaskMenu, useDeleteTask } from "./delete-task.tsx";
 import { TaskDetailPage } from "./TaskDetailPage.tsx";
 
 const toasts = vi.hoisted(() => ({ calls: [] as string[] }));
@@ -113,5 +113,68 @@ describe("delete task", () => {
     await userEvent.click(screen.getByTestId("task-menu-delete"));
     expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: task.id }));
     expect(store.view.workspace.tasks.get(task.id)?.state).toBe("open");
+  });
+});
+
+describe("bulk delete tasks", () => {
+  afterEach(cleanup);
+  beforeEach(() => {
+    document.body.style.pointerEvents = "";
+  });
+
+  async function three() {
+    const store = await memoryStore();
+    const tasks = ["One", "Two", "Three"].map((title) => store.createTask({ title }));
+    const entry = (task: string, h: number) => newEntry(task, Date.UTC(2026, 9, 8, h), Date.UTC(2026, 9, 8, h, 30), undefined, Date.now());
+    const entries = [entry(tasks[0]!.id, 9), entry(tasks[0]!.id, 10), entry(tasks[1]!.id, 11)];
+    await store.commit({ label: "add", changes: entries.map((e) => ({ kind: "entry" as const, id: e.id, before: null, after: e })) });
+    return { store, tasks };
+  }
+
+  function Harness({ store, ids }: { store: TtStore; ids: string[] }) {
+    const del = useDeleteTask();
+    return (
+      <>
+        <button type="button" onClick={() => del.request(ids.map((id) => store.view.workspace.tasks.get(id as never)!))}>
+          go
+        </button>
+        {del.dialog}
+      </>
+    );
+  }
+
+  it("tasks without entries are deleted at once, no dialog", async () => {
+    toasts.calls.length = 0;
+    const { store, tasks } = await three();
+    renderWithStore(store, <Harness store={store} ids={[tasks[2]!.id]} />);
+    await userEvent.click(screen.getByText("go"));
+    await waitFor(() => expect(store.view.workspace.tasks.has(tasks[2]!.id)).toBe(false));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("one dialog lists tasks with counts; Cancel/Esc change nothing; confirm deletes with force", async () => {
+    toasts.calls.length = 0;
+    const { store, tasks } = await three();
+    renderWithStore(store, <Harness store={store} ids={tasks.map((t) => t.id)} />);
+    await userEvent.click(screen.getByText("go"));
+    expect(await screen.findByText("Delete 3 tasks and 3 entries?")).toBeInTheDocument();
+    const list = screen.getByTestId("bulk-delete-list");
+    expect(list).toHaveTextContent("One");
+    expect(list).toHaveTextContent("2 entries");
+    expect(list).toHaveTextContent("1 entry");
+    expect(list).not.toHaveTextContent("Three");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(store.view.entries.size).toBe(3);
+    await userEvent.click(screen.getByText("go"));
+    await screen.findByRole("dialog");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(store.view.entries.size).toBe(3);
+
+    await userEvent.click(screen.getByText("go"));
+    await userEvent.click(await screen.findByRole("button", { name: "Delete 3 tasks and 3 entries" }));
+    await waitFor(() => expect(store.view.entries.size).toBe(0));
+    expect(toasts.calls).toContain("Deleted 3 tasks and 3 entries");
   });
 });

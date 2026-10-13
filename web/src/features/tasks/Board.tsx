@@ -3,11 +3,15 @@ import {
   type DragEndEvent,
   DragOverlay,
   type DragStartEvent,
+  KeyboardCode,
   KeyboardSensor,
+  type SensorDescriptor,
+  type SensorOptions,
   useDraggable,
   useDroppable,
   useSensor,
 } from "@dnd-kit/core";
+import { Check } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
@@ -32,12 +36,16 @@ interface MenuProps {
   onDelete: (task: Task) => void;
   menuFor?: Uuid;
   setMenuFor: (id: Uuid | undefined) => void;
+  /** Bulk selection: ⌘/Ctrl-click or Space toggles a card. */
+  selected?: ReadonlySet<Uuid>;
+  onPick?: (task: Task) => void;
 }
 
 export function Board({ hits, totals, focus, setFocus, ...menu }: { hits: Hit[]; totals: Map<Uuid, number>; focus?: Uuid; setFocus: (id: Uuid) => void } & MenuProps) {
   const actions = useActions();
   const [dragging, setDragging] = useState<Task>();
-  const sensors = useTouchAwareSensors([useSensor(KeyboardSensor)]);
+  // Space is the selection key on a focused card; Enter lifts it for a keyboard drag.
+  const sensors = useTouchAwareSensors([useSensor(KeyboardSensor, { keyboardCodes: { start: [KeyboardCode.Enter], cancel: [KeyboardCode.Esc], end: [KeyboardCode.Enter, KeyboardCode.Space] } }) as unknown as SensorDescriptor<SensorOptions>]);
   const byState = (state: TaskState) => hits.filter((h) => h.task.state === state).map((h) => h.task);
 
   const onStart = (event: DragStartEvent) => setDragging((event.active.data.current as { task: Task }).task);
@@ -99,24 +107,39 @@ function DraggableCard({ task, total, focused, onFocus, hidden, ...menu }: { tas
   const drag = useDraggable({ id: `card:${task.id}`, data: { task } });
   return (
     <div ref={drag.setNodeRef} {...drag.listeners} {...drag.attributes} onFocus={onFocus} className={cn("outline-none", hidden && "opacity-30")} data-testid="board-card" data-seq={task.seq}>
-      <Card task={task} total={total} focused={focused} menu={menu} />
+      <Card task={task} total={total} focused={focused} menu={menu} picked={menu.selected?.has(task.id)} onPick={() => menu.onPick?.(task)} />
     </div>
   );
 }
 
-function Card({ task, total, focused, overlay, menu }: { task: Task; total?: number; focused?: boolean; overlay?: boolean; menu?: MenuProps }) {
+function Card({ task, total, focused, overlay, menu, picked, onPick }: { task: Task; total?: number; focused?: boolean; overlay?: boolean; menu?: MenuProps; picked?: boolean; onPick?: () => void }) {
   const view = useView();
   const navigate = useNavigate();
   const project = task.project ? view.workspace.projects.get(task.project) : undefined;
   return (
     <div
-      onDoubleClick={() => navigate(`/tasks/${task.seq}`)}
+      onClickCapture={(e) => {
+        if (!onPick || !(e.metaKey || e.ctrlKey)) return;
+        e.stopPropagation();
+        onPick();
+      }}
+      onDoubleClick={(e) => {
+        if (!e.metaKey && !e.ctrlKey) void navigate(`/tasks/${task.seq}`);
+      }}
+      data-picked={picked || undefined}
+      aria-selected={picked}
       className={cn(
         "group relative flex cursor-grab flex-col gap-[6px] rounded-md bg-base px-[10px] py-2",
         overlay ? "rotate-[-2deg] cursor-grabbing shadow-[var(--shadow-lg)]" : "shadow-[var(--shadow-sm)]",
+        picked && "bg-[color-mix(in_srgb,var(--c-text)_8%,var(--c-base))] shadow-[0_0_0_2px_var(--c-base),0_0_0_3.5px_var(--c-text)]",
         focused && "outline-2 outline-offset-1 outline-accent",
       )}
     >
+      {picked && (
+        <span aria-hidden data-testid="card-badge" className="pointer-events-none absolute -right-1 -top-1 flex size-[14px] items-center justify-center rounded-full bg-fg text-base">
+          <Check size={9} weight="bold" />
+        </span>
+      )}
       <div className="flex min-w-0 items-center gap-2">
         <ColorDot color={taskColor(view.workspace, task)} />
         <Seq seq={task.seq} />

@@ -243,31 +243,61 @@ export class Actions {
     return [...this.view.entries.values()].filter((e) => e.task === task);
   }
 
+  /** Deletes several entries (any years) as one undoable op with one toast. Missing ids are ignored. */
+  deleteEntries(ids: Iterable<Uuid>): void {
+    const befores = [...new Set(ids)].flatMap((id) => this.view.entries.get(id) ?? []);
+    if (!befores.length) return;
+    const text = befores.length === 1 ? "Deleted 1 entry" : `Deleted ${befores.length} entries`;
+    void this.#commit(
+      text,
+      befores.map((before): RecordChange => ({ kind: "entry", id: before.id, before, after: null })),
+    );
+  }
+
   /**
    * Deletes a task and (with `force`) its entries as one undoable op. Resolves
    * `false` when nothing was deleted: still loading, entries without `force`.
    */
-  async deleteTask(id: Uuid, options: { force?: boolean } = {}): Promise<boolean> {
+  deleteTask(id: Uuid, options: { force?: boolean } = {}): Promise<boolean> {
+    return this.#deleteTasks([id], options);
+  }
+
+  /** Same rules as `deleteTask`, applied to the whole set in one op and one toast. */
+  deleteTasks(ids: Iterable<Uuid>, options: { force?: boolean } = {}): Promise<boolean> {
+    return this.#deleteTasks([...ids], options);
+  }
+
+  async #deleteTasks(ids: Uuid[], options: { force?: boolean }): Promise<boolean> {
     const snap = this.#store.getSnapshot();
-    const task = snap.view.workspace.tasks.get(id);
-    if (!task) return false;
+    const tasks = [...new Set(ids)].flatMap((id) => snap.view.workspace.tasks.get(id) ?? []);
+    if (!tasks.length) return false;
     const listed = this.#store.index?.entries.keys() ?? [];
     if (snap.state !== "ready" || [...listed].some((year) => !snap.years.includes(year))) {
       toast.error("Still loading your entries…");
       return false;
     }
-    const entries = this.entriesOf(id);
+    const entries = tasks.flatMap((task) => this.entriesOf(task.id));
     if (entries.length && !options.force) {
-      reportError(new DomainError("invalid", `#${task.seq} has ${entries.length} entries`));
+      const what = tasks.length === 1 ? `#${tasks[0]!.seq}` : `${tasks.length} tasks`;
+      reportError(new DomainError("invalid", `${what} has ${entries.length} entries`));
       return false;
     }
     const changes: RecordChange[] = [
-      { kind: "task", id, before: task, after: null },
+      ...tasks.map((before): RecordChange => ({ kind: "task", id: before.id, before, after: null })),
       ...entries.map((before): RecordChange => ({ kind: "entry", id: before.id, before, after: null })),
     ];
-    const notify = entries.length ? `Deleted #${task.seq} and ${entries.length} entries` : `Deleted #${task.seq} ${task.title}`;
+    const task = tasks[0]!;
+    const label = tasks.length === 1 ? `Deleted #${task.seq} ${task.title}` : `Deleted ${tasks.length} tasks`;
+    const notify =
+      tasks.length === 1
+        ? entries.length
+          ? `Deleted #${task.seq} and ${entries.length} entries`
+          : label
+        : entries.length
+          ? `Deleted ${tasks.length} tasks and ${entries.length} entries`
+          : label;
     try {
-      await this.#store.commit({ label: `Deleted #${task.seq} ${task.title}`, changes });
+      await this.#store.commit({ label, changes });
       this.#notify(notify);
       return true;
     } catch (error) {

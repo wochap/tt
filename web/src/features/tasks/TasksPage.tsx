@@ -1,4 +1,4 @@
-import { Play, Stop } from "@phosphor-icons/react";
+import { Play, Stop, Trash } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -14,7 +14,7 @@ import { useNow, useView } from "@/data/react";
 import { runningTaskIds, taskTotals } from "@/data/select";
 import { taskColor } from "@/lib/colors";
 import { updateView } from "@/lib/device-state";
-import { useKeys } from "@/lib/keys";
+import { isEditable, useKeys } from "@/lib/keys";
 import { usePhone } from "@/lib/media";
 import { useTz } from "@/lib/settings";
 import { MOD, cn } from "@/lib/utils";
@@ -44,6 +44,8 @@ export function TasksPage() {
   const [renaming, setRenaming] = useState<Uuid>();
   const [menuFor, setMenuFor] = useState<Uuid>();
   const del = useDeleteTask();
+  const [selection, setSelection] = useState<ReadonlySet<Uuid>>(new Set());
+  const [anchor, setAnchor] = useState<Uuid>();
   const searchInput = useRef<HTMLInputElement>(null);
   const quick = useRef<QuickCreateHandle>(null);
 
@@ -56,6 +58,59 @@ export function TasksPage() {
     const result = filterTasks(view, filters, totalAll, mode === "board");
     return { hits: result, elapsed: Math.max(1, Math.round(performance.now() - t0)) };
   }, [view, filters, totalAll, mode]);
+
+  // The selection only holds tasks that still exist and match the current filter.
+  const selected = useMemo(() => {
+    const visible = new Set(hits.map((h) => h.task.id));
+    const keep = [...selection].filter((id) => visible.has(id));
+    return keep.length === selection.size ? selection : new Set(keep);
+  }, [selection, hits]);
+  useEffect(() => {
+    if (selected !== selection) setSelection(selected);
+  }, [selected, selection]);
+  const entryCounts = useMemo(() => {
+    const counts = new Map<Uuid, number>();
+    for (const entry of view.entries.values()) counts.set(entry.task, (counts.get(entry.task) ?? 0) + 1);
+    return counts;
+  }, [view]);
+  const selectedEntries = useMemo(() => [...selected].reduce((sum, id) => sum + (entryCounts.get(id) ?? 0), 0), [selected, entryCounts]);
+  const clearSelection = () => {
+    setSelection(new Set());
+    setAnchor(undefined);
+  };
+  const rangeIds = (from: Uuid, to: Uuid): Uuid[] => {
+    const a = hits.findIndex((h) => h.task.id === from);
+    const b = hits.findIndex((h) => h.task.id === to);
+    if (a < 0 || b < 0) return [to];
+    return hits.slice(Math.min(a, b), Math.max(a, b) + 1).map((h) => h.task.id);
+  };
+  /** Toggles one task; with `range`, selects everything between the last toggled task and this one. */
+  const pick = (id: Uuid, range = false) => {
+    if (range && anchor) setSelection(new Set([...selected, ...rangeIds(anchor, id)]));
+    else {
+      const next = new Set(selected);
+      if (!next.delete(id)) next.add(id);
+      setSelection(next);
+    }
+    setAnchor(id);
+  };
+  const selectAll = () => {
+    setSelection(new Set(hits.map((h) => h.task.id)));
+  };
+  const extend = (delta: number) => {
+    if (!hits.length) return;
+    const from = focused?.id ?? hits[0]!.task.id;
+    const at = hits.findIndex((h) => h.task.id === from);
+    const next = hits[Math.min(hits.length - 1, Math.max(0, at + delta))]!.task.id;
+    setSelection(new Set([...selected, ...rangeIds(anchor ?? from, next)]));
+    setAnchor(anchor ?? from);
+    move(delta);
+  };
+  const deleteSelection = () => {
+    if (!selected.size) return;
+    const tasks = hits.map((h) => h.task).filter((t) => selected.has(t.id));
+    del.request(tasks, clearSelection);
+  };
 
   const hints = useMemo(() => renumberHints(view.workspace.tasks.values(), filters.query), [view, filters.query]);
   const holder = hints.length ? hits.findIndex((hit) => hit.task.seq === hints[0]!.from) : -1;
@@ -89,7 +144,22 @@ export function TasksPage() {
     s: () => (focused ? actions.toggle(focused.id) : false),
     e: () => (focused ? setRenaming(focused.id) : false),
     x: () => (focused ? actions.setState(focused.id, focused.state === "done" ? "open" : "done") : false),
-    backspace: () => (focused ? del.request(focused) : false),
+    backspace: () => (selected.size ? deleteSelection() : focused ? del.request(focused) : false),
+    space: (event) => {
+      // A focused checkbox or button handles Space itself.
+      if (!focused || event.target instanceof HTMLInputElement || event.target instanceof HTMLButtonElement) return false;
+      pick(focused.id);
+    },
+    "shift+j|shift+arrowdown": () => extend(1),
+    "shift+k|shift+arrowup": () => extend(-1),
+    "mod+a": (event) => {
+      if (isEditable(event.target) || !hits.length) return false;
+      selectAll();
+    },
+    escape: () => {
+      if (!selected.size) return false;
+      clearSelection();
+    },
     ".": () => (focused ? setMenuFor(focused.id) : false),
     b: () => setMode("board"),
     l: () => setMode("list"),
@@ -140,6 +210,13 @@ export function TasksPage() {
         <div className="tt-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
           {hits.map(({ task }) => (
             <div key={task.id} className="flex min-h-[60px] items-center gap-[10px] border-b border-[color-mix(in_srgb,var(--c-s0)_60%,transparent)] px-[14px] py-2" data-task-row={task.id}>
+              <input
+                type="checkbox"
+                aria-label={`Select #${task.seq} ${task.title}`}
+                checked={selected.has(task.id)}
+                onChange={() => pick(task.id)}
+                className="tt-check size-5 flex-none"
+              />
               <ColorDot color={taskColor(view.workspace, task)} />
               <button type="button" className="flex min-w-0 flex-1 flex-col gap-1 text-left" onClick={() => navigate(`/tasks/${task.seq}`)}>
                 <span className="flex min-w-0 items-baseline gap-[6px]">
@@ -158,13 +235,27 @@ export function TasksPage() {
           ))}
           {empty && <EmptyTasks onStart={() => quick.current?.focus()} />}
         </div>
+        {selected.size > 0 && (
+          <div className="sticky bottom-0 flex flex-none items-center gap-2 border-t bg-mantle px-[14px] py-2 text-[12px]" data-testid="phone-task-bar">
+            <span className="flex-1 tabular-nums">{selectionText(selected.size, selectedEntries)}</span>
+            <button type="button" className="tt-chip-btn min-h-9 px-3" onClick={selectAll}>
+              All {hits.length}
+            </button>
+            <button type="button" className="tt-chip-btn min-h-9 px-3 text-red-fg" onClick={deleteSelection}>
+              <Trash size={13} /> Delete
+            </button>
+            <button type="button" className="tt-chip-btn min-h-9 px-3" onClick={clearSelection}>
+              Done
+            </button>
+          </div>
+        )}
         {del.dialog}
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div className="flex flex-col gap-[10px] border-b px-[14px] pb-[10px] pt-[14px]">
         <QuickCreateInput ref={quick} autoFocus={empty} onCreate={(t) => create(t, false)} onCreateAndStart={(t) => create(t, true)} />
         <div className="flex flex-wrap items-center gap-2 text-[12px]">
@@ -213,13 +304,26 @@ export function TasksPage() {
         </div>
       </div>
       {mode === "board" ? (
-        <Board hits={hits} totals={totalAll} focus={focus} setFocus={setFocus} onDelete={del.request} menuFor={menuFor} setMenuFor={setMenuFor} />
+        <Board hits={hits} totals={totalAll} focus={focus} setFocus={setFocus} onDelete={del.request} menuFor={menuFor} setMenuFor={setMenuFor} selected={selected} onPick={(task) => pick(task.id)} />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <div
             className="grid gap-[10px] border-b px-[14px] py-[6px] text-[10.5px] uppercase tracking-[.08em] text-muted"
             style={{ gridTemplateColumns: COLUMNS(!!filters.query) }}
           >
+            <span className="flex items-center">
+              <input
+                type="checkbox"
+                aria-label="Select all tasks in view"
+                data-testid="select-all"
+                checked={hits.length > 0 && selected.size === hits.length}
+                ref={(el) => {
+                  if (el) el.indeterminate = selected.size > 0 && selected.size < hits.length;
+                }}
+                onChange={() => (selected.size === hits.length ? clearSelection() : selectAll())}
+                className={cn("tt-check", selected.size === 0 && "opacity-0 focus:opacity-100 hover:opacity-100")}
+              />
+            </span>
             <span>#</span>
             <span>Task</span>
             <span>Tags</span>
@@ -245,6 +349,9 @@ export function TasksPage() {
                 menuOpen={menuFor === hit.task.id}
                 onMenuOpenChange={(open) => setMenuFor(open ? hit.task.id : undefined)}
                 onDelete={() => del.request(hit.task)}
+                picked={selected.has(hit.task.id)}
+                anySelected={selected.size > 0}
+                onPick={(range) => pick(hit.task.id, range)}
               />,
               index === holder && hintRows,
             ])}
@@ -275,12 +382,37 @@ export function TasksPage() {
           </div>
         </div>
       )}
+      {selected.size > 0 && (
+        <div
+          role="toolbar"
+          aria-label="Selection"
+          data-testid="task-selection-bar"
+          className="absolute bottom-10 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-3 border bg-mantle py-[6px] pl-4 pr-[6px] text-[12px] shadow-[var(--shadow-md)]"
+        >
+          <span className="tabular-nums">{selectionText(selected.size, selectedEntries)}</span>
+          {selected.size < hits.length && (
+            <button type="button" className="tt-chip-btn" onClick={selectAll}>
+              Select all {hits.length} in view <Kbd>{MOD}A</Kbd>
+            </button>
+          )}
+          <button type="button" className="tt-chip-btn text-red-fg" onClick={deleteSelection}>
+            <Trash size={12} /> Delete <Kbd>⌫</Kbd>
+          </button>
+          <span className="text-faint">
+            <Kbd>Esc</Kbd>
+          </span>
+        </div>
+      )}
       {del.dialog}
     </div>
   );
 }
 
-const COLUMNS = (searching: boolean) => `40px minmax(0,1fr) 230px ${searching ? 160 : 110}px 80px 80px 32px 32px`;
+function selectionText(tasks: number, entries: number): string {
+  return `${tasks} ${tasks === 1 ? "task" : "tasks"} · ${entries} ${entries === 1 ? "entry" : "entries"}`;
+}
+
+const COLUMNS = (searching: boolean) => `16px 40px minmax(0,1fr) 230px ${searching ? 160 : 110}px 80px 80px 32px 32px`;
 
 function metadataCell(task: Task, matches: FieldMatch[]) {
   const hit = matches.find((m) => m.kind === "meta");
@@ -308,6 +440,9 @@ function TaskRow({
   menuOpen,
   onMenuOpenChange,
   onDelete,
+  picked,
+  anySelected,
+  onPick,
 }: {
   hit: Hit;
   searching: boolean;
@@ -321,6 +456,9 @@ function TaskRow({
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
   onDelete: () => void;
+  picked: boolean;
+  anySelected: boolean;
+  onPick: (range: boolean) => void;
 }) {
   const view = useView();
   const actions = useActions();
@@ -338,11 +476,27 @@ function TaskRow({
       onDoubleClick={() => navigate(`/tasks/${task.seq}`)}
       className={cn(
         "group grid h-[38px] items-center gap-[10px] border-b border-[color-mix(in_srgb,var(--c-s0)_60%,transparent)] px-[14px] text-[13px]",
-        focused ? "tt-row-focus" : "tt-row-hover",
+        picked ? "bg-[color-mix(in_srgb,var(--c-text)_8%,transparent)]" : focused ? "tt-row-focus" : "tt-row-hover",
         done && "opacity-60",
       )}
+      data-picked={picked || undefined}
       style={{ gridTemplateColumns: COLUMNS(searching) }}
     >
+      {/* Always reserved, so a checkbox appearing never shifts the row. */}
+      <span className="flex items-center">
+        <input
+          type="checkbox"
+          aria-label={`Select #${task.seq} ${task.title}`}
+          checked={picked}
+          onChange={() => undefined}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPick(e.shiftKey);
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          className={cn("tt-check", !picked && !anySelected && "opacity-0 focus:opacity-100 group-hover:opacity-100")}
+        />
+      </span>
       <span className="font-mono text-[11px] text-faint">#{task.seq}</span>
       <span className="flex min-w-0 items-center gap-2">
         <ColorDot color={taskColor(view.workspace, task)} />

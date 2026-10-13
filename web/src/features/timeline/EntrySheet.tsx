@@ -25,13 +25,14 @@ import { useActions } from "@/data/actions";
 import { useNow, useView } from "@/data/react";
 import { taskColor } from "@/lib/colors";
 import { useKeys } from "@/lib/keys";
+import { usePhone } from "@/lib/media";
 import { useSettings, useTz } from "@/lib/settings";
 import { MOD, cn } from "@/lib/utils";
 
 const MIN15 = 15 * 60_000;
 
 /** Frame 4: non-modal sheet, every edit applies immediately and is undoable. */
-export function EntrySheet({ entryId, onClose }: { entryId: string | null; onClose: () => void }) {
+export function EntrySheet({ entryId, onClose, onSelect }: { entryId: string | null; onClose: () => void; onSelect?: (id: string) => void }) {
   const view = useView();
   const entry = entryId ? view.entries.get(entryId) : undefined;
   // Closing when the entry disappears (deleted here or elsewhere).
@@ -41,13 +42,14 @@ export function EntrySheet({ entryId, onClose }: { entryId: string | null; onClo
   return (
     <Sheet open={!!entry} onOpenChange={(open) => !open && onClose()}>
       <SheetContent aria-describedby={undefined} data-testid="entry-sheet">
-        {entry && <SheetBody key={entry.id} entry={entry} onClose={onClose} />}
+        {entry && <SheetBody key={entry.id} entry={entry} onClose={onClose} onSelect={onSelect} />}
       </SheetContent>
     </Sheet>
   );
 }
 
-function SheetBody({ entry, onClose }: { entry: Entry; onClose: () => void }) {
+function SheetBody({ entry, onClose, onSelect }: { entry: Entry; onClose: () => void; onSelect?: (id: string) => void }) {
+  const phone = usePhone();
   const view = useView();
   const actions = useActions();
   const tz = useTz();
@@ -256,6 +258,11 @@ function SheetBody({ entry, onClose }: { entry: Entry; onClose: () => void }) {
         <Button variant="secondary" onClick={() => actions.duplicateEntry(entry.id)}>
           Duplicate
         </Button>
+        {phone && onSelect && (
+          <Button variant="secondary" onClick={() => onSelect(entry.id)}>
+            Select
+          </Button>
+        )}
         <Button
           variant="destructive"
           className="ml-auto gap-2"

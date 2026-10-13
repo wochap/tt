@@ -388,3 +388,54 @@ test("Timeline and Tasks reopen on the last range and mode", async ({ page }) =>
   await page.keyboard.press("2");
   await expect(page).toHaveURL(/\/tasks\?view=board/);
 });
+
+test("timeline Select mode: marquee, ⌫ deletes with one toast, one Ctrl+Z restores all", async ({ page }) => {
+  await login(page, user(18));
+  await expect(page.getByRole("button", { name: /New task/ })).toBeVisible();
+  await createTask(page, "Bulk entries");
+  await expect(page.getByTestId("side-task")).toHaveCount(1);
+  await createEntry(page, [9, 0], [10, 0], "Bulk");
+  await createEntry(page, [11, 0], [12, 0], "Bulk");
+  await createEntry(page, [13, 0], [14, 0], "Bulk");
+  const blocks = page.getByTestId("entry-block");
+  await expect(blocks).toHaveCount(3);
+
+  await page.keyboard.press("v");
+  const column = page.getByTestId("day-column").first();
+  await drag(page, await at(column, 8, 30), await at(column, 14, 30));
+  await expect(page.getByTestId("selection-bar")).toContainText("3 entries");
+  await expect(page.getByTestId("create-ghost")).toHaveCount(0);
+
+  await page.keyboard.press("Backspace");
+  await expect(blocks).toHaveCount(0);
+  await expect(page.locator("[data-sonner-toast]").filter({ hasText: "Deleted 3 entries" })).toHaveCount(1);
+
+  await page.keyboard.press("Control+z");
+  await expect(blocks).toHaveCount(3);
+});
+
+test("tasks: shift-click a range with entries, confirm once, one Ctrl+Z restores tasks and entries", async ({ page }) => {
+  await login(page, user(19));
+  await expect(page.getByRole("button", { name: /New task/ })).toBeVisible();
+  for (const name of ["Range one", "Range two", "Range three"]) {
+    await createTask(page, name, true);
+    await expect(page.getByTestId("side-task")).not.toHaveCount(0);
+  }
+  await page.keyboard.press("2");
+  const rows = page.getByTestId("task-row");
+  await expect(rows).toHaveCount(3);
+  await rows.nth(0).getByRole("checkbox").click();
+  await rows.nth(2).getByRole("checkbox").click({ modifiers: ["Shift"] });
+  await expect(page.getByTestId("task-selection-bar")).toContainText("3 tasks");
+
+  await page.keyboard.press("Backspace");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Delete 3 tasks and 3 entries?");
+  await dialog.getByRole("button", { name: "Delete 3 tasks and 3 entries" }).click();
+  await expect(rows).toHaveCount(0);
+  await expect(page.locator("[data-sonner-toast]").first()).toContainText("Deleted 3 tasks and 3 entries");
+
+  await page.keyboard.press("Control+z");
+  await expect(rows).toHaveCount(3);
+  await expect(page.getByTestId("running-chip")).toHaveCount(3);
+});

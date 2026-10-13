@@ -29,6 +29,10 @@ export interface TimelineGridProps {
   /** Kept while the task picker is open after a drag-create. */
   pendingCreate: { column: Column; start: number; end: number | null } | null;
   selectedId?: string;
+  /** Bulk-selected entry ids. */
+  pickedIds?: ReadonlySet<string>;
+  /** Select mode: entries and pending ranges do not drag. */
+  selecting?: boolean;
   focusedId?: string;
   onOpen: (entry: Entry, event: MouseEvent | KeyboardEvent) => void;
   columnRef: (key: string, element: HTMLDivElement | null) => void;
@@ -96,12 +100,13 @@ function DayColumn(
   props: TimelineGridProps & { column: Column; index: number; firstHour: number; height: number },
 ) {
   const { tz, column, entries, now, firstHour, pxPerHour, density, preview, pendingCreate, todayKey, columns } = props;
+  const cursor = props.selecting ? "cursor-default" : "cursor-crosshair";
   const create = useDraggable({ id: `create:${column.key}`, data: { kind: "create", column } });
   const adjustable = !!pendingCreate && pendingCreate.end !== null && pendingCreate.column.key === column.key;
   const range = adjustable ? { start: pendingCreate.start, end: pendingCreate.end! } : undefined;
-  const pmove = useDraggable({ id: `pmove:${column.key}`, data: { kind: "pending-move", column, range }, disabled: !adjustable });
-  const ptop = useDraggable({ id: `ptop:${column.key}`, data: { kind: "pending-resize-start", column, range }, disabled: !adjustable });
-  const pbottom = useDraggable({ id: `pbottom:${column.key}`, data: { kind: "pending-resize-end", column, range }, disabled: !adjustable });
+  const pmove = useDraggable({ id: `pmove:${column.key}`, data: { kind: "pending-move", column, range }, disabled: !adjustable || props.selecting });
+  const ptop = useDraggable({ id: `ptop:${column.key}`, data: { kind: "pending-resize-start", column, range }, disabled: !adjustable || props.selecting });
+  const pbottom = useDraggable({ id: `pbottom:${column.key}`, data: { kind: "pending-resize-end", column, range }, disabled: !adjustable || props.selecting });
   const placed = placeColumn(tz, column, entries, now, firstHour, pxPerHour);
   const isToday = column.key === todayKey;
   const yOf = (at: number) => ((wallMinutes(tz, column, at) - firstHour * 60) / 60) * pxPerHour;
@@ -141,7 +146,8 @@ function DayColumn(
       data-column={column.key}
       data-testid="day-column"
       className={cn(
-        "relative h-full cursor-crosshair select-none outline-none [-webkit-touch-callout:none]",
+        "relative h-full select-none outline-none [-webkit-touch-callout:none]",
+        cursor,
         density !== "day" && "border-l px-[3px]",
         density === "week" && isToday && "bg-[color-mix(in_srgb,var(--color-accent)_4%,transparent)]",
       )}
@@ -220,6 +226,7 @@ function PlacedBlock({ placed, ...props }: TimelineGridProps & { placed: Placed 
       lanes={placed.lanes}
       density={density}
       selected={props.selectedId === placed.entry.id}
+      picked={props.pickedIds ? props.pickedIds.has(placed.entry.id) : undefined}
       focused={props.focusedId === placed.entry.id}
       dragging={dragging && !relinking}
       delta={active ? deltaLabel(active.deltaMinutes) : undefined}
@@ -228,7 +235,7 @@ function PlacedBlock({ placed, ...props }: TimelineGridProps & { placed: Placed 
           ? `${formatClock(tz, active.start)} – ${active.end === null ? "now" : formatClock(tz, active.end)}${active.kind === "move" ? "" : ` · ${formatDuration(((active.end ?? now) - active.start) / 1000)}`}`
           : undefined
       }
-      draggable={!dimmed}
+      draggable={!dimmed && !props.selecting}
       dimmed={dimmed}
       clippedStart={placed.clippedStart}
       clippedEnd={placed.clippedEnd}

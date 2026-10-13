@@ -46,8 +46,14 @@ export interface TimelineBoardProps {
   nowLine: number;
   todayKey: string;
   selectedId?: string;
+  /** Bulk-selected entry ids (shown with the ink ring); only set while selecting. */
+  pickedIds?: ReadonlySet<string>;
+  /** Select mode: a drag on empty space draws a marquee, entries do not drag. */
+  selecting?: boolean;
+  /** Marquee result: `add` with Shift, `remove` with Alt, else `replace`. */
+  onMarquee?: (ids: string[], op: "replace" | "add" | "remove") => void;
   focusedId?: string;
-  onOpen: (entry: Entry) => void;
+  onOpen: (entry: Entry, event?: { shiftKey: boolean }) => void;
   side?: { width: number; title: string; showToday: boolean };
   header?: ReactNode;
   emptyOverlay?: ReactNode;
@@ -79,6 +85,20 @@ export function TimelineBoard(props: TimelineBoardProps) {
   const overTask = useRef<Uuid | undefined>(undefined);
   const justDragged = useRef(0);
   const [preview, setPreview] = useState<Preview | null>(null);
+  // Marquee in scroll-content coordinates, so it survives auto-scroll.
+  const marqueeStart = useRef<{ x: number; y: number } | null>(null);
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const toContent = useCallback((p: { x: number; y: number }) => {
+    const el = scroller.current;
+    const box = el?.getBoundingClientRect();
+    return { x: p.x - (box?.left ?? 0) + (el?.scrollLeft ?? 0), y: p.y - (box?.top ?? 0) + (el?.scrollTop ?? 0) };
+  }, []);
+  const updateMarquee = useCallback(() => {
+    const from = marqueeStart.current;
+    if (!from) return;
+    const to = toContent(pointer.current);
+    setMarquee({ x0: from.x, y0: from.y, x1: to.x, y1: to.y });
+  }, [toContent]);
 
   const metrics = useCallback(
     (): GridMetrics => ({
@@ -134,13 +154,14 @@ export function TimelineBoard(props: TimelineBoardProps) {
   const sensors = useTouchAwareSensors();
 
   // dnd-kit's auto-scroll follows the dragged node (the whole column for create), so create scrolls itself.
-  const creating = preview?.kind === "create";
+  const creating = preview?.kind === "create" || !!marquee;
   useEdgeScroll(
     creating,
     scroller,
     () => pointer.current.y,
     () => {
-      if (origin.current) setPreview(computePreview(origin.current, pointer.current, metrics(), overTask.current));
+      if (marqueeStart.current) updateMarquee();
+      else if (origin.current) setPreview(computePreview(origin.current, pointer.current, metrics(), overTask.current));
     },
   );
 
@@ -149,6 +170,14 @@ export function TimelineBoard(props: TimelineBoardProps) {
     const start = event.activatorEvent as MouseEvent | TouchEvent;
     const startPointer = pointFromEvent(start);
     pulseIfTouch(start);
+    if (props.selecting) {
+      // Select mode: only empty-space drags exist, and they draw a marquee, never a pending range.
+      if (data.kind !== "create") return;
+      pointer.current = startPointer;
+      marqueeStart.current = toContent(startPointer);
+      updateMarquee();
+      return;
+    }
     let column = data.column;
     if (!column) {
       // Entry drags: the column the block was grabbed in.
@@ -169,6 +198,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
   };
 
   const onDragMove = (_event: DragMoveEvent) => {
+    if (marqueeStart.current) return updateMarquee();
     if (origin.current) setPreview(computePreview(origin.current, pointer.current, metrics(), overTask.current));
   };
 
@@ -179,6 +209,8 @@ export function TimelineBoard(props: TimelineBoardProps) {
   };
 
   const finish = () => {
+    marqueeStart.current = null;
+    setMarquee(null);
     origin.current = null;
     overTask.current = undefined;
     justDragged.current = Date.now();
@@ -186,6 +218,25 @@ export function TimelineBoard(props: TimelineBoardProps) {
   };
 
   const onDragEnd = (_event: DragEndEvent) => {
+    if (marqueeStart.current) {
+      const from = marqueeStart.current;
+      const to = toContent(pointer.current);
+      const { alt, shift } = pointer.current;
+      finish();
+      const box = scroller.current?.getBoundingClientRect();
+      const left = Math.min(from.x, to.x) + (box?.left ?? 0) - (scroller.current?.scrollLeft ?? 0);
+      const top = Math.min(from.y, to.y) + (box?.top ?? 0) - (scroller.current?.scrollTop ?? 0);
+      const right = left + Math.abs(to.x - from.x);
+      const bottom = top + Math.abs(to.y - from.y);
+      const ids = [...(scroller.current?.querySelectorAll<HTMLElement>("[data-entry-id]:not([data-dimmed])") ?? [])]
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.left <= right && r.right >= left && r.top <= bottom && r.bottom >= top;
+        })
+        .map((el) => el.dataset.entryId!);
+      props.onMarquee?.(ids, alt ? "remove" : shift ? "add" : "replace");
+      return;
+    }
     const o = origin.current;
     if (!o) return finish();
     const result = computePreview(o, pointer.current, metrics(), overTask.current);
@@ -294,9 +345,11 @@ export function TimelineBoard(props: TimelineBoardProps) {
               preview={preview}
               pendingCreate={pending}
               selectedId={props.selectedId}
+              pickedIds={props.pickedIds}
+              selecting={props.selecting}
               focusedId={props.focusedId}
-              onOpen={(entry) => {
-                if (Date.now() - justDragged.current > 250) props.onOpen(entry);
+              onOpen={(entry, event) => {
+                if (Date.now() - justDragged.current > 250) props.onOpen(entry, event);
               }}
               columnRef={(key, element) => {
                 if (element) columnEls.current.set(key, element);
@@ -308,6 +361,19 @@ export function TimelineBoard(props: TimelineBoardProps) {
               emptyOverlay={props.emptyOverlay}
               snapLabel={props.snapLabel}
             />
+            {marquee && (
+              <div
+                aria-hidden
+                data-testid="marquee"
+                className="pointer-events-none absolute z-40 rounded-sm border border-fg bg-[color-mix(in_srgb,var(--c-text)_8%,transparent)]"
+                style={{
+                  left: Math.min(marquee.x0, marquee.x1),
+                  top: Math.min(marquee.y0, marquee.y1),
+                  width: Math.abs(marquee.x1 - marquee.x0),
+                  height: Math.abs(marquee.y1 - marquee.y0),
+                }}
+              />
+            )}
             {density === "phone" && <ScrollFade show={moreBelow} />}
           </div>
         </div>

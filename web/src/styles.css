@@ -315,6 +315,34 @@
   .tt-seg > [data-seg-item]:focus-visible {
     outline-offset: -2px;
   }
+  /* 16 px selection checkbox: ink fill when checked (the text color, not the accent). */
+  .tt-check {
+    appearance: none;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    border: 1.5px solid var(--c-ov1);
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    transition: opacity 120ms;
+  }
+  .tt-check:checked,
+  .tt-check:indeterminate {
+    border-color: var(--c-text);
+    background: var(--c-text);
+  }
+  .tt-check:checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.7 2.7L12 5.5' fill='none' stroke='%231e1e2e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+  .tt-check:indeterminate {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8h8' stroke='%231e1e2e' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+  }
+  .tt-check:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
   .tt-chip-btn {
     display: inline-flex;
     align-items: center;
@@ -449,4 +477,39 @@
   border-left: 2px solid var(--c-s1);
   padding-left: 8px;
   color: var(--c-muted);
+}
+
+/* Undo toasts: a 2 px bar drains over the 8 s toast lifetime. Sonner pauses its
+   own timer on hover/focus, so the bar pauses under the same conditions. */
+[data-sonner-toast] {
+  position: relative;
+  overflow: hidden;
+}
+[data-sonner-toast]:has([data-action])::before {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: var(--c-s0);
+}
+[data-sonner-toast]:has([data-action])::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: var(--c-ov1);
+  transform-origin: left center;
+  animation: toast-drain 8s linear forwards;
+}
+[data-sonner-toast]:hover::after,
+[data-sonner-toast]:focus-within::after {
+  animation-play-state: paused;
+}
+@keyframes toast-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }

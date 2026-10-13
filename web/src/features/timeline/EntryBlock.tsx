@@ -1,4 +1,5 @@
 import { useDraggable } from "@dnd-kit/core";
+import { Check } from "@phosphor-icons/react";
 import type { CSSProperties, HTMLAttributes, KeyboardEvent, MouseEvent, Ref } from "react";
 
 import { type Entry, entryDuration, formatClock, formatDuration, formatElapsed, laneGeometry, type Task } from "@tt/domain";
@@ -22,6 +23,8 @@ export interface EntryBlockProps {
   /** "day" draws roomier blocks than "week". */
   density: "day" | "week" | "phone";
   selected?: boolean;
+  /** Part of the bulk selection (ink ring and check badge); `selected` means the sheet is open. */
+  picked?: boolean;
   focused?: boolean;
   dragging?: boolean;
   /** Delta badge while moving (`+30m`). */
@@ -42,7 +45,7 @@ export interface EntryBlockProps {
  * view when lanes split the column. Running entries end at a dashed live edge.
  */
 export function EntryBlock(props: EntryBlockProps) {
-  const { entry, task, color, textColor, tz, now, top, height, lane, lanes, density, selected, focused, dragging, delta, dragLabel } = props;
+  const { entry, task, color, textColor, tz, now, top, height, lane, lanes, density, selected, picked, focused, dragging, delta, dragLabel } = props;
   const running = entry.end === null;
   const compact = height < 44 || (density !== "day" && lanes > 1 && height < 64);
   const geometry = laneGeometry(lane, lanes);
@@ -52,7 +55,7 @@ export function EntryBlock(props: EntryBlockProps) {
     height,
     left: geometry.left,
     width: geometry.width,
-    zIndex: dragging ? 30 : selected ? 6 : 5,
+    zIndex: dragging ? 30 : selected || picked ? 6 : 5,
     ...(props.dimmed ? { opacity: 0.32, filter: "saturate(0)", pointerEvents: "none" } : {}),
   };
   const day = density === "day";
@@ -83,7 +86,7 @@ export function EntryBlock(props: EntryBlockProps) {
         tabIndex={focused && !props.dimmed ? 0 : -1}
         aria-disabled={props.dimmed || undefined}
         aria-label={`${title}, ${range}`}
-        aria-pressed={selected}
+        aria-pressed={picked ?? selected}
         onClick={(event) => {
           event.stopPropagation();
           props.onOpen?.(event);
@@ -98,11 +101,13 @@ export function EntryBlock(props: EntryBlockProps) {
           focused && "outline-2 outline-offset-1 outline-accent",
         )}
         style={{
-          background: `color-mix(in srgb, ${color} ${dragging ? 26 : 18}%, var(--c-base))`,
+          background: `color-mix(in srgb, ${color} ${dragging ? 26 : picked ? 30 : 18}%, var(--c-base))`,
           borderLeft: `3px solid ${color}`,
           boxShadow: dragging
             ? "var(--shadow-lg)"
-            : selected
+            : picked
+              ? "0 0 0 2px var(--c-base), 0 0 0 3.5px var(--c-text)"
+              : selected
               ? "0 0 0 1px var(--color-accent), 0 0 0 4px color-mix(in srgb, var(--color-accent) 25%, transparent)"
               : `inset 0 0 0 1px color-mix(in srgb, ${color} 25%, transparent)`,
         }}
@@ -134,6 +139,15 @@ export function EntryBlock(props: EntryBlockProps) {
               {day && entry.note && <span className="truncate text-faint">{entry.note}</span>}
             </div>
           </div>
+        )}
+        {picked && (
+          <span
+            aria-hidden
+            data-testid="picked-badge"
+            className="pointer-events-none absolute right-[3px] top-[3px] flex size-[14px] items-center justify-center rounded-full bg-fg text-base"
+          >
+            <Check size={9} weight="bold" />
+          </span>
         )}
         {running && !compact && (
           <div
