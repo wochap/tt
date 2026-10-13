@@ -24,11 +24,19 @@ Entries that overlap in time SHALL render side by side in equal lanes with a 3 p
 - **THEN** each occupies one third of the column width within the overlap cluster
 
 ### Requirement: Running strip
-A persistent strip SHALL list every running entry with task title, elapsed time ticking each second, a stop button, and "Stop all".
+A persistent strip SHALL list every running entry with task title, elapsed time ticking each second, a stop button, and "Stop all". When nothing is running, the strip SHALL show the key hint "S start the focused task · N new entry at now" only on the timeline, where those keys are bound; on Tasks, task detail, Reports and Settings it SHALL show no tracking key hints.
 
 #### Scenario: Stop all
 - **WHEN** two entries are running and the user clicks Stop all
 - **THEN** both receive the same end time and the strip empties
+
+#### Scenario: Idle hint on the timeline
+- **WHEN** nothing is running and the timeline is open
+- **THEN** the strip shows "S start the focused task · N new entry at now"
+
+#### Scenario: No tracking hint elsewhere
+- **WHEN** nothing is running and Reports or Settings is open
+- **THEN** the strip shows neither the S nor the N hint
 
 ### Requirement: Drag interactions
 Using dnd-kit the timeline SHALL support: drag on empty space to create (task picker on release), drag body to move, drag top/bottom edge to resize, drop onto the task side panel to re-link, snapping to the configured grid with Alt disabling snap and Shift locking the column in week view, and a 4 px drag threshold. With a mouse or pen a drag SHALL begin once the pointer has moved past the threshold. With touch, a drag to create on empty space SHALL begin only after the finger has been held in place for a hold delay of about 250 ms; a touch that moves beyond a small tolerance before the hold completes SHALL scroll the timeline instead and SHALL NOT create anything. The dotted pending range left by a create drag SHALL itself be adjustable until a task is picked or it is dismissed: dragging its body SHALL move it and dragging its top or bottom edge SHALL resize it, with the same snapping, Alt and Shift behavior and one-grid-step minimum duration as entries, and a press on it SHALL NOT start a new create. The task picker SHALL follow the range to its new position after an adjust. Resize edges of the pending range and of entries SHALL have a touch-sized hit area (at least 40 px tall) without changing their visible appearance, while a block's body SHALL remain draggable even when the block is short.
@@ -112,3 +120,14 @@ Every timeline and task edit SHALL be undoable with Ctrl+Z and redoable with Ctr
 #### Scenario: Undo delete
 - **WHEN** an entry is deleted and the user presses Ctrl+Z
 - **THEN** the entry is restored with the same id and fields
+
+### Requirement: Task picker closes on one Escape
+When the task picker opened by a create drag is open, a single press of Escape SHALL close it and discard the pending range, whether focus is in its search input, on a result, or elsewhere in the picker. The search query SHALL NOT be cleared as a separate first step.
+
+#### Scenario: Escape from the search input
+- **WHEN** the user drags a range, the task picker opens with focus in "Search tasks, tags, ticket ids…", the user types "log" and presses Escape once
+- **THEN** the picker is closed, the dotted pending range is gone, and no entry was created
+
+#### Scenario: Escape with an empty query
+- **WHEN** the picker has just opened with an empty query and the user presses Escape once
+- **THEN** the picker is closed and the pending range is gone

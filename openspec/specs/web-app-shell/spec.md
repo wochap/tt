@@ -39,11 +39,19 @@ The app SHALL offer Mocha, Latte and System themes implementing the design's tok
 - **THEN** a running entry is created for that task and the running strip updates
 
 ### Requirement: Settings
-Settings SHALL include server endpoint (with reachability indicator), week start, snap grid (5/10/15), time zone, theme, visible hours, and logout that wipes local data and shows the count of unsynced changes before confirming.
+Settings SHALL include server endpoint (with reachability indicator), week start, snap grid (5/10/15), time zone, theme, visible hours, a "New tasks use the last project" switch, and logout that wipes local data and shows the count of unsynced changes before confirming. The "New tasks use the last project" switch SHALL be on by default, SHALL be stored on the device only (not synced), and SHALL carry one line of helper text explaining that quick create starts with that project as a chip that ⌫ drops for one task.
 
 #### Scenario: Logout with unsynced changes
 - **WHEN** the user clicks logout while 12 changes are unsynced
 - **THEN** a dialog states 12 unsynced changes will be lost and requires explicit confirmation
+
+#### Scenario: Sticky project switch defaults on
+- **WHEN** a user opens Settings on a device where the switch was never changed
+- **THEN** "New tasks use the last project" is shown switched on, with its helper text
+
+#### Scenario: Sticky project switch is per device
+- **WHEN** the user turns the switch off in one browser
+- **THEN** it stays off after reload in that browser, and another device keeps its own value
 
 ### Requirement: Server section in settings
 Settings SHALL include a Server section between Sync and Shortcuts showing this server's name, short id (copyable) and version, and a read-only list of peers from `GET /api/peers` with a status dot, name, state, last seen and address per row. The list SHALL render as a table on desktop and a stacked list on phone, SHALL refresh while the section is visible, and SHALL show an empty state ("Not paired with other servers") with the CLI commands `tt-server peer invite` and `tt-server peer join <code>`.
@@ -99,3 +107,37 @@ When `/api/health` reports `setup: "needs-decision"`, the app SHALL show a full-
 #### Scenario: Server becomes ready
 - **WHEN** the server is initialized while the page is open
 - **THEN** the app switches to the login form after its next health check
+
+### Requirement: Remembered views
+The Timeline tab SHALL reopen on the range (day, week or month) and date last shown on this device, and the Tasks tab SHALL reopen in the mode (list or board) last shown on this device. The remembered choices SHALL be stored on the device only and SHALL apply when the tab is opened without an explicit range, date or mode: from the top bar, its number shortcut, or by loading `/timeline` or `/tasks`. A remembered date SHALL apply only on the same calendar day it was saved, in the app's time zone; on any later day the timeline SHALL open on today in the remembered range. An explicit link or palette command that names a range, date or mode SHALL win over the remembered value and SHALL become the new remembered value. Phone layouts SHALL keep their fixed day view and list mode, but SHALL NOT overwrite the remembered desktop range or mode.
+
+#### Scenario: Week view comes back
+- **WHEN** the user switches the timeline to week, opens Tasks, then clicks the Timeline tab
+- **THEN** the timeline opens in week view on the same week
+
+#### Scenario: Date comes back on the same day
+- **WHEN** the user jumps the day view to 3 Oct, reloads the app later that day and opens the Timeline tab
+- **THEN** day view opens on 3 Oct
+
+#### Scenario: New day falls back to today
+- **WHEN** the user left the timeline in week view on 3 Oct and opens the app the next calendar day
+- **THEN** the timeline opens in week view on the current week
+
+#### Scenario: Board comes back
+- **WHEN** the user switches Tasks to board, opens Reports, then presses `2`
+- **THEN** Tasks opens as a board
+
+#### Scenario: Explicit command wins
+- **WHEN** the remembered mode is board and the user runs the palette command "Tasks · list"
+- **THEN** Tasks opens as a list and list becomes the remembered mode
+
+### Requirement: Segmented control selection
+In every segmented control (for example Day/Week/Month, List/Board and the choices in Settings), the selected option's accent ring SHALL be fully visible, including at the rounded outer corners of the first and last options.
+
+#### Scenario: First option selected
+- **WHEN** week start is Monday, the first of three options
+- **THEN** Monday's accent ring follows the control's rounded left corners with no part cut off
+
+#### Scenario: Last option selected
+- **WHEN** Month is selected in the Day/Week/Month control
+- **THEN** Month's accent ring follows the control's rounded right corners with no part cut off

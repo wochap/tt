@@ -71,3 +71,30 @@ The web app SHALL let the user delete a task from the task detail page and from 
 #### Scenario: Board menu does not drag
 - **WHEN** the user presses the `⋯` button on a board card and opens the menu
 - **THEN** the menu opens, the card does not move, and choosing Delete starts the same flow as on the detail page
+
+### Requirement: Sticky project for new tasks
+While the device setting "New tasks use the last project" is on, the web app SHALL remember on this device the project of the last task created with a project, and SHALL offer it as the default project for the next task created from text. In quick create the default SHALL appear as a removable `@<project>` chip ahead of the caret. Typing an `@project` token SHALL replace the chip for that task. Pressing ⌫ at the start of the input SHALL remove the chip for that task only. The create rows of the task picker and the command palette SHALL name the default project they will apply. A task created with a project SHALL make that project the new default. A task created without a project, including one whose chip was removed, SHALL keep the previous default. A default whose project no longer exists SHALL be ignored, and no chip SHALL be shown. While the setting is off, no default SHALL be applied or shown, but the last project SHALL still be remembered.
+
+#### Scenario: Default follows the last created task
+- **WHEN** the setting is on, the user creates "Write docs @foo", then opens quick create again
+- **THEN** quick create starts with an `@foo` chip, and creating "Fix typo" gives that task project foo
+
+#### Scenario: Explicit project replaces the default
+- **WHEN** the default is foo and the user creates "Plan sprint @algo"
+- **THEN** the task gets project algo, and from then on quick create starts with an `@algo` chip
+
+#### Scenario: Removing the chip affects one task
+- **WHEN** the default is foo and the user presses ⌫ at the start of quick create, then creates "Personal errand"
+- **THEN** that task has no project, and the next quick create still starts with `@foo`
+
+#### Scenario: Picker create row applies the default
+- **WHEN** the default is foo and the user types "Standup" in the timeline task picker and chooses the create row
+- **THEN** the create row names project foo, and the new task has project foo
+
+#### Scenario: Deleted project is ignored
+- **WHEN** the default is foo and project foo no longer exists
+- **THEN** quick create shows no chip, and a new task without `@project` has no project
+
+#### Scenario: Setting off
+- **WHEN** the setting is off and the last created task had project foo
+- **THEN** quick create shows no chip and new tasks get a project only from an explicit `@project`
