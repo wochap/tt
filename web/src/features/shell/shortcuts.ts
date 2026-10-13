@@ -22,6 +22,7 @@ export const SHORTCUTS: { scope: string; keys: [string, string][] }[] = [
       ["← →", "Previous / next range"],
       ["T", "Today"],
       ["G", "Jump to date"],
+      ["F · ⇧F", "Filter · clear filters"],
       ["J · K", "Next / previous entry"],
       ["⏎", "Open focused entry"],
       ["S", "Toggle tracking on focused entry’s task"],

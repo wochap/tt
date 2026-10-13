@@ -48,3 +48,17 @@ export function entriesInRange(view: View, range: Range, now: Millis): Entry[] {
     .filter((entry) => entry.start < range.to && (entry.end ?? now) > range.from)
     .sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
 }
+
+/**
+ * Predicate for the timeline filter: an entry matches through its task. Projects OR'ed,
+ * tags OR'ed, both sections AND'ed. A deleted task has no project and no tags.
+ */
+export function entryMatcher(view: View, filter: { projects: string[]; tags: Uuid[] }): (entry: Entry) => boolean {
+  const { projects, tags } = filter;
+  if (!projects.length && !tags.length) return () => true;
+  return (entry) => {
+    const task = view.workspace.tasks.get(entry.task);
+    const project = task?.project && view.workspace.projects.has(task.project) ? task.project : "none";
+    return (!projects.length || projects.includes(project)) && (!tags.length || !!task?.tags.some((t) => tags.includes(t)));
+  };
+}

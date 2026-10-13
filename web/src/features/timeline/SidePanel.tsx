@@ -23,6 +23,7 @@ export function SidePanel({
   width,
   range,
   entries,
+  allEntries,
   now,
   title,
   showToday,
@@ -32,6 +33,8 @@ export function SidePanel({
   width: number;
   range: Range;
   entries: Entry[];
+  /** Unfiltered entries; set while a timeline filter is active. */
+  allEntries?: Entry[];
   now: number;
   title: string;
   showToday: boolean;
@@ -95,7 +98,7 @@ export function SidePanel({
         </button>
       </div>
       <div className="border-t px-3 py-[10px]">
-        <TotalsGrid entries={entries} now={now} range={range} running={runningCount} title={title} />
+        <TotalsGrid entries={entries} of={entries === allEntries ? undefined : allEntries} now={now} range={range} running={runningCount} title={title} />
       </div>
     </aside>
   );

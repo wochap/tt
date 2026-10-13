@@ -177,6 +177,32 @@ test("concurrent entries split the column into lanes", async ({ page }) => {
   expect(summed).not.toBe(wall);
 });
 
+test("filter the timeline to a project: dimmed entries, filtered totals, survives week and Back, clears with ⇧F", async ({ page }) => {
+  await login(page, user(17));
+  await createTask(page, "Atlas job @Atlas");
+  await createTask(page, "Billing job @Billing");
+  await createEntry(page, [9, 0], [11, 0], "atlas job");
+  await createEntry(page, [13, 0], [14, 0], "billing job");
+  await expect(page.getByTestId("entry-block")).toHaveCount(2);
+  await page.keyboard.press("f");
+  await page.keyboard.type("atlas");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/project=/);
+  await expect(page.getByTestId("filter-chip")).toContainText("Atlas");
+  const billing = page.getByTestId("entry-block").filter({ hasText: "Billing job" });
+  await expect(billing).toHaveAttribute("data-dimmed", "true");
+  await expect(page.getByTestId("entry-block").filter({ hasText: "Atlas job" })).not.toHaveAttribute("data-dimmed", "true");
+  await expect(page.getByTestId("totals-filtered")).toHaveText(/Filtered · 2h 00m of 3h 00m/);
+  await page.keyboard.press("w");
+  await expect(page).toHaveURL(/\/timeline\/week.*project=/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/timeline\/day.*project=/);
+  await page.keyboard.press("Shift+F");
+  await expect(page).not.toHaveURL(/project=/);
+  await expect(page.getByTestId("filter-chips")).toHaveCount(0);
+  await expect(page.locator("[data-dimmed]")).toHaveCount(0);
+});
+
 test("renaming a task renames its entries on the timeline", async ({ page, context }) => {
   await login(page, user(7));
   await createTask(page, "Old title");

@@ -29,6 +29,8 @@ export interface EntryBlockProps {
   /** Live label while dragging. */
   dragLabel?: string;
   draggable?: boolean;
+  /** Left out of the active timeline filter: faded, inert, not focusable. */
+  dimmed?: boolean;
   onOpen?: (event: MouseEvent | KeyboardEvent) => void;
   clippedStart?: boolean;
   clippedEnd?: boolean;
@@ -44,7 +46,15 @@ export function EntryBlock(props: EntryBlockProps) {
   const running = entry.end === null;
   const compact = height < 44 || (density !== "day" && lanes > 1 && height < 64);
   const geometry = laneGeometry(lane, lanes);
-  const style: CSSProperties = { position: "absolute", top, height, left: geometry.left, width: geometry.width, zIndex: dragging ? 30 : selected ? 6 : 5 };
+  const style: CSSProperties = {
+    position: "absolute",
+    top,
+    height,
+    left: geometry.left,
+    width: geometry.width,
+    zIndex: dragging ? 30 : selected ? 6 : 5,
+    ...(props.dimmed ? { opacity: 0.32, filter: "saturate(0)", pointerEvents: "none" } : {}),
+  };
   const day = density === "day";
   const range = dragLabel ?? `${formatClock(tz, props.start)} – ${running ? "now" : formatClock(tz, props.end)}`;
   const elapsed = formatElapsed(entryDuration(entry, now));
@@ -63,13 +73,15 @@ export function EntryBlock(props: EntryBlockProps) {
       data-lane={lane}
       data-lanes={lanes}
       data-running={running || undefined}
+      data-dimmed={props.dimmed || undefined}
     >
       <div
         ref={body.setNodeRef}
         {...body.attributes}
         {...body.listeners}
         role="button"
-        tabIndex={focused ? 0 : -1}
+        tabIndex={focused && !props.dimmed ? 0 : -1}
+        aria-disabled={props.dimmed || undefined}
         aria-label={`${title}, ${range}`}
         aria-pressed={selected}
         onClick={(event) => {

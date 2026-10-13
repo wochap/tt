@@ -7,19 +7,36 @@ export function useTotals(entries: Entry[], now: number, range: Range) {
   return totals(entries, now, range);
 }
 
-export function TotalsGrid({ entries, now, range, running, title }: { entries: Entry[]; now: number; range: Range; running: number; title: string }) {
+/** "3h 37m of 7h 29m" when `all` (the unfiltered figure) differs in kind from the shown one. */
+function Of({ shown, all }: { shown: number; all?: number }) {
+  return (
+    <>
+      {formatDuration(shown)}
+      {all !== undefined && <span className="font-normal text-muted"> of {formatDuration(all)}</span>}
+    </>
+  );
+}
+
+/** `of` is the unfiltered entry list; when given, summed and wall-clock show "<filtered> of <all>". */
+export function TotalsGrid({ entries, of, now, range, running, title }: { entries: Entry[]; of?: Entry[]; now: number; range: Range; running: number; title: string }) {
   const t = totals(entries, now, range);
+  const all = of ? totals(of, now, range) : undefined;
   return (
     <div className="flex flex-col gap-[6px]" data-testid="totals">
       <div className="tt-label">{title}</div>
+      {all && (
+        <div className="text-[11px] text-link" data-testid="totals-filtered">
+          Filtered · <Of shown={t.summed} all={all.summed} />
+        </div>
+      )}
       <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-[3px] text-[12.5px] tabular-nums">
         <span className="text-muted">Tracked (summed)</span>
         <span className="font-medium" data-testid="total-summed">
-          {formatDuration(t.summed)}
+          <Of shown={t.summed} all={all?.summed} />
         </span>
         <span className="text-muted">Wall-clock</span>
         <span className="font-medium" data-testid="total-wall">
-          {formatDuration(t.wall)}
+          <Of shown={t.wall} all={all?.wall} />
         </span>
         <span className="text-muted">Overlap</span>
         <span className="text-peach-fg" data-testid="total-overlap">
@@ -34,17 +51,23 @@ export function TotalsGrid({ entries, now, range, running, title }: { entries: E
   );
 }
 
-export function TotalsInline({ entries, now, range, className }: { entries: Entry[]; now: number; range: Range; className?: string }) {
+export function TotalsInline({ entries, of, now, range, className }: { entries: Entry[]; of?: Entry[]; now: number; range: Range; className?: string }) {
   const t = totals(entries, now, range);
+  const all = of ? totals(of, now, range) : undefined;
   return (
     <span className={cn("flex gap-[22px] tabular-nums", className)}>
+      {all && <span className="text-link">Filtered</span>}
       <span>
         <span className="text-muted">Summed </span>
-        <span className="font-medium">{formatDuration(t.summed)}</span>
+        <span className="font-medium">
+          <Of shown={t.summed} all={all?.summed} />
+        </span>
       </span>
       <span>
         <span className="text-muted">Wall-clock </span>
-        <span className="font-medium">{formatDuration(t.wall)}</span>
+        <span className="font-medium">
+          <Of shown={t.wall} all={all?.wall} />
+        </span>
       </span>
       <span>
         <span className="text-muted">Overlap </span>

@@ -38,6 +38,10 @@ export interface TimelineBoardProps {
   pxPerHour: number;
   snapMinutes: number;
   entries: Entry[];
+  /** Entries that match the timeline filter (totals); defaults to all. */
+  matching?: Entry[];
+  /** Ids of entries left out of the filter; they stay in place but are inert. */
+  dimmedIds?: ReadonlySet<string>;
   now: number;
   nowLine: number;
   todayKey: string;
@@ -280,6 +284,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
               tz={tz}
               columns={columns}
               entries={entries}
+              dimmedIds={props.dimmedIds}
               now={now}
               nowLine={props.nowLine}
               hours={hours}
@@ -312,7 +317,8 @@ export function TimelineBoard(props: TimelineBoardProps) {
             title={props.side.title}
             showToday={props.side.showToday}
             range={range}
-            entries={entries}
+            entries={props.matching ?? entries}
+            allEntries={entries}
             now={now}
             overTask={preview && isEntryPreview(preview) ? preview.overTask : undefined}
             dragging={!!preview}

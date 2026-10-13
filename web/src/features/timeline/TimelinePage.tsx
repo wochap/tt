@@ -1,6 +1,6 @@
 import { ArrowArcLeft, ArrowArcRight, CaretDown, CaretLeft, CaretRight, CaretUp } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
   addDays,
@@ -27,7 +27,7 @@ import { Segmented, SegmentedItem } from "@/components/ui/toggle-group";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useActions } from "@/data/actions";
 import { useNow, useSnapshot, useView } from "@/data/react";
-import { entriesInRange, taskTotals } from "@/data/select";
+import { entriesInRange, entryMatcher, taskTotals } from "@/data/select";
 import { projectColor, NEUTRAL } from "@/lib/colors";
 import { useKeys } from "@/lib/keys";
 import { usePhone } from "@/lib/media";
@@ -39,9 +39,11 @@ import { EmptyDay, EmptyMonth, EmptyWeek } from "./EmptyStates.tsx";
 import { EntrySheet } from "./EntrySheet.tsx";
 import { updateView } from "@/lib/device-state";
 import { type Column, columnsFrom, todayIn } from "./geometry.ts";
+import { EMPTY_FILTER, filterActive, parseFilter, type TimelineFilter, writeFilter } from "./filter.ts";
 import { JumpToDate } from "./JumpToDate.tsx";
 import { MonthView, monthCells, monthSummary } from "./MonthView.tsx";
 import { SnapMenu } from "./SnapMenu.tsx";
+import { FilterButton, FilterChips } from "./TimelineFilter.tsx";
 import { type PendingCreate, TimelineBoard } from "./TimelineBoard.tsx";
 import { TotalsInline } from "./TotalsBar.tsx";
 
@@ -51,6 +53,7 @@ export function TimelinePage() {
   const params = useParams();
   const [search, setSearch] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const phone = usePhone();
   const kind: RangeKind = phone ? "day" : params.range === "week" || params.range === "month" ? params.range : "day";
   const tz = useTz();
@@ -121,13 +124,36 @@ export function TimelinePage() {
     [view, range.from, range.to, monthGrid.from, monthGrid.to, Math.floor(now / 60_000), kind],
   );
 
+  const filter = useMemo(() => parseFilter(search, view.workspace), [search, view.workspace]);
+  const filtered = filterActive(filter);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const changeFilter = useCallback(
+    (next: TimelineFilter) => {
+      const q = writeFilter(new URLSearchParams(search), next);
+      // A history entry per change, so Back steps through filters.
+      void navigate(`${location.pathname}${q.toString() ? `?${q}` : ""}`);
+    },
+    [search, navigate, location.pathname],
+  );
+  // `matching` feeds totals, focus and selection; `entries` keeps lanes as if unfiltered.
+  const matching = useMemo(() => {
+    if (!filtered) return entries;
+    const match = entryMatcher(view, filter);
+    return entries.filter(match);
+  }, [entries, filtered, filter, view]);
+  const dimmedIds = useMemo(() => {
+    if (!filtered) return undefined;
+    const keep = new Set(matching.map((e) => e.id));
+    return new Set(entries.filter((e) => !keep.has(e.id)).map((e) => e.id));
+  }, [entries, matching, filtered]);
+
   const step = (direction: number) => {
     if (kind === "day") go({ date: addDays(date, direction) });
     else if (kind === "week") go({ date: addDays(date, 7 * direction) });
     else go({ date: addMonths(monthFirst, direction) });
   };
 
-  const sorted = useMemo(() => [...entries].sort((a, b) => a.start - b.start), [entries]);
+  const sorted = useMemo(() => [...matching].sort((a, b) => a.start - b.start), [matching]);
   const moveFocus = (delta: number) => {
     if (!sorted.length) return;
     const at = sorted.findIndex((e) => e.id === focusedId);
@@ -150,6 +176,8 @@ export function TimelinePage() {
     "arrowright": () => step(1),
     t: () => go({ date: today, kind: kind === "month" ? "day" : kind }),
     g: () => setJumpOpen(true),
+    f: () => setFilterOpen(true),
+    "shift+f": () => changeFilter(EMPTY_FILTER),
     ...(kind !== "month"
       ? {
           j: () => moveFocus(1),
@@ -176,6 +204,7 @@ export function TimelinePage() {
         <span><Kbd>←</Kbd><Kbd>→</Kbd> day</span>
         <span><Kbd>T</Kbd> today</span>
         <span><Kbd>S</Kbd> start</span>
+        <span><Kbd>F</Kbd> filter</span>
         <span><Kbd>?</Kbd> all shortcuts</span>
       </>
     ) : kind === "week" ? (
@@ -183,12 +212,14 @@ export function TimelinePage() {
         <span><Kbd>←</Kbd><Kbd>→</Kbd> week</span>
         <span><Kbd>D</Kbd> day</span>
         <span><Kbd>N</Kbd> new entry</span>
+        <span><Kbd>F</Kbd> filter</span>
         <span><Kbd>?</Kbd> all shortcuts</span>
       </>
     ) : (
       <>
         <span><Kbd>H</Kbd><Kbd>J</Kbd><Kbd>K</Kbd><Kbd>L</Kbd> move</span>
         <span><Kbd>←</Kbd><Kbd>→</Kbd> month</span>
+        <span><Kbd>F</Kbd> filter</span>
         <span><Kbd>?</Kbd> all shortcuts</span>
       </>
     ),
@@ -232,6 +263,12 @@ export function TimelinePage() {
         today={today}
         columns={columns}
         entries={entries}
+        matching={matching}
+        dimmedIds={dimmedIds}
+        filter={filter}
+        onFilter={changeFilter}
+        filterOpen={filterOpen}
+        setFilterOpen={setFilterOpen}
         now={now}
         nowLine={nowLine}
         snap={snap}
@@ -289,9 +326,11 @@ export function TimelinePage() {
           ) : (
             <SnapMenu value={snap} onChange={setSnap} hint={kind === "day"} />
           )}
+          <FilterButton open={filterOpen} onOpenChange={setFilterOpen} filter={filter} onChange={changeFilter} entries={entries} now={now} range={range} hint />
           <HistoryButtons />
         </div>
       </div>
+      <FilterChips filter={filter} onChange={changeFilter} />
 
       {kind === "month" ? (
         <>
@@ -306,12 +345,12 @@ export function TimelinePage() {
               today={today}
               weekStart={settings.weekStart}
               now={now}
-              entries={entries}
+              entries={matching}
               topTasks={settings.monthTopTasks}
               onOpenDay={(d) => go({ kind: "day", date: d })}
             />
           </div>
-          <MonthFooter monthFirst={monthFirst} entries={entries} now={now} />
+          <MonthFooter monthFirst={monthFirst} entries={matching} all={filtered ? entries : undefined} now={now} />
         </>
       ) : (
         <>
@@ -321,6 +360,8 @@ export function TimelinePage() {
             pxPerHour={kind === "day" ? 56 : 52}
             snapMinutes={snap}
             entries={entries}
+            matching={matching}
+            dimmedIds={dimmedIds}
             now={now}
             nowLine={nowLine}
             todayKey={todayKey}
@@ -328,13 +369,13 @@ export function TimelinePage() {
             focusedId={focusedId}
             onOpen={openEntry}
             side={kind === "day" ? { width: 292, title: sameDate(date, today) ? "Today" : formatDayShort(date), showToday: true } : { width: 228, title: "This week", showToday: false }}
-            header={kind === "week" ? <WeekHeader columns={columns} entries={entries} now={now} todayKey={todayKey} onOpenDay={(d) => go({ kind: "day", date: d })} /> : undefined}
+            header={kind === "week" ? <WeekHeader columns={columns} entries={matching} now={now} todayKey={todayKey} onOpenDay={(d) => go({ kind: "day", date: d })} /> : undefined}
             emptyOverlay={isEmpty ? kind === "day" ? <EmptyDay hasTasks={hasTasks} onStart={startAtNow} /> : <EmptyWeek /> : undefined}
             pendingCreate={pending}
             setPendingCreate={setPending}
             snapLabel={snap ? "snapped" : undefined}
           />
-          {kind === "week" && <WeekFooter columns={columns} entries={entries} now={now} range={range} />}
+          {kind === "week" && <WeekFooter columns={columns} entries={matching} all={filtered ? entries : undefined} now={now} range={range} />}
         </>
       )}
       <EntrySheet entryId={entryParam} onClose={closeSheet} />
@@ -409,7 +450,7 @@ function WeekHeader({ columns, entries, now, todayKey, onOpenDay }: { columns: C
   );
 }
 
-function WeekFooter({ columns, entries, now, range }: { columns: Column[]; entries: Entry[]; now: number; range: { from: number; to: number } }) {
+function WeekFooter({ columns, entries, all, now, range }: { columns: Column[]; entries: Entry[]; all?: Entry[]; now: number; range: { from: number; to: number } }) {
   const view = useView();
   const days = columns.filter((c) => totals(entries, now, { from: c.from, to: c.to }).summed > 0).length;
   const byProject = new Map<string, number>();
@@ -422,7 +463,7 @@ function WeekFooter({ columns, entries, now, range }: { columns: Column[]; entri
   return (
     <div className="flex h-8 flex-none items-center gap-[22px] border-t px-[14px] text-[12px] tabular-nums">
       <span className="text-muted">Week · {days} days tracked</span>
-      <TotalsInline entries={entries} now={now} range={range} />
+      <TotalsInline entries={entries} of={all} now={now} range={range} />
       <span className="ml-auto flex gap-[14px] text-muted">
         {legend.map(([project, seconds]) => {
           const record = project ? view.workspace.projects.get(project) : undefined;
@@ -438,22 +479,27 @@ function WeekFooter({ columns, entries, now, range }: { columns: Column[]; entri
   );
 }
 
-function MonthFooter({ monthFirst, entries, now }: { monthFirst: CivilDate; entries: Entry[]; now: number }) {
+function MonthFooter({ monthFirst, entries, all, now }: { monthFirst: CivilDate; entries: Entry[]; all?: Entry[]; now: number }) {
   const tz = useTz();
   const { weekStart } = useSettings();
   const summary = monthSummary(monthCells(tz, monthFirst, weekStart, now, entries));
+  const full = all ? monthSummary(monthCells(tz, monthFirst, weekStart, now, all)) : undefined;
+  const of = (value: number | undefined) => (value === undefined ? null : <span className="text-muted"> of {formatDuration(value)}</span>);
   return (
     <div className="flex h-8 flex-none items-center gap-[22px] border-t px-[14px] text-[12px] tabular-nums">
       <span className="text-muted">
         {MONTH_NAMES_LONG[monthFirst.month - 1]} · {summary.days} days
       </span>
+      {full && <span className="text-link">Filtered</span>}
       <span>
         <span className="text-muted">Summed </span>
         <span className="font-medium">{formatDuration(summary.summed)}</span>
+        {of(full?.summed)}
       </span>
       <span>
         <span className="text-muted">Wall-clock </span>
         <span className="font-medium">{formatDuration(summary.wall)}</span>
+        {of(full?.wall)}
       </span>
       <span>
         <span className="text-muted">Avg / day </span>
@@ -472,6 +518,12 @@ function PhoneDay(props: {
   today: CivilDate;
   columns: Column[];
   entries: Entry[];
+  matching: Entry[];
+  dimmedIds?: ReadonlySet<string>;
+  filter: TimelineFilter;
+  onFilter: (next: TimelineFilter) => void;
+  filterOpen: boolean;
+  setFilterOpen: (open: boolean) => void;
   now: number;
   nowLine: number;
   snap: SnapMinutes;
@@ -484,7 +536,8 @@ function PhoneDay(props: {
   closeSheet: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const t = totals(props.entries, props.now, props.range);
+  const t = totals(props.matching, props.now, props.range);
+  const all = props.matching === props.entries ? undefined : totals(props.entries, props.now, props.range);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-11 flex-none items-center gap-2 border-b px-[14px]">
@@ -492,18 +545,22 @@ function PhoneDay(props: {
           <CaretLeft size={13} />
         </button>
         <span className="flex-1 text-center text-[14px] font-medium">
-          {formatDayShort(props.date)} <span className="text-[11px] font-normal text-faint">· {formatDuration(t.summed)}</span>
+          {formatDayShort(props.date)} <span className="text-[11px] font-normal text-faint">· {formatDuration(t.summed)}{all && ` of ${formatDuration(all.summed)}`}</span>
         </span>
         <button type="button" aria-label="Next day" className="tt-icon-btn size-8" onClick={() => props.onStep(1)}>
           <CaretRight size={13} />
         </button>
+        <FilterButton open={props.filterOpen} onOpenChange={props.setFilterOpen} filter={props.filter} onChange={props.onFilter} entries={props.entries} now={props.now} range={props.range} size="lg" />
       </div>
+      <FilterChips filter={props.filter} onChange={props.onFilter} />
       <TimelineBoard
         columns={props.columns}
         density="phone"
         pxPerHour={44}
         snapMinutes={props.snap}
         entries={props.entries}
+        matching={props.matching}
+        dimmedIds={props.dimmedIds}
         now={props.now}
         nowLine={props.nowLine}
         todayKey={formatDate(props.today)}
@@ -514,9 +571,9 @@ function PhoneDay(props: {
       />
       <div className="flex flex-none flex-col gap-[6px] border-t bg-mantle px-[14px] py-2 text-[12px] tabular-nums" data-testid="phone-totals">
         <button type="button" className="flex min-h-7 items-center justify-between" onClick={() => setOpen(!open)} aria-expanded={open}>
-          <span className="tt-label">Today · {t.count} entries</span>
+          <span className="tt-label">{all ? "Filtered" : "Today"} · {t.count} entries</span>
           <span className="flex items-center gap-2 text-muted">
-            <span className="font-medium text-fg">{formatDuration(t.summed)}</span>
+            <span className="font-medium text-fg">{formatDuration(t.summed)}{all && <span className="font-normal text-muted"> of {formatDuration(all.summed)}</span>}</span>
             <span className="flex size-7 items-center justify-center rounded-2 border border-s1">{open ? <CaretDown size={11} /> : <CaretUp size={11} />}</span>
           </span>
         </button>
@@ -525,7 +582,7 @@ function PhoneDay(props: {
             <span className="text-muted">Summed</span>
             <span>{formatDuration(t.summed)}</span>
             <span className="text-muted">Wall-clock</span>
-            <span>{formatDuration(t.wall)}</span>
+            <span>{formatDuration(t.wall)}{all && <span className="text-muted"> of {formatDuration(all.wall)}</span>}</span>
             <span className="text-muted">Overlap</span>
             <span className="text-peach-fg">{formatDuration(t.overlap)}</span>
           </div>

@@ -16,6 +16,8 @@ export interface TimelineGridProps {
   tz: string;
   columns: Column[];
   entries: Entry[];
+  /** Entries left out of the timeline filter: drawn faded and inert, lanes unchanged. */
+  dimmedIds?: ReadonlySet<string>;
   now: number;
   /** Re-rendered on a slower tick (now line). */
   nowLine: number;
@@ -200,6 +202,7 @@ function PlacedBlock({ placed, ...props }: TimelineGridProps & { placed: Placed 
   const task = view.workspace.tasks.get(placed.entry.task);
   const active = preview && isEntryPreview(preview) && preview.entry.id === placed.entry.id ? preview : null;
   const dragging = !!active;
+  const dimmed = !!props.dimmedIds?.has(placed.entry.id);
   const relinking = !!active?.overTask;
   return (
     <EntryBlock
@@ -225,7 +228,8 @@ function PlacedBlock({ placed, ...props }: TimelineGridProps & { placed: Placed 
           ? `${formatClock(tz, active.start)} – ${active.end === null ? "now" : formatClock(tz, active.end)}${active.kind === "move" ? "" : ` · ${formatDuration(((active.end ?? now) - active.start) / 1000)}`}`
           : undefined
       }
-      draggable
+      draggable={!dimmed}
+      dimmed={dimmed}
       clippedStart={placed.clippedStart}
       clippedEnd={placed.clippedEnd}
       onOpen={(event) => props.onOpen(placed.entry, event as MouseEvent)}

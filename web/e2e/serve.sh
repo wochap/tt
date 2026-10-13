@@ -19,7 +19,7 @@ BIN=${TT_SERVER_BIN:-$ROOT/target/debug/tt-server}
 DIR=$(mktemp -d /tmp/tt-web-e2e.XXXXXX)
 trap 'rm -rf "$DIR"' EXIT
 "$BIN" --db "$DIR/server.db" init --name e2e-server >/dev/null
-for user in $(seq -f "e2e%g" 1 16); do
+for user in $(seq -f "e2e%g" 1 17); do
   printf 'password123\n' | "$BIN" --db "$DIR/server.db" user add "$user" >/dev/null
 done
 "$BIN" --db "$DIR/server.db" serve --insecure-http --behind-proxy --listen "127.0.0.1:$PORT" --web-dir "$WEB/dist" &
