@@ -32,11 +32,15 @@ The app SHALL offer Mocha, Latte and System themes implementing the design's tok
 - **THEN** the app switches to Latte without reload
 
 ### Requirement: Command palette and shortcuts
-`Ctrl+K` SHALL open a palette with: start tracking (fuzzy over tasks), stop a running entry, jump to date, switch view, create task, open settings. A `?` sheet SHALL list shortcuts grouped by scope (Global, Timeline, Lists, Entry sheet, Task detail) as in the design.
+`Ctrl+K` SHALL open a palette with: start tracking (fuzzy over tasks), stop a running entry, jump to date, switch view, create task, open settings. A `?` sheet SHALL list shortcuts grouped by scope (Global, Timeline, Lists, Entry sheet, Task detail) as in the design. The sheet SHALL list the selection keys: in Timeline, `V` (Select / Create), `Space` (toggle), `⌘A` (select all visible), `⌫` (delete selection) and `Esc` (clear selection); in Lists, `Space` (toggle), `⇧J`/`⇧K` (extend), `⌘A` (select all in filter) and `⌫` (delete selection). `C` SHALL remain listed under Global as new task.
 
 #### Scenario: Start from palette
 - **WHEN** the user types a ticket id in the palette and presses Enter on the match
 - **THEN** a running entry is created for that task and the running strip updates
+
+#### Scenario: Selection keys listed
+- **WHEN** the user opens the `?` sheet
+- **THEN** the Timeline group lists `V` Select / Create and the selection keys, the Lists group lists the multi-select keys, and `C` new task is still in Global
 
 ### Requirement: Settings
 Settings SHALL include server endpoint (with reachability indicator), week start, snap grid (5/10/15), time zone, theme, visible hours, a "New tasks use the last project" switch, and logout that wipes local data and shows the count of unsynced changes before confirming. The "New tasks use the last project" switch SHALL be on by default, SHALL be stored on the device only (not synced), and SHALL carry one line of helper text explaining that quick create starts with that project as a chip that ⌫ drops for one task.
@@ -141,3 +145,18 @@ In every segmented control (for example Day/Week/Month, List/Board and the choic
 #### Scenario: Last option selected
 - **WHEN** Month is selected in the Day/Week/Month control
 - **THEN** Month's accent ring follows the control's rounded right corners with no part cut off
+
+### Requirement: Undo toast countdown
+Undo toasts SHALL appear at the bottom left for 8 seconds and SHALL show a 2 px bar that drains linearly over the remaining time. The countdown and the bar SHALL pause while the pointer is over the toast or focus is inside it, and resume afterwards. The toast's Undo action SHALL undo the operation it announces. `⌘Z`/`Ctrl+Z` SHALL keep working through the regular undo stack after the toast is gone.
+
+#### Scenario: Bar drains and toast leaves
+- **WHEN** an undo toast is shown and the user does not interact with it
+- **THEN** its bar drains from full to empty and the toast closes after about 8 seconds
+
+#### Scenario: Hover pauses
+- **WHEN** the pointer rests on an undo toast for 5 seconds
+- **THEN** the bar stops draining and the toast stays open until the pointer leaves
+
+#### Scenario: Undo after the toast is gone
+- **WHEN** the toast for "Deleted 5 entries" has closed and the user presses `Ctrl+Z`
+- **THEN** the five entries are restored

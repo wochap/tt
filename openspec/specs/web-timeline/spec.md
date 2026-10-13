@@ -101,11 +101,15 @@ When a touch hold on empty space completes, the timeline SHALL signal that creat
 - **THEN** no armed cue or haptic pulse occurs and no drag is started
 
 ### Requirement: Entry sheet
-Clicking an entry SHALL open a sheet with task picker, start, end (or "now" when running), ±15 min and round chips, note, split at time, move to task, duplicate, delete; all edits apply immediately and are undoable.
+Clicking an entry SHALL open a sheet with task picker, start, end (or "now" when running), ±15 min and round chips, note, split at time, move to task, duplicate, delete; all edits apply immediately and are undoable. On phone layouts, the sheet SHALL also offer "Select", which starts the phone entry selection with that entry selected.
 
 #### Scenario: Invalid end
 - **WHEN** the user types an end before the start
 - **THEN** the field shows an inline error and the entry is unchanged
+
+#### Scenario: Select from the sheet on phone
+- **WHEN** the entry sheet is open on a phone layout
+- **THEN** a "Select" action is shown, and on desktop it is not
 
 ### Requirement: Totals
 Day and week views SHALL show summed, wall-clock and overlap durations for the visible range, and month cells SHALL show the day total with top tasks; all totals SHALL be computed from the same entries that are rendered. When a timeline filter is active, every total (the totals bar, the side panel, week day headers, the week and month footers and the month cells with their top tasks) SHALL count only the entries that match the filter, and the totals bar, side panel and footers SHALL mark the figures as filtered and show the unfiltered figure alongside, in the form "Filtered · 3h 37m of 7h 29m".
@@ -186,3 +190,76 @@ The timeline SHALL offer a Filter control in day, week and month views that open
 #### Scenario: Unknown selection ignored
 - **WHEN** the URL refers to a project that has been deleted
 - **THEN** that selection is ignored and no chip is shown for it
+
+### Requirement: Select and Create modes
+The desktop timeline SHALL offer two interaction modes in day and week views, with a toggle in the toolbar next to the range control: **Create** (the default, the existing behavior) and **Select**. `V` SHALL toggle between the modes. `C` SHALL keep opening the new-task palette on the timeline as on every other tab. In month view the toggle SHALL be disabled, labelled "day & week only", and `V` SHALL do nothing. Switching to Create SHALL clear the selection. In Select mode:
+- a click on an entry SHALL toggle it, and SHALL NOT open the entry sheet;
+- a shift-click SHALL select every entry between the last clicked entry and the clicked one, ordered by start time;
+- a drag on empty space SHALL draw a marquee that selects every entry it touches (adding to the selection with Shift, removing from it with Alt), and SHALL NOT propose a new range or open the task picker;
+- entries SHALL NOT be moved or resized by dragging;
+- `J`/`K` SHALL move focus, `Space` SHALL toggle the focused entry, and `⌘A`/`Ctrl+A` SHALL select every visible entry;
+- `Esc` SHALL clear the selection, or return to Create when nothing is selected.
+
+A selected entry SHALL show a ring in the text color (not the accent color), so the ring stays visible on every task color, plus a check badge. While at least one entry is selected, a floating selection bar SHALL show the count and the summed duration ("5 entries · 3h 20m selected"), a Delete action and an Esc hint. The status bar SHALL show the current mode, and the selection count and selection keys while in Select mode. The selection SHALL contain only entries that exist and are visible in the current range; entries that a timeline filter dims SHALL NOT be selectable.
+
+#### Scenario: Toggle into Select and pick entries
+- **WHEN** the user is in day view in Create mode, presses `V`, and clicks two entries
+- **THEN** the mode shows Select, both entries show the selected ring, no entry sheet opens, and the selection bar reads "2 entries · <summed duration> selected"
+
+#### Scenario: Shift-click extends by start time
+- **WHEN** in Select mode the user clicks the 09:15 entry and then shift-clicks the 10:40 entry, with a 09:45 entry between them
+- **THEN** all three entries are selected
+
+#### Scenario: Marquee selects instead of creating
+- **WHEN** in Select mode the user drags on empty space across two entries in week view
+- **THEN** both entries are selected, no pending range is shown, and no task picker opens
+
+#### Scenario: Esc clears, then leaves Select
+- **WHEN** three entries are selected and the user presses `Esc` twice
+- **THEN** the first press clears the selection and hides the bar, and the second press returns the timeline to Create mode
+
+#### Scenario: C still creates a task
+- **WHEN** the timeline is in Select mode and the user presses `C`
+- **THEN** the new-task palette opens and the mode is unchanged
+
+#### Scenario: Month view disables the toggle
+- **WHEN** the user switches to month view
+- **THEN** the mode toggle is disabled with the label "day & week only", and pressing `V` changes nothing
+
+#### Scenario: Create mode unchanged
+- **WHEN** the timeline is in Create mode and the user drags on empty space or clicks an entry
+- **THEN** a pending range with the task picker is proposed, or the entry sheet opens, exactly as before
+
+### Requirement: Bulk delete of selected entries
+Deleting a selection of entries, from the selection bar Delete action or with `⌫`/`Delete`, SHALL remove every selected entry as a single undoable operation without a confirmation dialog, clear the selection, and show one undo toast "Deleted N entries" (or "Deleted 1 entry"). One undo SHALL restore every deleted entry with its original id and fields, and redo SHALL delete them again. A running entry in the selection SHALL be deleted like any other entry. Selected entries in different year documents SHALL be deleted by the same operation.
+
+#### Scenario: Delete five entries
+- **WHEN** five entries are selected and the user presses `⌫`
+- **THEN** the five entries disappear, the selection bar hides, and one toast "Deleted 5 entries" with Undo is shown
+
+#### Scenario: One undo restores all
+- **WHEN** five entries were deleted together and the user presses `Ctrl+Z` once
+- **THEN** all five entries return with their original ids, tasks, times and notes
+
+#### Scenario: Selection across a year boundary
+- **WHEN** week view spans 31 December and 1 January, one selected entry is on each day, and the user deletes the selection
+- **THEN** both entries are deleted, and one undo restores both
+
+### Requirement: Phone entry selection
+The phone timeline SHALL NOT show a mode toggle and SHALL NOT start a selection with a long-press, because a long-press already starts a drag. The entry sheet SHALL instead offer a "Select" action that closes the sheet, selects that entry, and enters selection. While selecting, a tap on an entry SHALL toggle it instead of opening its sheet, and a bottom bar SHALL show the count and summed duration with Delete and Done. Done, or deselecting the last entry, SHALL end the selection and return taps to opening the sheet. Delete SHALL follow the bulk delete rules.
+
+#### Scenario: Start selecting from the sheet
+- **WHEN** on phone the user taps an entry, then taps "Select" in its sheet
+- **THEN** the sheet closes, that entry is selected, and the bottom bar shows "1 entry · <duration>" with Delete and Done
+
+#### Scenario: Tap toggles while selecting
+- **WHEN** one entry is selected on phone and the user taps two more entries
+- **THEN** three entries are selected and no sheet opens
+
+#### Scenario: Long-press still drags
+- **WHEN** on phone the user long-presses an entry for 250 ms and drags it
+- **THEN** the entry moves as before, and no selection starts
+
+#### Scenario: Done exits
+- **WHEN** entries are selected on phone and the user taps Done
+- **THEN** the selection clears, the bar hides, and tapping an entry opens its sheet again

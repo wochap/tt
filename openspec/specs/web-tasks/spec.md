@@ -98,3 +98,45 @@ While the device setting "New tasks use the last project" is on, the web app SHA
 #### Scenario: Setting off
 - **WHEN** the setting is off and the last created task had project foo
 - **THEN** quick create shows no chip and new tasks get a project only from an explicit `@project`
+
+### Requirement: Task multi-select
+The task list SHALL have a checkbox column that always reserves its width, so that showing a checkbox never shifts the row. A row's checkbox SHALL be visible on hover, on keyboard focus, and on every row once any task is selected. Clicking a checkbox SHALL toggle that task. Shift-click SHALL select the range of visible rows between the last toggled row and the clicked row. `Space` SHALL toggle the focused row, and `⇧J`/`⇧K` SHALL extend the selection while moving focus. The header checkbox and `⌘A`/`Ctrl+A` SHALL select every task in the current filter and search. On the board, `⌘`/`Ctrl`-click or `Space` on the focused card SHALL toggle a card, and a selected card SHALL show the selected ring and check badge. On phone, rows SHALL show checkboxes and an action bar while a selection exists. While at least one task is selected, a selection bar SHALL show "N tasks · M entries" (M = the total time entries of the selected tasks), "Select all K in view" (`⌘A`), Delete and an Esc hint. `Esc` SHALL clear the selection. The selection SHALL contain only tasks that still exist; changing the filter or search SHALL drop tasks that no longer match.
+
+#### Scenario: Range select by shift-click
+- **WHEN** the user checks task #44 and shift-clicks the checkbox of #41, three rows below
+- **THEN** #44, the two rows between them and #41 are selected, and the bar shows "4 tasks · <entries> entries"
+
+#### Scenario: Select all in the current filter
+- **WHEN** the Project filter is Atlas, 7 tasks match, and the user presses `⌘A`
+- **THEN** exactly those 7 tasks are selected
+
+#### Scenario: Checkbox column does not shift rows
+- **WHEN** no task is selected and the user hovers a row so its checkbox appears
+- **THEN** the row's title and the other columns stay at the same horizontal position
+
+#### Scenario: Board card selection
+- **WHEN** in board view the user `⌘`-clicks two cards
+- **THEN** both cards show the selected state and the selection bar shows "2 tasks · <entries> entries"
+
+#### Scenario: Esc clears
+- **WHEN** three tasks are selected and the user presses `Esc`
+- **THEN** no task is selected and the selection bar is hidden
+
+### Requirement: Bulk delete tasks
+Deleting a task selection, from the selection bar Delete action or with `⌫`, SHALL follow the rules of single task delete applied to the whole set. If no selected task has time entries in any year, every selected task SHALL be deleted immediately. If any selected task has entries, nothing SHALL be deleted until the user confirms one dialog titled "Delete N tasks and M entries?", which lists each selected task with entries and its entry count, has Cancel focused on open, and offers "Delete N tasks and M entries"; Cancel or `Esc` SHALL leave everything unchanged. The whole deletion, including all entries, SHALL be a single undoable operation with one undo toast ("Deleted N tasks" or "Deleted N tasks and M entries"). One undo SHALL restore every task with its id and short id and every entry with its id and fields. While the device is still loading entry documents, bulk delete SHALL refuse with the same "Still loading your entries…" error and delete nothing. Short ids of deleted tasks SHALL NOT be reused.
+
+#### Scenario: Unused tasks go at once
+- **WHEN** three selected tasks have no entries and the user presses `⌫`
+- **THEN** the three tasks disappear without a dialog and one toast "Deleted 3 tasks" with Undo is shown
+
+#### Scenario: Tasks with entries ask once
+- **WHEN** #44 (17 entries), #37 (18 entries) and #41 (6 entries) are selected and the user chooses Delete
+- **THEN** one dialog "Delete 3 tasks and 41 entries?" lists the three tasks with their counts, and nothing is deleted yet
+
+#### Scenario: Confirm and undo
+- **WHEN** the user confirms "Delete 3 tasks and 41 entries" and then presses `Ctrl+Z` once
+- **THEN** the three tasks and 41 entries are first removed with one toast "Deleted 3 tasks and 41 entries", and are then all restored with their original ids and short ids
+
+#### Scenario: Still loading
+- **WHEN** a year document listed in the index has not loaded yet and the user deletes a selection
+- **THEN** an error toast "Still loading your entries…" is shown and no task or entry is deleted
