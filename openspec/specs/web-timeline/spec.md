@@ -39,26 +39,34 @@ A persistent strip SHALL list every running entry with task title, elapsed time 
 - **THEN** the strip shows neither the S nor the N hint
 
 ### Requirement: Drag interactions
-Using dnd-kit the timeline SHALL support: drag on empty space to create (task picker on release), drag body to move, drag top/bottom edge to resize, drop onto the task side panel to re-link, snapping to the configured grid with Alt disabling snap and Shift locking the column in week view, and a 4 px drag threshold. With a mouse or pen a drag SHALL begin once the pointer has moved past the threshold. With touch, a drag to create on empty space SHALL begin only after the finger has been held in place for a hold delay of about 250 ms; a touch that moves beyond a small tolerance before the hold completes SHALL scroll the timeline instead and SHALL NOT create anything. The dotted pending range left by a create drag SHALL itself be adjustable until a task is picked or it is dismissed: dragging its body SHALL move it and dragging its top or bottom edge SHALL resize it, with the same snapping, Alt and Shift behavior and one-grid-step minimum duration as entries, and a press on it SHALL NOT start a new create. The task picker SHALL follow the range to its new position after an adjust. Resize edges of the pending range and of entries SHALL have a touch-sized hit area (at least 40 px tall) without changing their visible appearance, while a block's body SHALL remain draggable even when the block is short.
+Using dnd-kit the timeline SHALL support: drag on empty space to create (task picker on release), drag body to move, drag top/bottom edge to resize, drop onto the task side panel to re-link, snapping to the Start grid and Duration grid with Alt disabling snap and Shift locking the column in week view, and a 4 px drag threshold. A create SHALL put its start on the Start grid at or before the pointer and SHALL make its length the dragged length rounded up to the Duration grid. A move SHALL put the start on the nearest Start grid mark and keep the length. A resize SHALL keep the opposite edge in place and SHALL change the length in Duration grid steps, to the nearest step from the pointer. The minimum length SHALL be one Duration grid step. A Start grid of off SHALL place starts to the minute; Alt SHALL place starts and lengths to the minute for that drag only. With a mouse or pen a drag SHALL begin once the pointer has moved past the threshold. With touch, a drag to create on empty space SHALL begin only after the finger has been held in place for a hold delay of about 250 ms; a touch that moves beyond a small tolerance before the hold completes SHALL scroll the timeline instead and SHALL NOT create anything. The dotted pending range left by a create drag SHALL itself be adjustable until a task is picked or it is dismissed: dragging its body SHALL move it and dragging its top or bottom edge SHALL resize it, with the same snapping, Alt and Shift behavior and minimum length as entries, and a press on it SHALL NOT start a new create. The task picker SHALL follow the range to its new position after an adjust. Resize edges of the pending range and of entries SHALL have a touch-sized hit area (at least 40 px tall) without changing their visible appearance, while a block's body SHALL remain draggable even when the block is short.
 
 #### Scenario: Create with snap
-- **WHEN** snap is 15 min and the user drags from 13:07 to 13:52 on empty space
+- **WHEN** start and duration grids are 15 min and the user drags from 13:07 to 13:52 on empty space
 - **THEN** the proposed entry is 13:00–14:00 and releasing opens the task picker anchored to it
+
+#### Scenario: Create with a long duration grid
+- **WHEN** the start grid is 15 min, the duration grid is 60 min and the user drags from 13:07 to 13:20
+- **THEN** the proposed entry is 13:00–14:00
+
+#### Scenario: Resize in duration steps
+- **WHEN** the start grid is 15 min, the duration grid is 60 min and the user drags the bottom edge of 13:00–14:00 to 14:50
+- **THEN** the entry becomes 13:00–15:00
 
 #### Scenario: Re-link by drop
 - **WHEN** an entry is dropped onto task #30 in the side panel
 - **THEN** the entry's task becomes #30 and an undo toast appears
 
 #### Scenario: Move the pending range
-- **WHEN** a pending range 13:00–14:00 is shown, snap is 15 min, and the user drags its body down by 30 min
+- **WHEN** a pending range 13:00–14:00 is shown, start and duration grids are 15 min, and the user drags its body down by 30 min
 - **THEN** the pending range becomes 13:30–14:30, no new range is created, and the task picker is anchored to the moved range
 
 #### Scenario: Resize the pending range
-- **WHEN** a pending range 13:00–14:00 is shown and the user drags its bottom edge to 14:50
+- **WHEN** a pending range 13:00–14:00 is shown, the duration grid is 60 min, and the user drags its bottom edge to 14:50
 - **THEN** the pending range becomes 13:00–15:00 and its start is unchanged
 
 #### Scenario: Minimum duration while resizing
-- **WHEN** snap is 15 min and the user drags the top edge of a pending range 13:00–14:00 below its bottom edge
+- **WHEN** start and duration grids are 15 min and the user drags the top edge of a pending range 13:00–14:00 below its bottom edge
 - **THEN** the range is 13:45–14:00
 
 #### Scenario: Empty space still creates
@@ -71,7 +79,7 @@ Using dnd-kit the timeline SHALL support: drag on empty space to create (task pi
 
 #### Scenario: Touch long-press then drag creates a range
 - **WHEN** on a touch device the user presses empty space in the day column, holds still for the hold delay, then drags down 45 minutes' worth of grid and lifts
-- **THEN** the proposed range spans the dragged interval snapped to the grid and the task picker opens anchored to it, exactly as for a mouse drag
+- **THEN** the proposed range spans the dragged interval snapped to the grids and the task picker opens anchored to it, exactly as for a mouse drag
 
 #### Scenario: Quick swipe scrolls
 - **WHEN** on a touch device the user swipes vertically on empty space in the day column before the hold delay elapses
@@ -101,7 +109,7 @@ When a touch hold on empty space completes, the timeline SHALL signal that creat
 - **THEN** no armed cue or haptic pulse occurs and no drag is started
 
 ### Requirement: Entry sheet
-Clicking an entry SHALL open a sheet with task picker, start, end (or "now" when running), ±15 min and round chips, note, split at time, move to task, duplicate, delete; all edits apply immediately and are undoable. On phone layouts, the sheet SHALL also offer "Select", which starts the phone entry selection with that entry selected.
+Clicking an entry SHALL open a sheet with task picker, start, end (or "now" when running), ±15 min and round chips, note, split at time, move to task, duplicate, delete; all edits apply immediately and are undoable. The round chip SHALL move the start down to the Start grid (to the minute when off) and, for a stopped entry, set the end so that the length from the new start to the old end is rounded up to the Duration grid. On phone layouts, the sheet SHALL also offer "Select", which starts the phone entry selection with that entry selected.
 
 #### Scenario: Invalid end
 - **WHEN** the user types an end before the start
@@ -110,6 +118,10 @@ Clicking an entry SHALL open a sheet with task picker, start, end (or "now" when
 #### Scenario: Select from the sheet on phone
 - **WHEN** the entry sheet is open on a phone layout
 - **THEN** a "Select" action is shown, and on desktop it is not
+
+#### Scenario: Round chip uses both grids
+- **WHEN** the start grid is 15 min, the duration grid is 30 min and the user rounds a stopped entry 09:07–09:25
+- **THEN** the entry becomes 09:00–09:30
 
 ### Requirement: Totals
 Day and week views SHALL show summed, wall-clock and overlap durations for the visible range, and month cells SHALL show the day total with top tasks; all totals SHALL be computed from the same entries that are rendered. When a timeline filter is active, every total (the totals bar, the side panel, week day headers, the week and month footers and the month cells with their top tasks) SHALL count only the entries that match the filter, and the totals bar, side panel and footers SHALL mark the figures as filtered and show the unfiltered figure alongside, in the form "Filtered · 3h 37m of 7h 29m".
@@ -263,3 +275,22 @@ The phone timeline SHALL NOT show a mode toggle and SHALL NOT start a selection 
 #### Scenario: Done exits
 - **WHEN** entries are selected on phone and the user taps Done
 - **THEN** the selection clears, the bar hides, and tapping an entry opens its sheet again
+
+### Requirement: Grid chip
+The timeline toolbar SHALL show a grid chip reading "Start <grid> · Dur <grid>" (e.g. "Start 15m · Dur 15m", "off" for an off start grid) that opens a menu with a Start radio group (off/5/10/15/30/60 min), a Duration radio group (5/10/15/30/60 min), a "Reset to default" item naming the Settings values, and the hint that holding ⌥ while dragging disables snapping for that drag. Start options that do not divide the selected duration SHALL be disabled, and selecting a duration that the current start does not divide SHALL set the start to the largest valid value. The chip SHALL start from the Settings defaults; a change in the menu SHALL apply to the timeline for the session only and SHALL NOT change Settings. While the timeline's grids differ from Settings the chip SHALL show an accent dot, and "Reset to default" SHALL restore the Settings values. The previous ⌥1/⌥2/⌥3/⌥0 snap shortcuts SHALL NOT be offered.
+
+#### Scenario: Default state
+- **WHEN** Settings has start and duration 15 min and the user opens the timeline
+- **THEN** the chip reads "Start 15m · Dur 15m" with no accent dot
+
+#### Scenario: Session override
+- **WHEN** the user picks Start 5 min in the chip menu
+- **THEN** the chip reads "Start 5m · Dur 15m" with an accent dot, drags snap starts to 5 minutes, and Settings still shows Start grid 15 min
+
+#### Scenario: Reset to default
+- **WHEN** the chip is overridden and the user picks "Reset to default"
+- **THEN** the chip shows the Settings grids and the accent dot disappears
+
+#### Scenario: Shortcuts removed
+- **WHEN** the user presses ⌥1 on the timeline
+- **THEN** the grids do not change

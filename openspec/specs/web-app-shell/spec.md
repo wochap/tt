@@ -43,7 +43,7 @@ The app SHALL offer Mocha, Latte and System themes implementing the design's tok
 - **THEN** the Timeline group lists `V` Select / Create and the selection keys, the Lists group lists the multi-select keys, and `C` new task is still in Global
 
 ### Requirement: Settings
-Settings SHALL include server endpoint (with reachability indicator), week start, snap grid (5/10/15), time zone, theme, visible hours, a "New tasks use the last project" switch, and logout that wipes local data and shows the count of unsynced changes before confirming. The "New tasks use the last project" switch SHALL be on by default, SHALL be stored on the device only (not synced), and SHALL carry one line of helper text explaining that quick create starts with that project as a chip that ⌫ drops for one task.
+Settings SHALL include server endpoint (with reachability indicator), week start, a Start grid (off/5/10/15/30/60 min) and a Duration grid (5/10/15/30/60 min), time zone, theme, visible hours, a "New tasks use the last project" switch, and logout that wipes local data and shows the count of unsynced changes before confirming. The Start grid and Duration grid SHALL be stored on the device only, SHALL default to 15 min each, and SHALL carry helper text saying that the Timeline and Reports start from them and that changing them there overrides that view only. Start grid options that do not divide the chosen Duration grid SHALL be disabled with the hint "must divide duration", and choosing a Duration grid that the current Start grid does not divide SHALL set the Start grid to the largest valid value. A device that stored the previous single snap value SHALL get it as its Start grid (off stays off) and as its Duration grid (off becomes 15 min). The "New tasks use the last project" switch SHALL be on by default, SHALL be stored on the device only (not synced), and SHALL carry one line of helper text explaining that quick create starts with that project as a chip that ⌫ drops for one task.
 
 #### Scenario: Logout with unsynced changes
 - **WHEN** the user clicks logout while 12 changes are unsynced
@@ -56,6 +56,18 @@ Settings SHALL include server endpoint (with reachability indicator), week start
 #### Scenario: Sticky project switch is per device
 - **WHEN** the user turns the switch off in one browser
 - **THEN** it stays off after reload in that browser, and another device keeps its own value
+
+#### Scenario: Grid defaults
+- **WHEN** a user opens Settings on a new device
+- **THEN** Start grid and Duration grid both read 15 min and Start grid options 10, 30 and 60 min are disabled
+
+#### Scenario: Duration change lowers the start
+- **WHEN** Start grid is 15 min and the user selects Duration grid 10 min
+- **THEN** Start grid becomes 10 min
+
+#### Scenario: Old snap value migrated
+- **WHEN** the device stored snap 10 min before this change
+- **THEN** Settings shows Start grid 10 min and Duration grid 10 min
 
 ### Requirement: Server section in settings
 Settings SHALL include a Server section between Sync and Shortcuts showing this server's name, short id (copyable) and version, and a read-only list of peers from `GET /api/peers` with a status dot, name, state, last seen and address per row. The list SHALL render as a table on desktop and a stacked list on phone, SHALL refresh while the section is visible, and SHALL show an empty state ("Not paired with other servers") with the CLI commands `tt-server peer invite` and `tt-server peer join <code>`.
