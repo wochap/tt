@@ -198,7 +198,7 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
                 <div style="font-size:12.5px;color:var(--c-muted);max-width:440px;line-height:1.5;text-wrap:pretty">{{ r.emptyText }}</div>
                 <div style="display:flex;gap:8px;margin-top:4px"><span class="btn btn-secondary" style="font-size:12.5px;padding:5px 12px;gap:8px">Clear filters <kbd>⇧F</kbd></span><span class="btn btn-ghost" style="font-size:12.5px;padding:5px 12px;gap:8px">Edit filter <kbd>F</kbd></span></div>
               </div></sc-if>
-              <div style="padding:10px 18px 12px;font-size:11.5px;color:var(--c-faint)">Running entries are cut at export time. Overlap is resolved in start order; the later entry is pushed, never shortened. Rows rounded to 0m are dropped from the download.</div>
+              <div style="padding:10px 18px 12px;font-size:11.5px;color:var(--c-faint)">Running entries are cut at export time. Overlap is resolved in start order across the whole range, so a row pushed past midnight pushes the next day too; rows stay under the day of their raw start. Rows rounded to 0m are dropped from the download.</div>
             </div>
           </div>
           <div style="height:24px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Synced · laptop-a</span><span>Europe/Berlin</span><span style="margin-left:auto;display:flex;gap:10px;align-items:center"><span><kbd>D</kbd><kbd>W</kbd><kbd>M</kbd> range</span><span><kbd>←</kbd><kbd>→</kbd> previous / next</span><span><kbd>G</kbd> jump to date</span><span><kbd>⌘E</kbd> export</span><span><kbd>?</kbd> all shortcuts</span></span></div>
@@ -207,8 +207,8 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
       </sc-for>
       <div style="display:flex;gap:24px;align-items:flex-start">
         <div style="display:flex;flex-direction:column;gap:8px">
-          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">9.5 · controls &amp; rows</span>Duration / Start menus, hover pair, dropped, +1d · {{ t.name }} · 1008×680</div>
-          <div data-screen-label="Rounding controls {{ t.name }}" style="width:1008px;height:680px;box-sizing:border-box;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;box-shadow:var(--frame-shadow);font-size:12px;padding:16px 18px;display:flex;flex-direction:column;gap:18px">
+          <div style="font-size:12px;color:var(--canvas-label);display:flex;gap:8px"><span style="font-family:var(--c-mono);font-size:10.5px;padding:2px 6px;border-radius:var(--radius-sm);background:var(--canvas-chip);color:var(--canvas-chip-text)">9.5 · controls &amp; rows</span>Duration / Start menus, hover pair, dropped, +1d, carry-over · {{ t.name }} · 1008×830</div>
+          <div data-screen-label="Rounding controls {{ t.name }}" style="width:1008px;height:830px;box-sizing:border-box;background:var(--c-base);color:var(--c-text);border-radius:var(--r-frame);overflow:hidden;box-shadow:var(--frame-shadow);font-size:12px;padding:16px 18px;display:flex;flex-direction:column;gap:18px">
             <div style="display:flex;gap:20px;align-items:flex-start">
               <div style="display:flex;flex-direction:column;gap:6px">
                 <span style="font-size:11px;color:var(--c-muted);text-transform:uppercase;letter-spacing:.08em">Duration · open</span>
@@ -252,6 +252,10 @@ kbd{font:inherit;font-size:10px;padding:1px 5px;border-radius:var(--radius-sm);b
             <div style="display:flex;flex-direction:column;gap:6px">
               <span style="font-size:11px;color:var(--c-muted);text-transform:uppercase;letter-spacing:.08em">Pushed past midnight · +1d, stays under its raw day</span>
               <div style="position:relative;border-radius:var(--radius-md);overflow:hidden;background:linear-gradient(to right,var(--c-mantle) 50%,var(--c-base) 50%)"><sc-for list="{{ t.repStates.nextRows }}" as="x" hint-placeholder-count="2"><div tabIndex="0" onMouseEnter="{{ x.enter }}" onMouseLeave="{{ x.leave }}" onFocus="{{ x.enter }}" onBlur="{{ x.leave }}" style="{{ x.rowStyle }}"><sc-if value="{{ x.isEntry }}" hint-placeholder-val="{{ true }}"><div style="display:grid;grid-template-columns:92px minmax(0,1fr) 52px;gap:10px;align-items:center;padding:0 10px;min-width:0"><span style="font-family:var(--c-mono);font-size:11.5px;color:var(--c-sub1)">{{ x.rawRange }}</span><span style="display:flex;align-items:center;gap:6px;min-width:0"><span style="width:7px;height:7px;border-radius:var(--r-xs);background:{{ x.color }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.title }}</span></span><span style="text-align:right">{{ x.rawDur }}</span></div><div style="{{ x.flatStyle }}"><span style="font-family:var(--c-mono);font-size:11.5px">{{ x.fRange }}</span><span style="display:flex"><sc-if value="{{ x.next }}" hint-placeholder-val="{{ false }}"><span title="Pushed past midnight" style="font-family:var(--c-mono);font-size:9.5px;line-height:14px;padding:0 4px;border-radius:var(--r-xs);color:var(--c-sub1);background:var(--c-s0)">+1d</span></sc-if></span><span style="display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden"><sc-if value="{{ x.hov }}" hint-placeholder-val="{{ false }}"><span style="font-family:var(--c-mono);font-size:10.5px;color:var(--c-muted);white-space:nowrap;flex:none">{{ x.rawReveal }}</span></sc-if><sc-for list="{{ x.badges }}" as="b" hint-placeholder-count="1"><span style="{{ b.style }}">{{ b.label }}</span></sc-for><sc-if value="{{ x.dropped }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;color:var(--c-faint);white-space:nowrap">not in download</span></sc-if></span><span style="text-align:right">{{ x.fDur }}</span></div></sc-if><sc-if value="{{ x.isTask }}" hint-placeholder-val="{{ false }}"><div style="display:grid;grid-template-columns:92px minmax(0,1fr) 52px;gap:10px;align-items:center;padding:0 10px;min-width:0"><sc-if value="{{ x.hasRaw }}" hint-placeholder-val="{{ true }}"><span style="font-family:var(--c-mono);font-size:11.5px;color:var(--c-sub1)">{{ x.rawRange }}</span><span style="display:flex;align-items:center;gap:6px;min-width:0"><span style="width:7px;height:7px;border-radius:var(--r-xs);background:{{ x.color }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.title }}</span></span><span style="text-align:right">{{ x.rawDur }}</span></sc-if></div><div style="{{ x.flatStyle }}"><sc-if value="{{ x.hasTask }}" hint-placeholder-val="{{ true }}"><span style="display:flex;align-items:center;gap:6px;min-width:0"><span style="width:7px;height:7px;border-radius:var(--r-xs);background:{{ x.tColor }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.tTitle }}</span></span><span style="font-size:11px;color:var(--c-faint);white-space:nowrap">{{ x.tCount }}</span><span style="display:flex;gap:4px"><sc-for list="{{ x.tBadges }}" as="b" hint-placeholder-count="0"><span style="{{ b.style }}">{{ b.label }}</span></sc-for></span><span style="text-align:right">{{ x.tDur }}</span></sc-if></div></sc-if></div></sc-for><span style="position:absolute;top:0;bottom:0;left:0;right:50%;border:1px solid var(--c-s0);border-right:0;border-radius:var(--radius-md) 0 0 var(--radius-md);pointer-events:none"></span><span style="position:absolute;top:0;bottom:0;left:50%;right:0;border:1px solid var(--color-accent);border-radius:0 var(--radius-md) var(--radius-md) 0;pointer-events:none"></span></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-size:11px;color:var(--c-muted);text-transform:uppercase;letter-spacing:.08em">Pushed by the previous day's +1d row · flattening carries across midnight</span>
+              <div style="position:relative;border-radius:var(--radius-md);overflow:hidden;background:linear-gradient(to right,var(--c-mantle) 50%,var(--c-base) 50%)"><sc-for list="{{ t.repStates.carryGroups }}" as="g" hint-placeholder-count="2"><div style="display:grid;grid-template-columns:1fr 1fr;height:26px;font-size:11.5px;border-bottom:1px solid var(--c-s1)"><div style="display:flex;align-items:center;gap:8px;padding:0 10px;background:color-mix(in srgb,var(--c-s0) 70%,var(--c-mantle))"><span style="font-weight:500">{{ g.label }}</span><span style="color:var(--c-faint)">{{ g.note }}</span></div><div style="background:color-mix(in srgb,var(--c-s0) 70%,var(--c-base))"></div></div><sc-for list="{{ g.rows }}" as="x" hint-placeholder-count="1"><div tabIndex="0" onMouseEnter="{{ x.enter }}" onMouseLeave="{{ x.leave }}" onFocus="{{ x.enter }}" onBlur="{{ x.leave }}" style="{{ x.rowStyle }}"><sc-if value="{{ x.isEntry }}" hint-placeholder-val="{{ true }}"><div style="display:grid;grid-template-columns:92px minmax(0,1fr) 52px;gap:10px;align-items:center;padding:0 10px;min-width:0"><span style="font-family:var(--c-mono);font-size:11.5px;color:var(--c-sub1)">{{ x.rawRange }}</span><span style="display:flex;align-items:center;gap:6px;min-width:0"><span style="width:7px;height:7px;border-radius:var(--r-xs);background:{{ x.color }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.title }}</span></span><span style="text-align:right">{{ x.rawDur }}</span></div><div style="{{ x.flatStyle }}"><span style="font-family:var(--c-mono);font-size:11.5px">{{ x.fRange }}</span><span style="display:flex"><sc-if value="{{ x.next }}" hint-placeholder-val="{{ false }}"><span title="Pushed past midnight" style="font-family:var(--c-mono);font-size:9.5px;line-height:14px;padding:0 4px;border-radius:var(--r-xs);color:var(--c-sub1);background:var(--c-s0)">+1d</span></sc-if></span><span style="display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden"><sc-if value="{{ x.hov }}" hint-placeholder-val="{{ false }}"><span style="font-family:var(--c-mono);font-size:10.5px;color:var(--c-muted);white-space:nowrap;flex:none">{{ x.rawReveal }}</span></sc-if><sc-for list="{{ x.badges }}" as="b" hint-placeholder-count="1"><span style="{{ b.style }}">{{ b.label }}</span></sc-for><sc-if value="{{ x.dropped }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px;color:var(--c-faint);white-space:nowrap">not in download</span></sc-if></span><span style="text-align:right">{{ x.fDur }}</span></div></sc-if><sc-if value="{{ x.isTask }}" hint-placeholder-val="{{ false }}"><div style="display:grid;grid-template-columns:92px minmax(0,1fr) 52px;gap:10px;align-items:center;padding:0 10px;min-width:0"><sc-if value="{{ x.hasRaw }}" hint-placeholder-val="{{ true }}"><span style="font-family:var(--c-mono);font-size:11.5px;color:var(--c-sub1)">{{ x.rawRange }}</span><span style="display:flex;align-items:center;gap:6px;min-width:0"><span style="width:7px;height:7px;border-radius:var(--r-xs);background:{{ x.color }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.title }}</span></span><span style="text-align:right">{{ x.rawDur }}</span></sc-if></div><div style="{{ x.flatStyle }}"><sc-if value="{{ x.hasTask }}" hint-placeholder-val="{{ true }}"><span style="display:flex;align-items:center;gap:6px;min-width:0"><span style="width:7px;height:7px;border-radius:var(--r-xs);background:{{ x.tColor }};flex:none"></span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.tTitle }}</span></span><span style="font-size:11px;color:var(--c-faint);white-space:nowrap">{{ x.tCount }}</span><span style="display:flex;gap:4px"><sc-for list="{{ x.tBadges }}" as="b" hint-placeholder-count="0"><span style="{{ b.style }}">{{ b.label }}</span></sc-for></span><span style="text-align:right">{{ x.tDur }}</span></sc-if></div></sc-if></div></sc-for></sc-for><span style="position:absolute;top:0;bottom:0;left:0;right:50%;border:1px solid var(--c-s0);border-right:0;border-radius:var(--radius-md) 0 0 var(--radius-md);pointer-events:none"></span><span style="position:absolute;top:0;bottom:0;left:50%;right:0;border:1px solid var(--color-accent);border-radius:0 var(--radius-md) var(--radius-md) 0;pointer-events:none"></span></div>
             </div>
           </div>
         </div>
@@ -1423,7 +1427,7 @@ Render invoices server-side with <span style="color:var(--ctp-peach)">`pdfkit`</
                 <div style="font-size:12.5px;color:var(--c-muted);max-width:440px;line-height:1.5;text-wrap:pretty">{{ r.emptyText }}</div>
                 <div style="display:flex;gap:8px;margin-top:4px"><span class="btn btn-secondary" style="font-size:12.5px;padding:5px 12px;gap:8px">Clear filters <kbd>⇧F</kbd></span><span class="btn btn-ghost" style="font-size:12.5px;padding:5px 12px;gap:8px">Edit filter <kbd>F</kbd></span></div>
               </div></sc-if>
-              <div style="padding:10px 18px 12px;font-size:11.5px;color:var(--c-faint)">Running entries are cut at export time. Overlap is resolved in start order; the later entry is pushed, never shortened. Rows rounded to 0m are dropped from the download.</div>
+              <div style="padding:10px 18px 12px;font-size:11.5px;color:var(--c-faint)">Running entries are cut at export time. Overlap is resolved in start order across the whole range, so a row pushed past midnight pushes the next day too; rows stay under the day of their raw start. Rows rounded to 0m are dropped from the download.</div>
             </div>
           </div>
           <div style="height:24px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid var(--c-s0);background:var(--c-mantle);font-size:11px;color:var(--c-faint)"><span style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ctp-green)"></span>Synced · laptop-a</span><span>Europe/Berlin</span><span style="margin-left:auto;display:flex;gap:10px;align-items:center"><span><kbd>D</kbd><kbd>W</kbd><kbd>M</kbd> range</span><span><kbd>←</kbd><kbd>→</kbd> previous / next</span><span><kbd>G</kbd> jump to date</span><span><kbd>⌘E</kbd> export</span><span><kbd>?</kbd> all shortcuts</span></span></div>
@@ -2087,9 +2091,10 @@ class Component extends DCLogic {
     const DOW9 = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const CFG = { sg: 15, sm: 'nearest', dg: 15, dm: 'nearest' };
     const rnd = (v, g, m) => (m === 'up' ? Math.ceil(v / g) * g : Math.round(v / g) * g);
-    const hm = (m) => (m === 1440 ? '24:00' : hhmm(((m % 1440) + 1440) % 1440));
+    const hm = (m, isEnd) => (isEnd && m === 1440 ? '24:00' : hhmm(((m % 1440) + 1440) % 1440));
     const toRaw = (l) => l.map(([s, e, id]) => ({ s, e: e == null ? NOW : e, id })).sort((a, b) => a.s - b.s);
-    const exportDay = (raw) => { let cur = -1; return raw.map((x) => { const len = x.e - x.s, d = rnd(len, CFG.dg, CFG.dm); let s = CFG.sg ? rnd(x.s, CFG.sg, CFG.sm) : x.s; const snapped = s !== x.s; if (d === 0) return { ...x, rs: s, re: s, d: 0, dropped: true }; const moved = s < cur; if (moved) s = cur; cur = s + d; return { ...x, rs: s, re: cur, d, moved, snapped: snapped && !moved, rounded: d !== len, next: cur > 1440 }; }); };
+    const exportDay = (raw, cur0 = -1) => { let cur = cur0; const out = raw.map((x) => { const len = x.e - x.s, d = rnd(len, CFG.dg, CFG.dm); let s = CFG.sg ? rnd(x.s, CFG.sg, CFG.sm) : x.s; const snapped = s !== x.s; if (d === 0) return { ...x, rs: s, re: s, d: 0, dropped: true }; const moved = s < cur; if (moved) s = cur; cur = s + d; return { ...x, rs: s, re: cur, d, moved, snapped: snapped && !moved, rounded: d !== len, next: cur > 1440 }; }); return { out, cur }; };
+    const exportRange = (list) => { let cur = -1, prev = null; return list.map((d) => { if (prev != null) cur -= 1440 * (d.idx - prev); prev = d.idx; const r = exportDay(d.raw, cur); cur = r.cur; return r.out; }); };
     const union = (l) => { let t = 0, ce = -1; l.forEach((x) => { if (x.s >= ce) { t += x.e - x.s; ce = x.e; } else if (x.e > ce) { t += x.e - ce; ce = x.e; } }); return t; };
     const sumR = (l) => l.reduce((a, x) => a + x.e - x.s, 0), sumF = (l) => l.reduce((a, x) => a + x.d, 0);
     const sgn = (d) => (d === 0 ? '±0m' : (d > 0 ? '+' : '−') + dur(Math.abs(d)));
@@ -2106,8 +2111,8 @@ class Component extends DCLogic {
     const eRow = (x, k, force) => {
       const hov = !!force || hovS === k;
       return {
-        isEntry: true, isTask: false, key: k, rawRange: `${hm(x.s)}–${hm(x.e)}`, title: T[x.id].title, color: colorOf(x.id), rawDur: dur(x.e - x.s),
-        fRange: x.dropped ? hm(x.rs) : `${hm(x.rs)}–${hm(x.re)}`, fDur: dur(x.d), next: !!x.next, hov, rawReveal: `raw ${hm(x.s)}–${hm(x.e)}`, dropped: !!x.dropped, badges: badgesOf(x),
+        isEntry: true, isTask: false, key: k, rawRange: `${hm(x.s)}–${hm(x.e, true)}`, title: T[x.id].title, color: colorOf(x.id), rawDur: dur(x.e - x.s),
+        fRange: x.dropped ? hm(x.rs) : `${hm(x.rs)}–${hm(x.re, true)}`, fDur: dur(x.d), next: !!x.next, hov, rawReveal: `raw ${hm(x.s)}–${hm(x.e, true)}`, dropped: !!x.dropped, badges: badgesOf(x),
         rowStyle: rowSt(hov), flatStyle: flatSt(hov, '92px auto minmax(0,1fr) 52px', x.dropped),
         phoneStyle: { display: 'flex', alignItems: 'center', gap: '10px', minHeight: '52px', padding: '6px 14px', borderBottom: '1px solid color-mix(in srgb, var(--c-s0) 60%, transparent)', opacity: x.dropped ? 0.5 : 1 },
         enter: () => this.setState({ hov: k }), leave: () => this.setState((s) => (s.hov === k ? { hov: null } : null)),
@@ -2116,22 +2121,22 @@ class Component extends DCLogic {
     const groupTasks = (d) => { const g = {}; d.raw.forEach((x) => { g[x.id] = g[x.id] || { id: x.id, m: 0, n: 0 }; g[x.id].m += x.e - x.s; g[x.id].n++; }); return Object.values(g).map((z) => ({ ...z, d: rnd(z.m, CFG.dg, CFG.dm) })).sort((a, b) => b.d - a.d); };
     const sumTask = (d) => groupTasks(d).reduce((a, z) => a + z.d, 0);
     const taskPairRows = (d, fid) => { const tk = groupTasks(d), n = Math.max(d.raw.length, tk.length); return Array.from({ length: n }, (_, i) => { const x = d.raw[i], z = tk[i]; return {
-      isEntry: false, isTask: true, key: `${fid}:${d.key}:${i}`, hasRaw: !!x, rawRange: x ? `${hm(x.s)}–${hm(x.e)}` : '', title: x ? T[x.id].title : '', color: x ? colorOf(x.id) : 'transparent', rawDur: x ? dur(x.e - x.s) : '',
+      isEntry: false, isTask: true, key: `${fid}:${d.key}:${i}`, hasRaw: !!x, rawRange: x ? `${hm(x.s)}–${hm(x.e, true)}` : '', title: x ? T[x.id].title : '', color: x ? colorOf(x.id) : 'transparent', rawDur: x ? dur(x.e - x.s) : '',
       hasTask: !!z, tTitle: z ? `#${z.id} ${T[z.id].title}` : '', tColor: z ? colorOf(z.id) : 'transparent', tCount: z ? `${z.n} ${z.n === 1 ? 'entry' : 'entries'}` : '', tDur: z ? dur(z.d) : '',
       tBadges: z && z.d !== z.m ? [{ label: 'rounded', style: BADGE.rounded }] : [], rowStyle: rowSt(false), flatStyle: flatSt(false, 'minmax(0,1fr) auto auto 52px', false), enter: null, leave: null,
     }; }); };
     const RW = [
-      ['mon', 'Mon 5 Oct', [[542, 613, 39], [613, 751, 35], [784, 900, 37], [810, 840, 41], [900, 1020, 42], [1388, 1431, 44], [1424, 1438, 44]], 41],
-      ['tue', 'Tue 6 Oct', [[527, 662, 42], [662, 668, 41], [668, 720, 41], [780, 930, 37], [922, 937, 44], [937, 1005, 35]], 41],
-      ['wed', 'Wed 7 Oct', [[540, 570, 39], [570, 780, 37], [800, 860, 41], [860, 1020, 42], [990, 1020, 44], [1282, 1297, 35]], 41],
-      ['thu', 'Thu 8 Oct', DAY, 41],
+      ['mon', 'Mon 5 Oct', [[542, 613, 39], [613, 751, 35], [784, 900, 37], [810, 840, 41], [900, 1020, 42], [1388, 1431, 44], [1424, 1438, 44]], 41, '5–11 Oct', 0],
+      ['tue', 'Tue 6 Oct', [[527, 662, 42], [662, 668, 41], [668, 720, 41], [780, 930, 37], [922, 937, 44], [937, 1005, 35], [1435, 1460, 44]], 41, '5–11 Oct', 1],
+      ['wed', 'Wed 7 Oct', [[10, 40, 44], [540, 570, 39], [570, 780, 37], [800, 860, 41], [860, 1020, 42], [990, 1020, 44], [1282, 1297, 35]], 41, '5–11 Oct', 2],
+      ['thu', 'Thu 8 Oct', DAY, 41, '5–11 Oct', 3],
     ];
-    const PAT = [RW[0][2].filter(([s]) => s < 1380), RW[1][2], RW[2][2].filter(([s]) => s < 1200), DAY.map(([s, e, id]) => [s, e == null ? s + 50 : e, id])];
+    const PAT = [RW[0][2].filter(([s]) => s < 1380), RW[1][2].filter(([s]) => s < 1380), RW[2][2].filter(([s]) => s >= 60 && s < 1200), DAY.map(([s, e, id]) => [s, e == null ? s + 50 : e, id])];
     const SEP = [];
     for (let n = 1; n <= 30; n++) {
       const dow = (new Date(2026, 8, n).getDay() + 6) % 7; if (dow > 4) continue;
       const wk = 36 + Math.floor(n / 7), mon = 7 * (wk - 36), sh = (n % 3) * 2;
-      SEP.push([`s${n}`, `${DOW9[dow]} ${n} Sep`, PAT[n % 4].map(([s, e, id]) => [s + sh, e + sh, id]), wk, `${Math.max(1, mon)}–${Math.min(30, mon + 6)} Sep`]);
+      SEP.push([`s${n}`, `${DOW9[dow]} ${n} Sep`, PAT[n % 4].map(([s, e, id]) => [s + sh, e + sh, id]), wk, `${Math.max(1, mon)}–${Math.min(30, mon + 6)} Sep`, n]);
     }
     const match = (f) => (id) => (!f.p.length || f.p.includes(T[id].project || 'none')) && (!f.g.length || T[id].tags.some((g) => f.g.includes(g)));
     const segOpt = (on, first, pad) => ({ padding: pad || '5px 11px', color: on ? 'var(--c-link)' : 'var(--c-muted)', boxShadow: on ? 'inset 0 0 0 1px var(--color-accent)' : 'none', borderLeft: first ? 'none' : '1px solid var(--c-s1)' });
@@ -2142,7 +2147,8 @@ class Component extends DCLogic {
 
     const mkRep = (cls, o) => {
       const fid = `${cls}:${o.id}`, f = o.filter || { p: [], g: [] }, m = match(f), nF = f.p.length + f.g.length;
-      const days = o.days.map(([key, label, list, wk, wkLabel]) => { const all = toRaw(list), raw = all.filter((x) => m(x.id)); return { key, label, wk, wkLabel, all, raw, out: exportDay(raw) }; });
+      const days = o.days.map(([key, label, list, wk, wkLabel, idx]) => { const all = toRaw(list), raw = all.filter((x) => m(x.id)); return { key, label, wk, wkLabel, idx, all, raw }; });
+      exportRange(days).forEach((out, i) => { days[i].out = out; });
       const allE = days.flatMap((d) => d.all), rawE = days.flatMap((d) => d.raw), live = days.filter((d) => d.raw.length);
       const pinKey = live.some((d) => d.key === pinS[fid]) ? pinS[fid] : live[0] && live[0].key;
       const idx = live.findIndex((d) => d.key === pinKey), multi = o.days.length > 1;
@@ -2165,7 +2171,7 @@ class Component extends DCLogic {
         const lo = Math.floor(Math.min(...pd.raw.map((x) => x.s), ...ok.map((x) => x.rs)) / 60) * 60; let hi = Math.ceil(Math.max(rMax, fMax) / 60) * 60; if (hi - lo < 600) hi = lo + 600;
         const span = hi - lo, bar = (s, e, c, fl) => ({ style: { position: 'absolute', top: 0, bottom: 0, left: ((s - lo) / span) * 100 + '%', width: ((e - s) / span) * 100 + '%', background: c, opacity: fl ? 1 : 0.8, borderRadius: 'var(--r-xs)', boxShadow: fl ? 'inset 0 0 0 1px var(--c-base)' : 'none' } });
         const late = fMax - rMax;
-        strip = { label: pd.label, span: `${hm(lo)} → ${hm(hi)}${hi > 1440 ? ' +1d' : ''}`, raw: pd.raw.map((x) => bar(x.s, x.e, colorOf(x.id))), flat: ok.map((x) => bar(x.rs, x.re, colorOf(x.id), 1)),
+        strip = { label: pd.label, span: `${hm(lo)} → ${hm(hi, true)}${hi > 1440 ? ' +1d' : ''}`, raw: pd.raw.map((x) => bar(x.s, x.e, colorOf(x.id))), flat: ok.map((x) => bar(x.rs, x.re, colorOf(x.id), 1)),
           endLabel: late > 0 ? `Day ends later +${dur(late)}` : 'Day ends on time', endStyle: { color: late > 0 ? 'var(--ctp-peach)' : 'var(--c-faint)' } };
       }
       const sumMap = (keyOf) => { const r = {}; rawE.forEach((x) => [].concat(keyOf(x.id)).forEach((k) => { r[k] = (r[k] || 0) + x.e - x.s; })); return r; };
@@ -2203,8 +2209,7 @@ class Component extends DCLogic {
     };
     const buildRep = (cls) => {
       const wk = { range: 'Week', title: '5 – 11 October 2026', sub: 'Mon 00:00 → Sun 24:00', short: '5 – 11 Oct', days: RW };
-      const exp = (i) => exportDay(toRaw(RW[i][2]));
-      const mon = exp(0), tue = exp(1), wed = exp(2);
+      const [mon, tue, wed] = exportRange(RW.map((d) => ({ raw: toRaw(d[2]), idx: d[5] })));
       return {
         repMainL: [mkRep(cls, { ...wk, id: 'main', tag: '10 · reports', caption: 'Reports · week · per entry · scrolled, Tue 6 Oct pinned · hover a row', screen: 'Reports', initDay: 'tue', initOff: 90 })],
         repMore: [
@@ -2215,9 +2220,10 @@ class Component extends DCLogic {
         ],
         repPhone: mkRep(cls, { ...wk, id: 'phone', initDay: 'tue', initOff: 104 }),
         repStates: {
-          hoverRows: [eRow(wed[4], `${cls}:st:h0`), eRow(wed[5], `${cls}:st:h1`, true)],
+          hoverRows: [eRow(wed[5], `${cls}:st:h0`), eRow(wed[6], `${cls}:st:h1`, true)],
           dropRows: tue.slice(0, 3).map((x, j) => eRow(x, `${cls}:st:d${j}`)),
           nextRows: mon.slice(5).map((x, j) => eRow(x, `${cls}:st:n${j}`)),
+          carryGroups: [{ label: 'Tue 6 Oct', note: 'raw 23:55–00:20 · 25m', rows: [eRow(tue[tue.length - 1], `${cls}:st:c0`)] }, { label: 'Wed 7 Oct', note: 'raw 00:10–00:40 · 30m', rows: [eRow(wed[0], `${cls}:st:c1`)] }],
         },
       };
     };
