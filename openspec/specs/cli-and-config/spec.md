@@ -24,7 +24,7 @@ The CLI and daemon SHALL communicate with newline-delimited JSON-RPC 2.0 over th
 - **THEN** the command exits with code 3 and prints the daemon log path
 
 ### Requirement: Config file and login
-Configuration SHALL live in `$XDG_CONFIG_HOME/tt/config.toml` with `server.url`, `server.token`, `server.ca_cert`, `user.index_doc`, `week_start`, `snap`, `tz`, `editor`. `tt login <url>` SHALL accept `--ca-cert <pem>`, prompt for username and password, POST `{username,password}` to `<url>/api/login`, store the returned `token`, `index_doc` and `user.id`, store the absolute CA path as `server.ca_cert` when `--ca-cert` is given, and instruct the daemon to connect. The daemon SHALL obtain a websocket ticket via `POST /api/ws-ticket` before each connection and SHALL never place the long-lived token in a URL. On a 401 from any endpoint the daemon SHALL stop syncing and `tt status` SHALL report "login required". `tt logout` SHALL call `/api/logout`, remove the token, and keep local data. With no `server.url` the daemon SHALL never open a network connection.
+Configuration SHALL live in `$XDG_CONFIG_HOME/tt/config.toml` with `server.url`, `server.token`, `server.ca_cert`, `user.index_doc`, `week_start`, `snap`, `snap_start`, `tz`, `editor`. `snap_start` SHALL hold the default start grid for rounded exports (a duration such as `15m`, or `off`). `tt login <url>` SHALL accept `--ca-cert <pem>`, prompt for username and password, POST `{username,password}` to `<url>/api/login`, store the returned `token`, `index_doc` and `user.id`, store the absolute CA path as `server.ca_cert` when `--ca-cert` is given, and instruct the daemon to connect. The daemon SHALL obtain a websocket ticket via `POST /api/ws-ticket` before each connection and SHALL never place the long-lived token in a URL. On a 401 from any endpoint the daemon SHALL stop syncing and `tt status` SHALL report "login required". `tt logout` SHALL call `/api/logout`, remove the token, and keep local data. With no `server.url` the daemon SHALL never open a network connection.
 
 #### Scenario: Offline usage
 - **WHEN** `server.url` is unset
@@ -41,6 +41,10 @@ Configuration SHALL live in `$XDG_CONFIG_HOME/tt/config.toml` with `server.url`,
 #### Scenario: Login stores the CA path
 - **WHEN** `tt login https://tt.example.local --ca-cert ./ca.pem` succeeds
 - **THEN** `tt config get server.ca_cert` prints the absolute path of `ca.pem`
+
+#### Scenario: Start grid default
+- **WHEN** `tt config set snap_start off` is run and then `tt export --round 15m`
+- **THEN** the export keeps raw starts
 
 ### Requirement: JSON output contract and exit codes
 Every read command SHALL accept `-j` producing stable JSON with uuids, seqs, UTC timestamps and durations in seconds; exit codes SHALL be 0 ok, 1 usage, 2 not found, 3 daemon unreachable, 4 invalid state or conflict.
