@@ -6,6 +6,8 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+import { pwaIcons } from "./pwa-icons.ts";
+
 const src = fileURLToPath(new URL("./src", import.meta.url));
 const nodeModule = (path: string) => fileURLToPath(new URL(`./node_modules/${path}`, import.meta.url));
 
@@ -27,7 +29,14 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: false,
-      includeAssets: ["icon.svg", "icon-192.png", "icon-512.png"],
+      includeAssets: [
+        "favicon.svg",
+        "icon.svg",
+        "icon-192.png",
+        "icon-512.png",
+        "icon-maskable-512.png",
+        "apple-touch-icon.png",
+      ],
       manifest: {
         name: "tt",
         short_name: "tt",
@@ -36,11 +45,7 @@ export default defineConfig(({ mode }) => ({
         display: "standalone",
         background_color: "#1e1e2e",
         theme_color: "#181825",
-        icons: [
-          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-          { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
-        ],
+        icons: pwaIcons,
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,wasm,woff2}"],

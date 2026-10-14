@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    .tile { fill: #1e1e2e; }
+    .mauve { fill: #cba6f7; }
+    .peach { fill: #fab387; }
+    .green { fill: #a6e3a1; }
+    @media (prefers-color-scheme: light) {
+      .tile { fill: #eff1f5; }
+      .mauve { fill: #8839ef; }
+      .peach { fill: #fe640b; }
+      .green { fill: #40a02b; }
+    }
+  </style>
+  <rect class="tile" width="64" height="64" rx="14"/>
+  <rect class="mauve" x="8" y="12" width="30" height="12" rx="3"/>
+  <rect class="peach" x="22" y="26" width="34" height="12" rx="3"/>
+  <rect class="green" x="12" y="40" width="26" height="12" rx="3"/>
+</svg>
