@@ -11,13 +11,14 @@ const columns = columnsFrom(tz, day, 3);
 const PX = 56;
 const FIRST = 7;
 // Columns 300 px wide side by side; grid top at y = 100.
-const metrics = (snap = 15): GridMetrics => ({
+const metrics = (start = 15, duration = 15): GridMetrics => ({
   tz,
   columns,
   firstHour: FIRST,
   pxPerHour: PX,
   rects: () => columns.map((_, i) => new DOMRect(100 + i * 300, 100, 300, 17 * PX)),
-  snapMinutes: snap,
+  startMinutes: start,
+  durationMinutes: duration,
   now: Date.UTC(2026, 9, 8, 13, 42),
 });
 const y = (h: number, m: number) => 100 + (h - FIRST + m / 60) * PX;
@@ -29,6 +30,16 @@ describe("drag preview", () => {
     const origin = { kind: "create" as const, column: columns[0]!, pointer: p(150, y(13, 7)) };
     const result = preview(origin, p(150, y(13, 52)), metrics());
     expect(result).toMatchObject({ kind: "create", start: local(13, 0), end: local(14, 0) });
+  });
+
+  it("create: a 60 min duration grid makes 13:07 → 13:20 a 13:00–14:00 range", () => {
+    const origin = { kind: "create" as const, column: columns[0]!, pointer: p(150, y(13, 7)) };
+    expect(preview(origin, p(150, y(13, 20)), metrics(15, 60))).toMatchObject({ start: local(13, 0), end: local(14, 0) });
+  });
+
+  it("create: a start grid of off places the start to the minute, the length on the duration grid", () => {
+    const origin = { kind: "create" as const, column: columns[0]!, pointer: p(150, y(13, 7)) };
+    expect(preview(origin, p(150, y(13, 20)), metrics(0, 15))).toMatchObject({ start: local(13, 7), end: local(13, 22) });
   });
 
   it("create: dragging upward flips the anchor", () => {
@@ -117,6 +128,18 @@ describe("drag preview", () => {
     expect(bottom).toMatchObject({ end: Date.UTC(2026, 9, 8, 13, 42) });
   });
 
+  it("resize: the bottom edge of 13:00–14:00 to 14:50 with a 60 min duration grid gives 13:00–15:00", () => {
+    const hour = newEntry("018f0000-0000-7000-8000-0000000000c2", local(13, 0), local(14, 0), undefined, 0);
+    const result = preview({ kind: "resize-end", column: columns[0]!, entry: hour, pointer: p(150, y(14, 0)) }, p(150, y(14, 50)), metrics(15, 60));
+    expect(result).toMatchObject({ start: local(13, 0), end: local(15, 0) });
+  });
+
+  it("resize: lengths step from an off-grid pinned edge", () => {
+    const odd = newEntry("018f0000-0000-7000-8000-0000000000c3", local(13, 7), local(13, 40), undefined, 0);
+    const result = preview({ kind: "resize-end", column: columns[0]!, entry: odd, pointer: p(150, y(13, 40)) }, p(150, y(14, 0)), metrics());
+    expect(result).toMatchObject({ start: local(13, 7), end: local(14, 7) });
+  });
+
   describe("pending range", () => {
     const range = { start: local(13, 0), end: local(14, 0) };
     const base = { column: columns[0]!, range };
@@ -130,6 +153,11 @@ describe("drag preview", () => {
       const origin = { ...base, kind: "pending-move" as const, pointer: p(150, y(13, 10)) };
       expect(preview(origin, p(450, y(13, 10)), metrics())).toMatchObject({ column: columns[1], start: local(13, 0, 9) });
       expect(preview(origin, p(450, y(13, 10), false, true), metrics())).toMatchObject({ column: columns[0], start: local(13, 0) });
+    });
+
+    it("resize bottom to 14:50 with a 60 min duration grid gives 13:00–15:00", () => {
+      const origin = { ...base, kind: "pending-resize-end" as const, pointer: p(150, y(14, 0)) };
+      expect(preview(origin, p(150, y(14, 50)), metrics(15, 60))).toMatchObject({ start: local(13, 0), end: local(15, 0) });
     });
 
     it("resize bottom to 14:55 gives 13:00–15:00", () => {

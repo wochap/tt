@@ -1,18 +1,23 @@
-// Device-local preferences (not synced): theme, week start, snap grid, time
+// Device-local preferences (not synced): theme, week start, start and
+// duration grids, time
 // zone, visible hours. Stored in localStorage; every tab follows changes.
 
 import { useSyncExternalStore } from "react";
 
 import { resolveTz, systemTimeZone, type Weekday } from "@tt/domain";
 
+import type { DurationGrid, StartGrid } from "./grids.ts";
+
 export type ThemeSetting = "system" | "latte" | "mocha";
-export type SnapMinutes = 0 | 5 | 10 | 15;
 
 export interface Settings {
   theme: ThemeSetting;
   /** Monday = 0 … Sunday = 6. */
   weekStart: Weekday;
-  snapMinutes: SnapMinutes;
+  /** Default start grid in minutes (0 = off) for the timeline and Reports. */
+  startGrid: StartGrid;
+  /** Default duration grid in minutes for the timeline and Reports. */
+  durationGrid: DurationGrid;
   /** IANA zone, or "" to follow the system. */
   timeZone: string;
   /** First and last visible hour of the timeline (entries outside still render). */
@@ -26,7 +31,8 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   weekStart: 0,
-  snapMinutes: 15,
+  startGrid: 15,
+  durationGrid: 15,
   timeZone: "",
   visibleHours: [7, 19],
   monthTopTasks: 3,
@@ -35,12 +41,18 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const KEY = "tt.settings";
 const listeners = new Set<() => void>();
-let current: Settings = read();
+let current: Settings = readSettings();
 
-function read(): Settings {
+export function readSettings(): Settings {
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Settings>;
-    const merged = { ...DEFAULT_SETTINGS, ...raw };
+    const raw = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Settings> & { snapMinutes?: number };
+    const { snapMinutes, ...rest } = raw;
+    if (typeof snapMinutes === "number" && rest.startGrid === undefined && rest.durationGrid === undefined) {
+      // Single snap value from before the split: start = snap, duration = snap || 15.
+      rest.startGrid = snapMinutes as StartGrid;
+      rest.durationGrid = (snapMinutes || 15) as DurationGrid;
+    }
+    const merged = { ...DEFAULT_SETTINGS, ...rest };
     if (typeof merged.stickyProject !== "boolean") merged.stickyProject = true;
     return merged;
   } catch {
@@ -51,7 +63,7 @@ function read(): Settings {
 if (typeof addEventListener !== "undefined") {
   addEventListener("storage", (event) => {
     if (event.key === KEY) {
-      current = read();
+      current = readSettings();
       for (const listener of listeners) listener();
     }
   });

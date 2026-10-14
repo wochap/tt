@@ -32,7 +32,8 @@ import { entriesInRange, entryMatcher, taskTotals } from "@/data/select";
 import { projectColor, NEUTRAL } from "@/lib/colors";
 import { isEditable, useKeys } from "@/lib/keys";
 import { usePhone } from "@/lib/media";
-import { type SnapMinutes, useSettings, useTz } from "@/lib/settings";
+import type { Grids } from "@/lib/grids";
+import { useSettings, useTz } from "@/lib/settings";
 import { MOD, cn } from "@/lib/utils";
 
 import { useStatusHints } from "../shell/ui-state.tsx";
@@ -40,11 +41,11 @@ import { EmptyDay, EmptyMonth, EmptyWeek } from "./EmptyStates.tsx";
 import { EntrySheet } from "./EntrySheet.tsx";
 import { updateView } from "@/lib/device-state";
 import { type Column, columnsFrom, todayIn } from "./geometry.ts";
-import { EMPTY_FILTER, filterActive, parseFilter, type TimelineFilter, writeFilter } from "./filter.ts";
+import { EMPTY_FILTER, filterActive, parseFilter, type EntryFilter, writeFilter } from "@/features/filter/filter";
 import { JumpToDate } from "./JumpToDate.tsx";
 import { MonthView, monthCells, monthSummary } from "./MonthView.tsx";
-import { SnapMenu } from "./SnapMenu.tsx";
-import { FilterButton, FilterChips } from "./TimelineFilter.tsx";
+import { GridMenu, sameGrids } from "./GridMenu.tsx";
+import { EntryFilterButton, EntryFilterChips } from "@/features/filter/EntryFilter";
 import { type PendingCreate, TimelineBoard } from "./TimelineBoard.tsx";
 import { TotalsInline } from "./TotalsBar.tsx";
 
@@ -74,8 +75,11 @@ export function TimelinePage() {
   useEffect(() => {
     if (!phone) updateView({ range: kind, date: dateText, savedOn: todayText });
   }, [phone, kind, dateText, todayText]);
-  const [snap, setSnap] = useState<SnapMinutes>(settings.snapMinutes);
-  useEffect(() => setSnap(settings.snapMinutes), [settings.snapMinutes]);
+  // Session override of the Settings grids; `null` follows Settings.
+  const gridDefaults = useMemo<Grids>(() => ({ start: settings.startGrid, duration: settings.durationGrid }), [settings.startGrid, settings.durationGrid]);
+  const [gridOverride, setGridOverride] = useState<Grids | null>(null);
+  const grids = gridOverride ?? gridDefaults;
+  const setGrids = (next: Grids) => setGridOverride(sameGrids(next, gridDefaults) ? null : next);
   const [jumpOpen, setJumpOpen] = useState(search.get("jump") === "1");
   const [focusedId, setFocusedId] = useState<string>();
   const [pending, setPending] = useState<PendingCreate | null>(null);
@@ -131,7 +135,7 @@ export function TimelinePage() {
   const filtered = filterActive(filter);
   const [filterOpen, setFilterOpen] = useState(false);
   const changeFilter = useCallback(
-    (next: TimelineFilter) => {
+    (next: EntryFilter) => {
       const q = writeFilter(new URLSearchParams(search), next);
       // A history entry per change, so Back steps through filters.
       void navigate(`${location.pathname}${q.toString() ? `?${q}` : ""}`);
@@ -286,10 +290,6 @@ export function TimelinePage() {
             else startAtNow();
           },
           n: () => startAtNow(),
-          "alt+1": () => setSnap(5),
-          "alt+2": () => setSnap(10),
-          "alt+3": () => setSnap(15),
-          "alt+0": () => setSnap(0),
         }
       : {}),
   });
@@ -380,7 +380,7 @@ export function TimelinePage() {
         setFilterOpen={setFilterOpen}
         now={now}
         nowLine={nowLine}
-        snap={snap}
+        grids={grids}
         range={range}
         onStep={step}
         onOpen={openEntry}
@@ -454,13 +454,13 @@ export function TimelinePage() {
               Show <span className="text-fg">top {settings.monthTopTasks} tasks</span>
             </span>
           ) : (
-            <SnapMenu value={snap} onChange={setSnap} hint={kind === "day"} />
+            <GridMenu value={grids} defaults={gridDefaults} onChange={setGrids} />
           )}
-          <FilterButton open={filterOpen} onOpenChange={setFilterOpen} filter={filter} onChange={changeFilter} entries={entries} now={now} range={range} hint />
+          <EntryFilterButton open={filterOpen} onOpenChange={setFilterOpen} filter={filter} onChange={changeFilter} entries={entries} now={now} range={range} hint />
           <HistoryButtons />
         </div>
       </div>
-      <FilterChips filter={filter} onChange={changeFilter} />
+      <EntryFilterChips filter={filter} onChange={changeFilter} />
 
       {kind === "month" ? (
         <>
@@ -488,7 +488,8 @@ export function TimelinePage() {
             columns={columns}
             density={kind}
             pxPerHour={kind === "day" ? 56 : 52}
-            snapMinutes={snap}
+            startMinutes={grids.start}
+            durationMinutes={grids.duration}
             entries={entries}
             matching={matching}
             dimmedIds={dimmedIds}
@@ -506,7 +507,7 @@ export function TimelinePage() {
             emptyOverlay={isEmpty ? kind === "day" ? <EmptyDay hasTasks={hasTasks} onStart={startAtNow} /> : <EmptyWeek /> : undefined}
             pendingCreate={pending}
             setPendingCreate={setPending}
-            snapLabel={snap ? "snapped" : undefined}
+            snapLabel="snapped"
           />
           {kind === "week" && <WeekFooter columns={columns} entries={matching} all={filtered ? entries : undefined} now={now} range={range} />}
         </>
@@ -514,7 +515,7 @@ export function TimelinePage() {
       {selectMode && picked.size > 0 && (
         <SelectionBar count={picked.size} duration={pickedDuration} onDelete={deleteSelection} />
       )}
-      <EntrySheet entryId={entryParam} onClose={closeSheet} />
+      <EntrySheet entryId={entryParam} onClose={closeSheet} grids={grids} />
     </div>
   );
 }
@@ -677,13 +678,13 @@ function PhoneDay(props: {
   entries: Entry[];
   matching: Entry[];
   dimmedIds?: ReadonlySet<string>;
-  filter: TimelineFilter;
-  onFilter: (next: TimelineFilter) => void;
+  filter: EntryFilter;
+  onFilter: (next: EntryFilter) => void;
   filterOpen: boolean;
   setFilterOpen: (open: boolean) => void;
   now: number;
   nowLine: number;
-  snap: SnapMinutes;
+  grids: Grids;
   range: { from: number; to: number };
   onStep: (direction: number) => void;
   onOpen: (entry: Entry) => void;
@@ -713,14 +714,15 @@ function PhoneDay(props: {
         <button type="button" aria-label="Next day" className="tt-icon-btn size-8" onClick={() => props.onStep(1)}>
           <CaretRight size={13} />
         </button>
-        <FilterButton open={props.filterOpen} onOpenChange={props.setFilterOpen} filter={props.filter} onChange={props.onFilter} entries={props.entries} now={props.now} range={props.range} size="lg" />
+        <EntryFilterButton open={props.filterOpen} onOpenChange={props.setFilterOpen} filter={props.filter} onChange={props.onFilter} entries={props.entries} now={props.now} range={props.range} size="lg" />
       </div>
-      <FilterChips filter={props.filter} onChange={props.onFilter} />
+      <EntryFilterChips filter={props.filter} onChange={props.onFilter} />
       <TimelineBoard
         columns={props.columns}
         density="phone"
         pxPerHour={44}
-        snapMinutes={props.snap}
+        startMinutes={props.grids.start}
+        durationMinutes={props.grids.duration}
         entries={props.entries}
         matching={props.matching}
         dimmedIds={props.dimmedIds}
@@ -766,7 +768,7 @@ function PhoneDay(props: {
         )}
       </div>
       )}
-      <EntrySheet entryId={props.entryParam} onClose={props.closeSheet} onSelect={props.onSelectEntry} />
+      <EntrySheet entryId={props.entryParam} onClose={props.closeSheet} onSelect={props.onSelectEntry} grids={props.grids} />
     </div>
   );
 }

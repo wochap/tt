@@ -1,7 +1,9 @@
 // Drag state machine of the grid (dnd-kit supplies activation, the 4 px
 // threshold, pointer capture and drop targets; times come from the pointer
-// position over the column rects). Snap: start snaps down and end up on
-// create; move rounds the start; Alt frees to 1 min; Shift locks the column.
+// position over the column rects). Grids: starts go to the start grid (down on
+// create, nearest on move) and lengths to the duration grid (up on create, in
+// duration steps from the pinned edge on resize); Alt frees both to 1 min;
+// Shift locks the column.
 
 import { diffDays, type Entry, formatClock, formatDuration, localDate, localParts, type Millis, type Uuid } from "@tt/domain";
 
@@ -29,7 +31,10 @@ export interface GridMetrics {
   pxPerHour: number;
   /** Column element rects, same order as `columns`. */
   rects: () => DOMRect[];
-  snapMinutes: number;
+  /** Start grid in minutes (0 = off, to the minute). */
+  startMinutes: number;
+  /** Duration grid in minutes (length step and minimum length). */
+  durationMinutes: number;
   now: Millis;
 }
 
@@ -78,8 +83,14 @@ export function isEntryPreview(p: Preview): p is EntryPreview {
   return p.kind === "move" || p.kind === "resize-start" || p.kind === "resize-end";
 }
 
-export function gridOf(pointer: Pointer, metrics: GridMetrics): number {
-  return pointer.alt || metrics.snapMinutes <= 0 ? 1 : metrics.snapMinutes;
+export interface DragGrid {
+  start: number;
+  duration: number;
+}
+
+export function gridOf(pointer: Pointer, metrics: GridMetrics): DragGrid {
+  if (pointer.alt) return { start: 1, duration: 1 };
+  return { start: metrics.startMinutes > 0 ? metrics.startMinutes : 1, duration: Math.max(metrics.durationMinutes, 1) };
 }
 
 function minutesAt(metrics: GridMetrics, columnIndex: number, y: number): number {
@@ -142,8 +153,8 @@ export function preview(origin: DragOrigin, pointer: Pointer, metrics: GridMetri
     const current = minutesAt(metrics, originIndex, pointer.y);
     const lo = clamp(Math.min(anchor, current), 0, 1440);
     const hi = clamp(Math.max(anchor, current), 0, 1440);
-    const startMin = clamp(snapFloor(lo, grid), 0, 1440 - grid);
-    const endMin = clamp(Math.max(snapCeil(hi, grid), startMin + grid), grid, 1440);
+    const startMin = clamp(snapFloor(lo, grid.start), 0, 1440 - grid.duration);
+    const endMin = Math.min(startMin + Math.max(snapCeil(hi - startMin, grid.duration), grid.duration), 1440);
     return {
       kind: "create",
       column: origin.column,
@@ -159,16 +170,15 @@ export function preview(origin: DragOrigin, pointer: Pointer, metrics: GridMetri
       const moved = movedSpan(origin, span, pointer, metrics, grid, originIndex);
       return { kind: "pending-move", column: moved.column, start: moved.start, end: moved.end };
     }
-    const at = pointerTime(origin, pointer, metrics, grid, originIndex);
+    const at = pointerTime(origin, pointer, metrics, originIndex);
     if (origin.kind === "pending-resize-start") {
-      return { kind: "pending-resize-start", column: origin.column, start: Math.min(at, span.end - grid * 60_000), end: span.end };
+      return { kind: "pending-resize-start", column: origin.column, start: span.end - stepLength(span.end - at, grid.duration), end: span.end };
     }
-    return { kind: "pending-resize-end", column: origin.column, start: span.start, end: Math.max(at, span.start + grid * 60_000) };
+    return { kind: "pending-resize-end", column: origin.column, start: span.start, end: span.start + stepLength(at - span.start, grid.duration) };
   }
 
   const entry = origin.entry!;
   const end = entry.end ?? metrics.now;
-  const minDuration = grid * 60_000;
 
   if (origin.kind === "move") {
     if (overTask) return { kind: "move", entry, start: entry.start, end: entry.end, deltaMinutes: 0, overTask };
@@ -181,30 +191,36 @@ export function preview(origin: DragOrigin, pointer: Pointer, metrics: GridMetri
     return { kind: "move", entry, start: moved.start, end: moved.end, deltaMinutes: Math.round((moved.start - entry.start) / 60_000) };
   }
 
-  const at = pointerTime(origin, pointer, metrics, grid, originIndex);
+  const at = pointerTime(origin, pointer, metrics, originIndex);
   if (origin.kind === "resize-start") {
-    const start = Math.min(at, end - minDuration);
+    const start = end - stepLength(end - at, grid.duration);
     return { kind: "resize-start", entry, start, end: entry.end, deltaMinutes: Math.round((start - entry.start) / 60_000) };
   }
   // Bottom handle: a running entry is stopped at the dropped time.
-  const newEnd = clamp(at, entry.start + minDuration, entry.end === null ? metrics.now : Infinity);
+  const stepped = entry.start + stepLength(at - entry.start, grid.duration);
+  const newEnd = entry.end === null ? Math.min(stepped, metrics.now) : stepped;
   return { kind: "resize-end", entry, start: entry.start, end: Math.max(newEnd, entry.start + 60_000), deltaMinutes: Math.round((newEnd - end) / 60_000) };
 }
 
-/** Snapped time under the pointer in the origin column (resize edges). */
-function pointerTime(origin: DragOrigin, pointer: Pointer, metrics: GridMetrics, grid: number, originIndex: number): Millis {
+/** Time under the pointer in the origin column (resize edges). */
+function pointerTime(origin: DragOrigin, pointer: Pointer, metrics: GridMetrics, originIndex: number): Millis {
   const pointerMin = minutesAt(metrics, originIndex, pointer.y);
-  return fromWall(metrics.tz, origin.column.date, clamp(snapRound(pointerMin, grid), 0, 1440));
+  return fromWall(metrics.tz, origin.column.date, clamp(pointerMin, 0, 1440));
+}
+
+/** `ms` rounded to the nearest duration step (minutes), at least one step. */
+function stepLength(ms: number, duration: number): number {
+  return Math.max(snapRound(ms / 60_000, duration), duration) * 60_000;
 }
 
 /** A span moved by the pointer delta: start snapped, duration kept, column from the pointer unless Shift. */
-function movedSpan(origin: DragOrigin, span: Span, pointer: Pointer, metrics: GridMetrics, grid: number, originIndex: number): Span & { column: Column } {
+function movedSpan(origin: DragOrigin, span: Span, pointer: Pointer, metrics: GridMetrics, grid: DragGrid, originIndex: number): Span & { column: Column } {
   const { tz } = metrics;
   const deltaMinutes = ((pointer.y - origin.pointer.y) / metrics.pxPerHour) * 60;
   const targetIndex = pointer.shift ? originIndex : columnIndexAt(metrics, pointer.x, originIndex);
   const column = metrics.columns[targetIndex] ?? origin.column;
   const days = diffDays(column.date, origin.column.date);
-  const startMin = snapRound(startMinutes(tz, origin.column, span.start) + deltaMinutes, grid);
+  const startMin = snapRound(startMinutes(tz, origin.column, span.start) + deltaMinutes, grid.start);
   const start = fromWall(tz, origin.column.date, startMin + days * 1440);
   return { column, start, end: start + (span.end - span.start) };
 }

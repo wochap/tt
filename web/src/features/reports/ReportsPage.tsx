@@ -1,6 +1,6 @@
 import { CaretDown, CaretLeft, CaretRight, DownloadSimple } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import {
   addDays,
@@ -28,8 +28,6 @@ import {
   roundedCsv,
   roundedJson,
   roundInputs,
-  START_GRID_MINUTES,
-  validStartGrids,
   type View,
   weekStartDate,
 } from "@tt/domain";
@@ -41,7 +39,9 @@ import {
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -49,6 +49,10 @@ import { Segmented, SegmentedItem } from "@/components/ui/toggle-group";
 import { useNow, useView } from "@/data/react";
 import { cssColor, NEUTRAL, projectColor, taskColor } from "@/lib/colors";
 import { useKeys } from "@/lib/keys";
+import { entryMatcher } from "@/data/select";
+import { EntryFilterButton, EntryFilterChips } from "@/features/filter/EntryFilter";
+import { EMPTY_FILTER, type EntryFilter, filterActive, parseFilter, writeFilter } from "@/features/filter/filter";
+import { DURATION_GRIDS, type DurationGrid, type Grids, START_GRIDS, type StartGrid, startOptions, withDuration } from "@/lib/grids";
 import { useSettings, useTz } from "@/lib/settings";
 
 import { useStatusHints } from "../shell/ui-state.tsx";
@@ -57,54 +61,87 @@ import { RoundFlattenPreview } from "./RoundFlattenPreview.tsx";
 
 type Preset = "day" | "week" | "month" | "custom";
 type ExportMode = "json" | "csv" | "rounded";
-const GRIDS = [5, 10, 15, 30, 60] as const;
-
-/** Valid start grids (minutes, 0 = off) for a duration grid in minutes. */
-export function validStartMinutes(gridMinutes: number): number[] {
-  return validStartGrids(gridMinutes * 60).map((g) => g / 60);
-}
-
-/** Default start grid: the largest valid value ≤ 15 min. */
-export function defaultStartMinutes(gridMinutes: number): number {
-  return Math.max(...validStartMinutes(gridMinutes).filter((g) => g <= 15));
-}
-
-/** Keeps `start` when it divides the new duration grid, else the largest valid start. */
-export function fallbackStartMinutes(gridMinutes: number, start: number): number {
-  const valid = validStartMinutes(gridMinutes);
-  return valid.includes(start) ? start : Math.max(...valid);
-}
 
 export interface RoundGrids {
-  grid: number;
+  grid: DurationGrid;
   mode: RoundMode;
-  startGrid: number;
+  startGrid: StartGrid;
   startMode: RoundMode;
 }
 
-/** Duration grid + mode and start grid + mode; start grids that do not divide the duration are disabled. */
+const MODES: RoundMode[] = ["up", "nearest"];
+
+/**
+ * Turn 9 rounding menus: "Duration 15 min · up" (grid + mode) and "Start 15 min · up"
+ * (grid + mode); start grids that do not divide the duration are disabled and a
+ * duration change drops the start to the largest valid value.
+ */
 export function RoundGridControls({ value, onChange }: { value: RoundGrids; onChange: (value: RoundGrids) => void }) {
-  const valid = validStartMinutes(value.grid);
-  const modes: [string, string][] = [
-    ["up", "up"],
-    ["nearest", "nearest"],
-  ];
+  const valid = startOptions(value.grid);
   return (
     <>
-      <Choice
-        label="Duration"
-        value={String(value.grid)}
-        options={GRIDS.map((g) => [String(g), `${g} min`])}
-        onChange={(v) => onChange({ ...value, grid: Number(v), startGrid: fallbackStartMinutes(Number(v), value.startGrid) })}
-      />
-      <Choice label="Round" value={value.mode} options={modes} onChange={(v) => onChange({ ...value, mode: v as RoundMode })} />
-      <Choice
-        label="Start"
-        value={String(value.startGrid)}
-        options={[0, ...START_GRID_MINUTES].map((g) => [String(g), g === 0 ? "off" : `${g} min`, !valid.includes(g)])}
-        onChange={(v) => onChange({ ...value, startGrid: Number(v) })}
-      />
-      {value.startGrid > 0 && <Choice label="Start mode" value={value.startMode} options={modes} onChange={(v) => onChange({ ...value, startMode: v as RoundMode })} />}
+      <DropdownMenu>
+        <DropdownMenuTrigger className="tt-chip-btn text-sub1" aria-label="Duration">
+          Duration <span className="text-fg">{value.grid} min</span>
+          <span className="text-faint">· {value.mode}</span>
+          <CaretDown size={10} className="text-faint" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuLabel className="tt-label">Grid</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={String(value.grid)}
+            onValueChange={(v) => {
+              const next = withDuration({ start: value.startGrid, duration: value.grid }, Number(v) as DurationGrid);
+              onChange({ ...value, grid: next.duration, startGrid: next.start });
+            }}
+          >
+            {DURATION_GRIDS.map((g) => (
+              <DropdownMenuRadioItem key={g} value={String(g)}>
+                {g} min
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="tt-label">Round</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={value.mode} onValueChange={(v) => onChange({ ...value, mode: v as RoundMode })}>
+            {MODES.map((m) => (
+              <DropdownMenuRadioItem key={m} value={m}>
+                {m}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger className="tt-chip-btn text-sub1" aria-label="Start">
+          Start <span className="text-fg">{value.startGrid ? `${value.startGrid} min` : "off"}</span>
+          {value.startGrid > 0 && <span className="text-faint">· {value.startMode}</span>}
+          <CaretDown size={10} className="text-faint" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuLabel className="tt-label">Grid</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={String(value.startGrid)} onValueChange={(v) => onChange({ ...value, startGrid: Number(v) as StartGrid })}>
+            {START_GRIDS.map((g) => {
+              const disabled = !valid.includes(g);
+              return (
+                <DropdownMenuRadioItem key={g} value={String(g)} disabled={disabled}>
+                  {g === 0 ? "off" : `${g} min`}
+                  {disabled && <span className="ml-auto pl-3 text-[11px] text-faint">must divide duration</span>}
+                </DropdownMenuRadioItem>
+              );
+            })}
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="tt-label">Round</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={value.startMode} onValueChange={(v) => onChange({ ...value, startMode: v as RoundMode })}>
+            {MODES.map((m) => (
+              <DropdownMenuRadioItem key={m} value={m} disabled={value.startGrid === 0}>
+                {m}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
   );
 }
@@ -129,7 +166,7 @@ export function customRange(tz: string, custom: Custom): Range | undefined {
 export function ReportsPage() {
   const view = useView();
   const tz = useTz();
-  const { weekStart, snapMinutes } = useSettings();
+  const { weekStart, startGrid: settingsStart, durationGrid: settingsDuration } = useSettings();
   const now = useNow(30_000);
   const navigate = useNavigate();
   const today = todayIn(tz, now);
@@ -138,11 +175,28 @@ export function ReportsPage() {
   const [custom, setCustom] = useState<Custom>({ from: today, fromTime: "", to: today, toTime: "" });
   const [applied, setApplied] = useState<Custom>(custom);
   const [exportMode, setExportMode] = useState<ExportMode>("rounded");
-  const [grids, setGrids] = useState<RoundGrids>(() => {
-    const grid = GRIDS.includes(snapMinutes as (typeof GRIDS)[number]) ? snapMinutes : 15;
-    return { grid, mode: "up", startGrid: defaultStartMinutes(grid), startMode: "up" };
-  });
-  const { grid, mode, startGrid, startMode } = grids;
+  // Grids follow Settings until changed here (session only); modes are local.
+  const [gridOverride, setGridOverride] = useState<Grids | null>(null);
+  const [modes, setModes] = useState<{ mode: RoundMode; startMode: RoundMode }>({ mode: "up", startMode: "up" });
+  const { start: startGrid, duration: grid } = gridOverride ?? { start: settingsStart, duration: settingsDuration };
+  const { mode, startMode } = modes;
+  const grids: RoundGrids = { grid, mode, startGrid, startMode };
+  const setGrids = (next: RoundGrids) => {
+    const changed = next.grid !== settingsDuration || next.startGrid !== settingsStart;
+    setGridOverride(changed ? { start: next.startGrid, duration: next.grid } : null);
+    setModes({ mode: next.mode, startMode: next.startMode });
+  };
+  const [search, setSearch] = useSearchParams();
+  const filter = useMemo(() => parseFilter(search, view.workspace), [search, view.workspace]);
+  const filtered = filterActive(filter);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const changeFilter = (next: EntryFilter) => setSearch(writeFilter(new URLSearchParams(search), next));
+  // Non-matching entries leave every total, panel, preview and download.
+  const filteredView: View = useMemo(() => {
+    if (!filtered) return view;
+    const match = entryMatcher(view, filter);
+    return { ...view, entries: new Map([...view.entries].filter(([, e]) => match(e))) };
+  }, [view, filter, filtered]);
   const [group, setGroup] = useState<RoundGroup>("entry");
 
   const range: Range | undefined = useMemo(() => {
@@ -163,27 +217,41 @@ export function ReportsPage() {
     else if (preset === "week") setAnchor(addDays(anchor, 7 * direction));
     else if (preset === "month") setAnchor(addMonths(anchor, direction));
   };
-  useKeys({ arrowleft: () => step(-1), arrowright: () => step(1), d: () => setPreset("day"), w: () => setPreset("week"), m: () => setPreset("month") });
+  useKeys({
+    arrowleft: () => step(-1),
+    arrowright: () => step(1),
+    d: () => setPreset("day"),
+    w: () => setPreset("week"),
+    m: () => setPreset("month"),
+    f: () => setFilterOpen(true),
+    "shift+f": () => changeFilter(EMPTY_FILTER),
+  });
   useStatusHints(
     <>
       <span><Kbd>←</Kbd><Kbd>→</Kbd> range</span>
       <span><Kbd>D</Kbd><Kbd>W</Kbd><Kbd>M</Kbd> preset</span>
+      <span><Kbd>F</Kbd> filter</span>
+      {filtered && <span><Kbd>⇧F</Kbd> clear filter</span>}
     </>,
-    [],
+    [filtered],
   );
 
   const reports = useMemo(() => {
     if (!range) return undefined;
     return {
-      task: report(view, range, "task", tz, now),
-      tag: report(view, range, "tag", tz, now),
-      project: report(view, range, "project", tz, now),
+      task: report(filteredView, range, "task", tz, now),
+      tag: report(filteredView, range, "tag", tz, now),
+      project: report(filteredView, range, "project", tz, now),
     };
-  }, [view, range, tz, now]);
-  const inputs = useMemo(() => (range ? roundInputs(view, range, now) : []), [view, range, now]);
+  }, [filteredView, range, tz, now]);
+  // Unfiltered totals ("of Y") and the popover's per-option times.
+  const all = useMemo(() => (range && filtered ? report(view, range, "task", tz, now) : undefined), [view, range, tz, now, filtered]);
+  const allEntries = useMemo(() => (range ? entriesIn(view, range, now) : []), [view, range, now]);
+  const inputs = useMemo(() => (range ? roundInputs(filteredView, range, now) : []), [filteredView, range, now]);
   const options = useMemo(() => ({ gridSeconds: grid * 60, mode, startGridSeconds: startGrid * 60, startMode, group }), [grid, mode, startGrid, startMode, group]);
   const rounded = useMemo(() => roundAndFlatten(inputs, options, tz), [inputs, options, tz]);
   const hasData = !!reports && reports.task.count > 0;
+  const noMatch = filtered && !hasData && !!all && all.count > 0;
 
   const title = (() => {
     if (!range) return "Invalid range";
@@ -200,14 +268,14 @@ export function ReportsPage() {
   const download = () => {
     if (!range) return;
     const stamp = `${formatDate(localDate(tz, range.from))}_${formatDate(localDate(tz, range.to - 1))}`;
-    if (exportMode === "json") save(`tt-export-${stamp}.json`, JSON.stringify(exportJson(view, range, Date.now()), null, 2), "application/json");
-    else if (exportMode === "csv") save(`tt-entries-${stamp}.csv`, entriesCsv(view, entriesIn(view, range, now), now), "text/csv");
-    else save(`tt-rounded-${roundedName}-${stamp}.csv`, roundedCsv(view, rounded), "text/csv");
+    if (exportMode === "json") save(`tt-export-${stamp}.json`, JSON.stringify(exportJson(filteredView, range, Date.now()), null, 2), "application/json");
+    else if (exportMode === "csv") save(`tt-entries-${stamp}.csv`, entriesCsv(filteredView, entriesIn(filteredView, range, now), now), "text/csv");
+    else save(`tt-rounded-${roundedName}-${stamp}.csv`, roundedCsv(filteredView, rounded), "text/csv");
   };
   const downloadRoundedJson = () => {
     if (!range) return;
     const stamp = `${formatDate(localDate(tz, range.from))}_${formatDate(localDate(tz, range.to - 1))}`;
-    save(`tt-rounded-${roundedName}-${stamp}.json`, JSON.stringify(roundedJson(view, range, options, rounded), null, 2), "application/json");
+    save(`tt-rounded-${roundedName}-${stamp}.json`, JSON.stringify(roundedJson(filteredView, range, options, rounded), null, 2), "application/json");
   };
 
   return (
@@ -243,11 +311,19 @@ export function ReportsPage() {
           <CustomRange custom={custom} setCustom={setCustom} today={today} weekStart={weekStart} onApply={() => setApplied(custom)} valid={!!customRange(tz, custom)} />
         )}
         {reports && (
-          <span className="ml-auto flex gap-[18px] tabular-nums" data-testid="report-totals">
-            <span>
-              <span className="text-muted">Summed </span>
-              <span className="font-medium">{formatDuration(reports.task.summed)}</span>
-            </span>
+          <span className="ml-auto flex items-center gap-[18px] tabular-nums" data-testid="report-totals">
+            {all ? (
+              <span>
+                <span className="text-link">Filtered · </span>
+                <span className="font-medium">{formatDuration(reports.task.summed)}</span>
+                <span className="text-muted"> of {formatDuration(all.summed)}</span>
+              </span>
+            ) : (
+              <span>
+                <span className="text-muted">Summed </span>
+                <span className="font-medium">{formatDuration(reports.task.summed)}</span>
+              </span>
+            )}
             <span>
               <span className="text-muted">Wall-clock </span>
               <span className="font-medium">{formatDuration(reports.task.wall)}</span>
@@ -255,14 +331,26 @@ export function ReportsPage() {
             <span>
               <span className="text-muted">Entries </span>
               {reports.task.count}
+              {all && <span className="text-muted"> of {all.count}</span>}
             </span>
           </span>
         )}
+        {range && (
+          <span className={reports ? "" : "ml-auto"}>
+            <EntryFilterButton open={filterOpen} onOpenChange={setFilterOpen} filter={filter} onChange={changeFilter} entries={allEntries} now={now} range={range} hint />
+          </span>
+        )}
       </div>
+      <EntryFilterChips filter={filter} onChange={changeFilter} note="Other entries are left out of totals, panels and downloads" />
 
       <div className="flex min-h-0 flex-1 max-md:flex-col">
         <div className="tt-scroll flex w-[560px] flex-none flex-col gap-[18px] overflow-y-auto border-r px-[18px] py-4 max-md:w-full">
-          {!hasData ? (
+          {noMatch ? (
+            <div className="flex flex-col gap-[6px]">
+              <div className="tt-label">By task</div>
+              <span className="text-[12.5px] text-faint">Nothing matches the current filter.</span>
+            </div>
+          ) : !hasData ? (
             <EmptyReport onToday={() => navigate("/timeline/day")} />
           ) : (
             <>
@@ -312,19 +400,34 @@ export function ReportsPage() {
               </Button>
             </span>
           </div>
-          {!hasData || !range ? (
+          {noMatch ? (
+            <div className="flex flex-1 flex-col items-start gap-[10px] px-7 py-11" data-testid="no-match">
+              <div className="text-[15px] font-medium tracking-[-0.01em]">No entries match these filters</div>
+              <div className="max-w-[440px] text-[12.5px] leading-[1.5] text-muted">
+                {all!.count} {all!.count === 1 ? "entry is" : "entries are"} in this range, but none match. Downloads stay disabled until something matches.
+              </div>
+              <div className="mt-1 flex gap-2">
+                <Button variant="secondary" size="sm" className="gap-2" onClick={() => changeFilter(EMPTY_FILTER)}>
+                  Clear filters <Kbd>⇧F</Kbd>
+                </Button>
+                <Button variant="ghost" size="sm" className="gap-2" onClick={() => setFilterOpen(true)}>
+                  Edit filter <Kbd>F</Kbd>
+                </Button>
+              </div>
+            </div>
+          ) : !hasData || !range ? (
             <div className="m-[18px] flex flex-1 items-center justify-center rounded-md border border-dashed border-s2 p-3 text-center text-[12px] text-muted">
               Export is disabled
               <br />
               until there is data
             </div>
           ) : exportMode === "rounded" ? (
-            <RoundFlattenPreview view={view} tz={tz} inputs={inputs} rounded={rounded} group={group} gridMinutes={grid} mode={mode} startGridMinutes={startGrid} />
+            <RoundFlattenPreview view={filteredView} tz={tz} inputs={inputs} rounded={rounded} group={group} gridMinutes={grid} mode={mode} startGridMinutes={startGrid} weekStart={weekStart} range={range} />
           ) : (
             <pre className="tt-scroll m-[18px] min-h-0 flex-1 overflow-auto rounded-md border bg-base p-3 font-mono text-[11px] leading-[1.5] text-sub1" data-testid="export-preview">
               {exportMode === "json"
-                ? JSON.stringify(exportJson(view, range, now), null, 2).slice(0, 20_000)
-                : entriesCsv(view, entriesIn(view, range, now), now).slice(0, 20_000)}
+                ? JSON.stringify(exportJson(filteredView, range, now), null, 2).slice(0, 20_000)
+                : entriesCsv(filteredView, entriesIn(filteredView, range, now), now).slice(0, 20_000)}
             </pre>
           )}
           <div className="px-[18px] pb-3 pt-[10px] text-[11.5px] text-faint">
@@ -365,26 +468,6 @@ function Bars({ title, groups, color, label, small }: { title: string; groups: R
         </div>
       ))}
     </section>
-  );
-}
-
-function Choice({ label, value, options, onChange }: { label: string; value: string; options: [string, string, boolean?][]; onChange: (v: string) => void }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className="tt-chip-btn text-sub1" aria-label={label}>
-        {label} <span className="text-fg">{options.find(([v]) => v === value)?.[1]}</span>
-        <CaretDown size={10} className="text-faint" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
-          {options.map(([v, text, disabled]) => (
-            <DropdownMenuRadioItem key={v} value={v} disabled={disabled}>
-              {text}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

@@ -228,7 +228,7 @@ test("export preview equals the shared round + flatten output", async ({ page })
   // Duration 15 min defaults the start grid to 15 min; the brief's example uses start off.
   await expect(page.getByRole("button", { name: "Start", exact: true })).toContainText("15 min");
   await page.getByRole("button", { name: "Start", exact: true }).click();
-  await expect(page.getByRole("menuitemradio", { name: "10 min" })).toHaveAttribute("data-disabled", "");
+  await expect(page.getByRole("menuitemradio", { name: /^10 min/ })).toHaveAttribute("data-disabled", "");
   await page.getByRole("menuitemradio", { name: "off" }).click();
   const raw = await page.getByTestId("raw-row").evaluateAll((rows) => rows.map((r) => [Number(r.getAttribute("data-start")), Number(r.getAttribute("data-end"))]));
   const flat = await page.getByTestId("flat-row").evaluateAll((rows) => rows.map((r) => [Number(r.getAttribute("data-start")), Number(r.getAttribute("data-end"))]));
@@ -242,6 +242,98 @@ test("export preview equals the shared round + flatten output", async ({ page })
   const texts = await page.getByTestId("flat-row").allInnerTexts();
   expect(texts[0]).toContain("13:00–13:15");
   expect(texts[1]).toContain("13:15–14:00");
+});
+
+/** `YYYY-MM-DD` of this week's Monday + `offset` days in Europe/Berlin. */
+function weekDay(offset: number): string {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(new Date());
+  const date = new Date(`${today}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7) + offset);
+  return date.toISOString().slice(0, 10);
+}
+
+test.describe("reports week", () => {
+  test("filter via F, sticky day header, rounded CSV respects the filter", async ({ page }) => {
+    await login(page, user(22));
+    await createTask(page, "Atlas job @Atlas");
+    await createTask(page, "Billing job @Billing");
+    await page.goto(`/timeline/day?date=${weekDay(0)}`);
+    for (const h of [8, 9, 10, 11, 12, 13, 14, 15]) await createEntry(page, [h, 0], [h, 40], h % 2 ? "billing job" : "atlas job");
+    await page.goto(`/timeline/day?date=${weekDay(1)}`);
+    await createEntry(page, [9, 0], [10, 0], "atlas job");
+    await createEntry(page, [11, 0], [12, 0], "billing job");
+
+    await page.goto("/reports");
+    await page.getByRole("radiogroup", { name: "Range" }).getByRole("radio", { name: "Week" }).click();
+    await expect(page.getByTestId("report-totals")).toContainText("Entries 10");
+    await page.keyboard.press("f");
+    await expect(page.getByTestId("timeline-filter")).toBeVisible();
+    await page.keyboard.type("atlas");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/reports\?.*project=/);
+    await expect(page.getByTestId("report-totals")).toContainText("Filtered ·");
+    await expect(page.getByTestId("report-totals")).toContainText("Entries 5 of 10");
+    await expect(page.getByTestId("day-header")).toHaveCount(2);
+    // A short window so the preview scrolls.
+    await page.setViewportSize({ width: 1440, height: 520 });
+
+    // Scroll past Monday's rows: Tuesday's header pins at the top and drives the day strip.
+    const scroller = page.getByTestId("preview-scroll");
+    await scroller.evaluate((el) => {
+      const tue = el.querySelectorAll<HTMLElement>("[data-day]")[1]!;
+      el.scrollTop = tue.offsetTop + 10;
+    });
+    const tueHeader = page.getByTestId("day-header").nth(1);
+    await expect(page.getByTestId("strip-day")).toContainText("Tue");
+    const top = (await scroller.boundingBox())!.y;
+    expect(Math.abs((await tueHeader.boundingBox())!.y - top)).toBeLessThanOrEqual(2);
+
+    const download = page.waitForEvent("download");
+    await page.getByTestId("download").click();
+    const file = await (await download).path();
+    const csv = (await import("node:fs")).readFileSync(file, "utf8");
+    expect(csv).toContain("Atlas job");
+    expect(csv).not.toContain("Billing job");
+  });
+});
+
+test("timeline grid chip: session override with accent dot, Reset to default", async ({ page }) => {
+  await login(page, user(23));
+  const chip = page.getByTestId("grid-menu");
+  await expect(chip).toContainText("Start 15m · Dur 15m");
+  await expect(page.getByTestId("grid-overridden")).toHaveCount(0);
+  await chip.click();
+  await page.getByRole("menuitemradio", { name: "5 min" }).first().click();
+  await expect(chip).toContainText("Start 5m · Dur 15m");
+  await expect(page.getByTestId("grid-overridden")).toHaveCount(1);
+  // ⌥1 no longer changes the grids.
+  await page.keyboard.press("Alt+1");
+  await expect(chip).toContainText("Start 5m · Dur 15m");
+  await chip.click();
+  await page.getByRole("menuitem", { name: /Reset to default/ }).click();
+  await expect(chip).toContainText("Start 15m · Dur 15m");
+  await expect(page.getByTestId("grid-overridden")).toHaveCount(0);
+});
+
+test.describe("reports on phone", () => {
+  test("rows stack the raw time above the rounded time", async ({ browser }) => {
+    const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 }, timezoneId: "Europe/Berlin" });
+    await login(desktop, user(24));
+    await createTask(desktop, "Phone job");
+    await createEntry(desktop, [9, 7], [9, 52], "phone job", true);
+    await desktop.close();
+    const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, timezoneId: "Europe/Berlin" });
+    await login(phone, user(24));
+    await phone.goto("/reports");
+    await phone.getByRole("radiogroup", { name: "Range" }).getByRole("radio", { name: "Day" }).click();
+    const row = phone.getByTestId("phone-row").first();
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId("phone-raw")).toContainText(/09:0\d–09:5\d/);
+    const raw = (await row.getByTestId("phone-raw").boundingBox())!;
+    const rounded = (await row.getByTestId("phone-flat").boundingBox())!;
+    expect(raw.y).toBeLessThan(rounded.y);
+    await phone.close();
+  });
 });
 
 test("logout shows unsynced changes before wiping", async ({ page, baseURL }) => {

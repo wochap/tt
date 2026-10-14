@@ -11,7 +11,8 @@ import { Segmented, SegmentedItem } from "@/components/ui/toggle-group";
 import { useSession, useSyncStatus } from "@/data/react";
 import { useSessionControl } from "@/data/session-control";
 import { useInstallPrompt } from "@/lib/pwa";
-import { effectiveTz, type SnapMinutes, type ThemeSetting, updateSettings, useSettings } from "@/lib/settings";
+import { DURATION_GRIDS, type DurationGrid, type Grids, START_GRIDS, type StartGrid, startOptions, withDuration } from "@/lib/grids";
+import { effectiveTz, type ThemeSetting, updateSettings, useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { reachable } from "@/sync/auth";
 
@@ -155,14 +156,35 @@ export function SettingsPage() {
                 </SegmentedItem>
               </Segmented>
             </Row>
-            <Row label="Default snap grid">
-              <Segmented label="Default snap grid" value={String(settings.snapMinutes)} onValueChange={(v) => updateSettings({ snapMinutes: Number(v) as SnapMinutes })}>
-                {[5, 10, 15].map((m) => (
-                  <SegmentedItem key={m} value={String(m)} className="px-3">
-                    {m} min
-                  </SegmentedItem>
-                ))}
+            <Row label="Start grid">
+              <Segmented label="Start grid" value={String(settings.startGrid)} onValueChange={(v) => updateSettings({ startGrid: Number(v) as StartGrid })}>
+                {START_GRIDS.map((m) => {
+                  const disabled = !startOptions(settings.durationGrid).includes(m);
+                  return (
+                    <SegmentedItem key={m} value={String(m)} className="px-3 disabled:cursor-not-allowed disabled:opacity-40" disabled={disabled} title={disabled ? "must divide duration" : undefined}>
+                      {m === 0 ? "off" : `${m} min`}
+                    </SegmentedItem>
+                  );
+                })}
               </Segmented>
+            </Row>
+            <Row label="Duration grid">
+              <div className="flex flex-col gap-[6px]">
+                <Segmented
+                  label="Duration grid"
+                  value={String(settings.durationGrid)}
+                  onValueChange={(v) => updateSettings(gridSettings(withDuration({ start: settings.startGrid, duration: settings.durationGrid }, Number(v) as DurationGrid)))}
+                >
+                  {DURATION_GRIDS.map((m) => (
+                    <SegmentedItem key={m} value={String(m)} className="px-3">
+                      {m} min
+                    </SegmentedItem>
+                  ))}
+                </Segmented>
+                <span className="text-[11.5px] text-faint">
+                  Start grids that do not divide the duration are disabled (must divide duration). The Timeline and Reports start from these; changing them there overrides that view only.
+                </span>
+              </div>
             </Row>
             <Row label="Visible hours">
               <div className="flex items-center gap-2 tabular-nums">
@@ -236,6 +258,10 @@ function Section({ id, title, children }: { id: string; title: string; children:
       <div className="grid grid-cols-1 items-center gap-x-5 gap-y-[14px] text-[13px] sm:grid-cols-[180px_1fr]">{children}</div>
     </section>
   );
+}
+
+function gridSettings(grids: Grids) {
+  return { startGrid: grids.start, durationGrid: grids.duration };
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {

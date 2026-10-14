@@ -36,7 +36,10 @@ export interface TimelineBoardProps {
   columns: Column[];
   density: "day" | "week" | "phone";
   pxPerHour: number;
-  snapMinutes: number;
+  /** Start grid in minutes (0 = off). */
+  startMinutes: number;
+  /** Duration grid in minutes. */
+  durationMinutes: number;
   entries: Entry[];
   /** Entries that match the timeline filter (totals); defaults to all. */
   matching?: Entry[];
@@ -64,7 +67,7 @@ export interface TimelineBoardProps {
 
 /** DndContext around the grid and the side panel: create, move, resize, re-link. */
 export function TimelineBoard(props: TimelineBoardProps) {
-  const { columns, density, pxPerHour, snapMinutes, entries, now } = props;
+  const { columns, density, pxPerHour, startMinutes, durationMinutes, entries, now } = props;
   const view = useView();
   const actions = useActions();
   const tz = useTz();
@@ -107,10 +110,11 @@ export function TimelineBoard(props: TimelineBoardProps) {
       firstHour: hours[0],
       pxPerHour,
       rects: () => columns.map((c) => columnEls.current.get(c.key)?.getBoundingClientRect() ?? new DOMRect()),
-      snapMinutes,
+      startMinutes,
+      durationMinutes,
       now: Date.now(),
     }),
-    [tz, columns, hours, pxPerHour, snapMinutes],
+    [tz, columns, hours, pxPerHour, startMinutes, durationMinutes],
   );
 
   // Track pointer and modifiers during a drag (dnd-kit reports only deltas).
@@ -292,7 +296,7 @@ export function TimelineBoard(props: TimelineBoardProps) {
   });
 
   const pickerOpen = !!pending?.rect;
-  const canKeepRunning = !!pending && (pending.end === null || pending.end >= Date.now() - Math.max(snapMinutes, 1) * 60_000);
+  const canKeepRunning = !!pending && (pending.end === null || pending.end >= Date.now() - durationMinutes * 60_000);
   const close = () => props.setPendingCreate(null);
   const commitPick = (taskId: Uuid, keepRunning: boolean) => {
     if (!pending) return;

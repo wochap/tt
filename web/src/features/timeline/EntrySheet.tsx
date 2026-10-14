@@ -26,13 +26,14 @@ import { useNow, useView } from "@/data/react";
 import { taskColor } from "@/lib/colors";
 import { useKeys } from "@/lib/keys";
 import { usePhone } from "@/lib/media";
+import { gridLabel, type Grids, roundSpan } from "@/lib/grids";
 import { useSettings, useTz } from "@/lib/settings";
 import { MOD, cn } from "@/lib/utils";
 
 const MIN15 = 15 * 60_000;
 
 /** Frame 4: non-modal sheet, every edit applies immediately and is undoable. */
-export function EntrySheet({ entryId, onClose, onSelect }: { entryId: string | null; onClose: () => void; onSelect?: (id: string) => void }) {
+export function EntrySheet({ entryId, onClose, onSelect, grids }: { entryId: string | null; onClose: () => void; onSelect?: (id: string) => void; grids?: Grids }) {
   const view = useView();
   const entry = entryId ? view.entries.get(entryId) : undefined;
   // Closing when the entry disappears (deleted here or elsewhere).
@@ -42,18 +43,20 @@ export function EntrySheet({ entryId, onClose, onSelect }: { entryId: string | n
   return (
     <Sheet open={!!entry} onOpenChange={(open) => !open && onClose()}>
       <SheetContent aria-describedby={undefined} data-testid="entry-sheet">
-        {entry && <SheetBody key={entry.id} entry={entry} onClose={onClose} onSelect={onSelect} />}
+        {entry && <SheetBody key={entry.id} entry={entry} onClose={onClose} onSelect={onSelect} grids={grids} />}
       </SheetContent>
     </Sheet>
   );
 }
 
-function SheetBody({ entry, onClose, onSelect }: { entry: Entry; onClose: () => void; onSelect?: (id: string) => void }) {
+function SheetBody(props: { entry: Entry; onClose: () => void; onSelect?: (id: string) => void; grids?: Grids }) {
+  const { entry, onClose, onSelect } = props;
   const phone = usePhone();
   const view = useView();
   const actions = useActions();
   const tz = useTz();
-  const { snapMinutes } = useSettings();
+  const settings = useSettings();
+  const grids = props.grids ?? { start: settings.startGrid, duration: settings.durationGrid };
   const now = useNow(1000);
   const task = view.workspace.tasks.get(entry.task);
   const project = task ? taskProject(view.workspace, task) : undefined;
@@ -83,15 +86,8 @@ function SheetBody({ entry, onClose, onSelect }: { entry: Entry; onClose: () => 
   const shiftStart = (delta: number) => safe(() => void actions.updateEntry(entry.id, { start: entry.start + delta }, `Moved start to ${formatClock(tz, entry.start + delta)}`));
   const shiftEnd = (delta: number) =>
     !running && safe(() => void actions.updateEntry(entry.id, { end: entry.end! + delta }, `Moved end to ${formatClock(tz, entry.end! + delta)}`));
-  const grid = Math.max(snapMinutes, 1) * 60_000;
-  const round = () =>
-    safe(() =>
-      void actions.updateEntry(
-        entry.id,
-        { start: Math.floor(entry.start / grid) * grid, ...(running ? {} : { end: Math.ceil(entry.end! / grid) * grid }) },
-        `Rounded to ${snapMinutes || 1}m`,
-      ),
-    );
+  const roundLabel = `start ${gridLabel(grids.start)} · dur ${gridLabel(grids.duration)}`;
+  const round = () => safe(() => void actions.updateEntry(entry.id, roundSpan(entry.start, entry.end, grids), `Rounded to ${roundLabel}`));
 
   useKeys({
     escape: () => onClose(),
@@ -175,7 +171,7 @@ function SheetBody({ entry, onClose, onSelect }: { entry: Entry; onClose: () => 
               Start at previous end {formatClock(tz, previousEnd)}
             </Chip>
           )}
-          <Chip onClick={round}>Round to {snapMinutes || 1}m</Chip>
+          <Chip onClick={round}>Round to {roundLabel}</Chip>
         </div>
 
         <Field label="Note">

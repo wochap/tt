@@ -1,4 +1,4 @@
-// Timeline filter (Turn 8): a popover with search + Projects/Tags multi-select,
+// Entry filter (Turn 8, timeline and Reports): a popover with search + Projects/Tags multi-select,
 // the toolbar trigger with a count badge, and the removable chips row.
 
 import { Funnel, X } from "@phosphor-icons/react";
@@ -13,7 +13,7 @@ import { useView } from "@/data/react";
 import { cssColor, NEUTRAL, projectColor } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 
-import { filterActive, filterCount, NO_PROJECT, type TimelineFilter } from "./filter.ts";
+import { filterActive, filterCount, NO_PROJECT, type EntryFilter } from "./filter.ts";
 
 interface Option {
   kind: "project" | "tag";
@@ -25,7 +25,7 @@ interface Option {
 
 const valueOf = (o: { kind: string; id: string }) => `${o.kind}:${o.id}`;
 
-function useOptions(entries: Entry[], now: number, range: Range, filter: TimelineFilter, query: string) {
+function useOptions(entries: Entry[], now: number, range: Range, filter: EntryFilter, query: string) {
   const view = useView();
   return useMemo(() => {
     const byProject = new Map<string, number>();
@@ -55,7 +55,7 @@ function useOptions(entries: Entry[], now: number, range: Range, filter: Timelin
   }, [view, entries, now, range, filter.projects, filter.tags, query]);
 }
 
-export function toggleOption(filter: TimelineFilter, kind: "project" | "tag", id: string): TimelineFilter {
+export function toggleOption(filter: EntryFilter, kind: "project" | "tag", id: string): EntryFilter {
   const key = kind === "project" ? "projects" : "tags";
   const list = filter[key];
   return { ...filter, [key]: list.includes(id) ? list.filter((x) => x !== id) : [...list, id] };
@@ -69,8 +69,8 @@ function FilterBody({
   now,
   range,
 }: {
-  filter: TimelineFilter;
-  onChange: (next: TimelineFilter) => void;
+  filter: EntryFilter;
+  onChange: (next: EntryFilter) => void;
   onClose: () => void;
   entries: Entry[];
   now: number;
@@ -150,11 +150,11 @@ function FilterBody({
 }
 
 /** Toolbar trigger and popover. `F` opens it (controlled by the page). */
-export function FilterButton(props: {
+export function EntryFilterButton(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  filter: TimelineFilter;
-  onChange: (next: TimelineFilter) => void;
+  filter: EntryFilter;
+  onChange: (next: EntryFilter) => void;
   entries: Entry[];
   now: number;
   range: Range;
@@ -180,8 +180,18 @@ export function FilterButton(props: {
   );
 }
 
-/** Removable chips, Clear and the dimming note; renders nothing while no filter is active. */
-export function FilterChips({ filter, onChange, className }: { filter: TimelineFilter; onChange: (next: TimelineFilter) => void; className?: string }) {
+/** Removable chips, Clear and the note on non-matching entries; renders nothing while no filter is active. */
+export function EntryFilterChips({
+  filter,
+  onChange,
+  className,
+  note = "Other entries are dimmed and left out of totals",
+}: {
+  filter: EntryFilter;
+  onChange: (next: EntryFilter) => void;
+  className?: string;
+  note?: string;
+}) {
   const view = useView();
   if (!filterActive(filter)) return null;
   const chips: { kind: "project" | "tag"; id: Uuid; name: string; color: string }[] = [
@@ -209,7 +219,7 @@ export function FilterChips({ filter, onChange, className }: { filter: TimelineF
       <button type="button" className="tt-chip-btn h-6" onClick={() => onChange({ projects: [], tags: [] })}>
         Clear <Kbd>⇧F</Kbd>
       </button>
-      <span className="text-faint">Other entries are dimmed and left out of totals</span>
+      <span className="text-faint">{note}</span>
     </div>
   );
 }

@@ -12,8 +12,8 @@ import type { SyncClient } from "@/sync/client";
 import { memoryStore } from "@/test/harness";
 
 import { UiProvider } from "../shell/ui-state.tsx";
-import { monthCells } from "./MonthView.tsx";
-import { TimelinePage } from "./TimelinePage.tsx";
+import { monthCells } from "@/features/timeline/MonthView";
+import { TimelinePage } from "@/features/timeline/TimelinePage";
 
 const DAY = "2026-03-10";
 const at = (h: number, m = 0) => Date.UTC(2026, 2, 10, h, m);

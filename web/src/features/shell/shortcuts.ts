@@ -37,6 +37,14 @@ export const SHORTCUTS: { scope: string; keys: [string, string][] }[] = [
     ],
   },
   {
+    scope: "Reports",
+    keys: [
+      ["D · W · M", "Day · Week · Month"],
+      ["← →", "Previous / next range"],
+      ["F · ⇧F", "Filter · clear filters"],
+    ],
+  },
+  {
     scope: "Lists (Tasks, side panel, reports)",
     keys: [
       ["J · K", "Next / previous row"],
