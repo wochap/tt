@@ -3,22 +3,30 @@
     {
       "expected": [
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 900,
           "end": "2026-10-07T13:15:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000001"
           ],
+          "grid_start": "2026-10-07T13:00:00Z",
           "original": 300,
+          "raw_start": "2026-10-07T13:00:00Z",
           "start": "2026-10-07T13:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000a"
         },
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 2700,
           "end": "2026-10-07T14:00:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000002"
           ],
+          "grid_start": "2026-10-07T13:10:00Z",
           "original": 2100,
+          "raw_start": "2026-10-07T13:10:00Z",
           "start": "2026-10-07T13:15:00Z",
           "task": "018f0000-0000-7000-8000-00000000000a"
         }
@@ -45,37 +53,51 @@
       ],
       "mode": "up",
       "name": "brief example: up, per entry",
+      "start_grid_minutes": 0,
+      "start_mode": "up",
       "tz": "UTC"
     },
     {
       "expected": [
         {
+          "day": "2026-10-07",
+          "dropped": true,
           "duration": 0,
           "end": "2026-10-07T09:00:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000001"
           ],
+          "grid_start": "2026-10-07T09:00:00Z",
           "original": 449,
+          "raw_start": "2026-10-07T09:00:00Z",
           "start": "2026-10-07T09:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000a"
         },
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 900,
           "end": "2026-10-07T10:15:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000002"
           ],
+          "grid_start": "2026-10-07T10:00:00Z",
           "original": 450,
+          "raw_start": "2026-10-07T10:00:00Z",
           "start": "2026-10-07T10:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000b"
         },
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 900,
           "end": "2026-10-07T11:15:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000003"
           ],
+          "grid_start": "2026-10-07T11:00:00Z",
           "original": 1320,
+          "raw_start": "2026-10-07T11:00:00Z",
           "start": "2026-10-07T11:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000c"
         }
@@ -110,37 +132,51 @@
       ],
       "mode": "nearest",
       "name": "nearest rounds half up",
+      "start_grid_minutes": 0,
+      "start_mode": "nearest",
       "tz": "UTC"
     },
     {
       "expected": [
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 3600,
           "end": "2026-10-07T10:00:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000001"
           ],
+          "grid_start": "2026-10-07T09:00:00Z",
           "original": 3600,
+          "raw_start": "2026-10-07T09:00:00Z",
           "start": "2026-10-07T09:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000a"
         },
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 1800,
           "end": "2026-10-07T10:30:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000002"
           ],
+          "grid_start": "2026-10-07T09:30:00Z",
           "original": 1200,
+          "raw_start": "2026-10-07T09:30:00Z",
           "start": "2026-10-07T10:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000b"
         },
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 5400,
           "end": "2026-10-07T12:00:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000003"
           ],
+          "grid_start": "2026-10-07T09:40:00Z",
           "original": 4800,
+          "raw_start": "2026-10-07T09:40:00Z",
           "start": "2026-10-07T10:30:00Z",
           "task": "018f0000-0000-7000-8000-00000000000c"
         }
@@ -175,41 +211,52 @@
       ],
       "mode": "up",
       "name": "overlapping entries are pushed, never shortened",
+      "start_grid_minutes": 0,
+      "start_mode": "up",
       "tz": "UTC"
     },
     {
       "expected": [
         {
           "day": "2026-10-07",
+          "dropped": false,
           "duration": 3600,
           "end": "2026-10-07T08:00:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000001",
             "00000000-0000-4000-8000-000000000003"
           ],
+          "grid_start": "2026-10-07T07:00:00Z",
           "original": 2700,
+          "raw_start": "2026-10-07T07:00:00Z",
           "start": "2026-10-07T07:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000a"
         },
         {
           "day": "2026-10-07",
+          "dropped": false,
           "duration": 1800,
           "end": "2026-10-07T08:30:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000002"
           ],
+          "grid_start": "2026-10-07T08:00:00Z",
           "original": 600,
+          "raw_start": "2026-10-07T08:00:00Z",
           "start": "2026-10-07T08:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000b"
         },
         {
           "day": "2026-10-08",
+          "dropped": false,
           "duration": 1800,
           "end": "2026-10-07T23:00:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000004"
           ],
+          "grid_start": "2026-10-07T22:30:00Z",
           "original": 1800,
+          "raw_start": "2026-10-07T22:30:00Z",
           "start": "2026-10-07T22:30:00Z",
           "task": "018f0000-0000-7000-8000-00000000000a"
         }
@@ -252,27 +299,37 @@
       ],
       "mode": "up",
       "name": "task-day groups sum per local day",
+      "start_grid_minutes": 0,
+      "start_mode": "up",
       "tz": "Europe/Berlin"
     },
     {
       "expected": [
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 60,
           "end": "2026-10-07T09:01:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000001"
           ],
+          "grid_start": "2026-10-07T09:00:00Z",
           "original": 1,
+          "raw_start": "2026-10-07T09:00:00Z",
           "start": "2026-10-07T09:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000a"
         },
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 120,
           "end": "2026-10-07T09:03:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000002"
           ],
+          "grid_start": "2026-10-07T09:00:30Z",
           "original": 90,
+          "raw_start": "2026-10-07T09:00:30Z",
           "start": "2026-10-07T09:01:00Z",
           "task": "018f0000-0000-7000-8000-00000000000a"
         }
@@ -299,27 +356,37 @@
       ],
       "mode": "up",
       "name": "grid of one minute keeps seconds rounding",
+      "start_grid_minutes": 0,
+      "start_mode": "up",
       "tz": "UTC"
     },
     {
       "expected": [
         {
+          "day": "2026-10-07",
+          "dropped": true,
           "duration": 0,
           "end": "2026-10-07T09:00:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000001"
           ],
+          "grid_start": "2026-10-07T09:00:00Z",
           "original": 1200,
+          "raw_start": "2026-10-07T09:00:00Z",
           "start": "2026-10-07T09:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000a"
         },
         {
+          "day": "2026-10-07",
+          "dropped": false,
           "duration": 3600,
           "end": "2026-10-07T11:00:00Z",
           "entries": [
             "00000000-0000-4000-8000-000000000002"
           ],
+          "grid_start": "2026-10-07T10:00:00Z",
           "original": 2700,
+          "raw_start": "2026-10-07T10:00:00Z",
           "start": "2026-10-07T10:00:00Z",
           "task": "018f0000-0000-7000-8000-00000000000b"
         }
@@ -346,6 +413,8 @@
       ],
       "mode": "nearest",
       "name": "sixty minute grid nearest drops short work",
+      "start_grid_minutes": 0,
+      "start_mode": "nearest",
       "tz": "UTC"
     },
     {
@@ -355,6 +424,485 @@
       "items": [],
       "mode": "up",
       "name": "empty input",
+      "start_grid_minutes": 0,
+      "start_mode": "up",
+      "tz": "UTC"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 900,
+          "end": "2026-10-07T21:30:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000101"
+          ],
+          "grid_start": "2026-10-07T21:15:00Z",
+          "original": 900,
+          "raw_start": "2026-10-07T21:22:00Z",
+          "start": "2026-10-07T21:15:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 15,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-07T21:37:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000101"
+          ],
+          "start": "2026-10-07T21:22:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "nearest",
+      "name": "start snapped to nearest mark",
+      "start_grid_minutes": 15,
+      "start_mode": "nearest",
+      "tz": "UTC"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 900,
+          "end": "2026-10-07T21:45:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000102"
+          ],
+          "grid_start": "2026-10-07T21:30:00Z",
+          "original": 900,
+          "raw_start": "2026-10-07T21:22:00Z",
+          "start": "2026-10-07T21:30:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 15,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-07T21:37:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000102"
+          ],
+          "start": "2026-10-07T21:22:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "up",
+      "name": "start snapped up",
+      "start_grid_minutes": 15,
+      "start_mode": "up",
+      "tz": "UTC"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 900,
+          "end": "2026-10-07T21:45:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000103"
+          ],
+          "grid_start": "2026-10-07T21:30:00Z",
+          "original": 900,
+          "raw_start": "2026-10-07T21:22:30Z",
+          "start": "2026-10-07T21:30:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 15,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-07T21:37:30Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000103"
+          ],
+          "start": "2026-10-07T21:22:30Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "nearest",
+      "name": "sub-minute half snaps up under nearest",
+      "start_grid_minutes": 15,
+      "start_mode": "nearest",
+      "tz": "UTC"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 3600,
+          "end": "2026-10-07T10:15:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000104"
+          ],
+          "grid_start": "2026-10-07T09:15:00Z",
+          "original": 900,
+          "raw_start": "2026-10-07T09:05:00Z",
+          "start": "2026-10-07T09:15:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 60,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-07T09:20:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000104"
+          ],
+          "start": "2026-10-07T09:05:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "up",
+      "name": "large duration grid with a small start grid",
+      "start_grid_minutes": 15,
+      "start_mode": "up",
+      "tz": "UTC"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 3600,
+          "end": "2026-10-07T10:00:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000105"
+          ],
+          "grid_start": "2026-10-07T09:00:00Z",
+          "original": 3300,
+          "raw_start": "2026-10-07T09:00:00Z",
+          "start": "2026-10-07T09:00:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 900,
+          "end": "2026-10-07T10:15:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000106"
+          ],
+          "grid_start": "2026-10-07T09:45:00Z",
+          "original": 900,
+          "raw_start": "2026-10-07T09:50:00Z",
+          "start": "2026-10-07T10:00:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 15,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-07T09:55:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000105"
+          ],
+          "start": "2026-10-07T09:00:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "end": "2026-10-07T10:05:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000106"
+          ],
+          "start": "2026-10-07T09:50:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "nearest",
+      "name": "snapped start pushed by the previous item",
+      "start_grid_minutes": 15,
+      "start_mode": "nearest",
+      "tz": "UTC"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 1800,
+          "end": "2026-10-08T00:30:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000107"
+          ],
+          "grid_start": "2026-10-08T00:00:00Z",
+          "original": 1500,
+          "raw_start": "2026-10-07T23:55:00Z",
+          "start": "2026-10-08T00:00:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "day": "2026-10-08",
+          "dropped": false,
+          "duration": 1800,
+          "end": "2026-10-08T01:00:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000108"
+          ],
+          "grid_start": "2026-10-08T00:15:00Z",
+          "original": 1800,
+          "raw_start": "2026-10-08T00:10:00Z",
+          "start": "2026-10-08T00:30:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 15,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-08T00:20:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000107"
+          ],
+          "start": "2026-10-07T23:55:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "end": "2026-10-08T00:40:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000108"
+          ],
+          "start": "2026-10-08T00:10:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "nearest",
+      "name": "push carries across midnight",
+      "start_grid_minutes": 15,
+      "start_mode": "nearest",
+      "tz": "UTC"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-07",
+          "dropped": true,
+          "duration": 0,
+          "end": "2026-10-07T21:07:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000109"
+          ],
+          "grid_start": "2026-10-07T21:07:00Z",
+          "original": 240,
+          "raw_start": "2026-10-07T21:07:00Z",
+          "start": "2026-10-07T21:07:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 900,
+          "end": "2026-10-07T21:27:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000110"
+          ],
+          "grid_start": "2026-10-07T21:12:00Z",
+          "original": 1080,
+          "raw_start": "2026-10-07T21:12:00Z",
+          "start": "2026-10-07T21:12:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 15,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-07T21:11:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000109"
+          ],
+          "start": "2026-10-07T21:07:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "end": "2026-10-07T21:30:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000110"
+          ],
+          "start": "2026-10-07T21:12:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "nearest",
+      "name": "zero-minute item dropped and does not push",
+      "start_grid_minutes": 0,
+      "start_mode": "nearest",
+      "tz": "UTC"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 3600,
+          "end": "2026-10-07T04:30:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000111"
+          ],
+          "grid_start": "2026-10-07T03:30:00Z",
+          "original": 3600,
+          "raw_start": "2026-10-07T03:50:00Z",
+          "start": "2026-10-07T03:30:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 60,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-07T04:50:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000111"
+          ],
+          "start": "2026-10-07T03:50:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "nearest",
+      "name": "half-hour offset zone snaps on local clock",
+      "start_grid_minutes": 60,
+      "start_mode": "nearest",
+      "tz": "Asia/Kolkata"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-07",
+          "dropped": false,
+          "duration": 900,
+          "end": "2026-10-07T09:30:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000112",
+            "00000000-0000-4000-8000-000000000113",
+            "00000000-0000-4000-8000-000000000114"
+          ],
+          "grid_start": "2026-10-07T09:15:00Z",
+          "original": 900,
+          "raw_start": "2026-10-07T09:05:00Z",
+          "start": "2026-10-07T09:15:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 15,
+      "group": "task-day",
+      "items": [
+        {
+          "end": "2026-10-07T09:10:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000112"
+          ],
+          "start": "2026-10-07T09:05:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "end": "2026-10-07T13:15:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000113"
+          ],
+          "start": "2026-10-07T13:10:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "end": "2026-10-07T17:25:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000114"
+          ],
+          "start": "2026-10-07T17:20:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "up",
+      "name": "task-day group start snapped",
+      "start_grid_minutes": 15,
+      "start_mode": "up",
+      "tz": "UTC"
+    },
+    {
+      "expected": [
+        {
+          "day": "2026-10-25",
+          "dropped": false,
+          "duration": 900,
+          "end": "2026-10-25T01:00:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000115"
+          ],
+          "grid_start": "2026-10-25T00:45:00Z",
+          "original": 480,
+          "raw_start": "2026-10-25T00:52:00Z",
+          "start": "2026-10-25T00:45:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "day": "2026-10-25",
+          "dropped": false,
+          "duration": 1800,
+          "end": "2026-10-25T01:30:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000116"
+          ],
+          "grid_start": "2026-10-25T01:00:00Z",
+          "original": 1980,
+          "raw_start": "2026-10-25T01:07:00Z",
+          "start": "2026-10-25T01:00:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "grid_minutes": 15,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-25T01:00:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000115"
+          ],
+          "start": "2026-10-25T00:52:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        },
+        {
+          "end": "2026-10-25T01:40:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000116"
+          ],
+          "start": "2026-10-25T01:07:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "nearest",
+      "name": "DST end day snaps on local clock",
+      "start_grid_minutes": 15,
+      "start_mode": "nearest",
+      "tz": "Europe/Berlin"
+    },
+    {
+      "error": true,
+      "expected": "error",
+      "grid_minutes": 15,
+      "group": "entry",
+      "items": [
+        {
+          "end": "2026-10-07T09:30:00Z",
+          "entries": [
+            "00000000-0000-4000-8000-000000000117"
+          ],
+          "start": "2026-10-07T09:00:00Z",
+          "task": "018f0000-0000-7000-8000-00000000000a"
+        }
+      ],
+      "mode": "up",
+      "name": "invalid grid pair",
+      "start_grid_minutes": 10,
+      "start_mode": "up",
       "tz": "UTC"
     }
   ]

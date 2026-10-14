@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  DomainError,
   type Entry,
   type GroupBy,
   type Project,
@@ -54,7 +55,10 @@ const roundedJson = (r: Rounded) => ({
   duration: r.duration,
   original: r.original,
   entries: r.entries,
-  ...(r.day !== undefined ? { day: r.day } : {}),
+  raw_start: rfc3339(r.raw_start),
+  grid_start: rfc3339(r.grid_start),
+  day: r.day,
+  dropped: r.dropped,
 });
 
 describe("union.json", () => {
@@ -75,14 +79,24 @@ describe("round.json", () => {
         end: ms(item.end),
         entries: item.entries,
       }));
-      const out = roundAndFlatten(
-        items,
-        Number(c.grid_minutes) * 60,
-        parseRoundMode(String(c.mode)),
-        parseRoundGroup(String(c.group)),
-        String(c.tz),
-      );
-      expect(out.map(roundedJson)).toEqual(c.expected);
+      const run = () =>
+        roundAndFlatten(
+          items,
+          {
+            gridSeconds: Number(c.grid_minutes) * 60,
+            mode: parseRoundMode(String(c.mode)),
+            startGridSeconds: Number(c.start_grid_minutes) * 60,
+            startMode: parseRoundMode(String(c.start_mode)),
+            group: parseRoundGroup(String(c.group)),
+          },
+          String(c.tz),
+        );
+      if (c.error === true) {
+        expect(c.expected).toBe("error");
+        expect(run).toThrow(DomainError);
+      } else {
+        expect(run().map(roundedJson)).toEqual(c.expected);
+      }
     });
   }
 });

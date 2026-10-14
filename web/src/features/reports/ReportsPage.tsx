@@ -28,6 +28,8 @@ import {
   roundedCsv,
   roundedJson,
   roundInputs,
+  START_GRID_MINUTES,
+  validStartGrids,
   type View,
   weekStartDate,
 } from "@tt/domain";
@@ -56,6 +58,56 @@ import { RoundFlattenPreview } from "./RoundFlattenPreview.tsx";
 type Preset = "day" | "week" | "month" | "custom";
 type ExportMode = "json" | "csv" | "rounded";
 const GRIDS = [5, 10, 15, 30, 60] as const;
+
+/** Valid start grids (minutes, 0 = off) for a duration grid in minutes. */
+export function validStartMinutes(gridMinutes: number): number[] {
+  return validStartGrids(gridMinutes * 60).map((g) => g / 60);
+}
+
+/** Default start grid: the largest valid value ≤ 15 min. */
+export function defaultStartMinutes(gridMinutes: number): number {
+  return Math.max(...validStartMinutes(gridMinutes).filter((g) => g <= 15));
+}
+
+/** Keeps `start` when it divides the new duration grid, else the largest valid start. */
+export function fallbackStartMinutes(gridMinutes: number, start: number): number {
+  const valid = validStartMinutes(gridMinutes);
+  return valid.includes(start) ? start : Math.max(...valid);
+}
+
+export interface RoundGrids {
+  grid: number;
+  mode: RoundMode;
+  startGrid: number;
+  startMode: RoundMode;
+}
+
+/** Duration grid + mode and start grid + mode; start grids that do not divide the duration are disabled. */
+export function RoundGridControls({ value, onChange }: { value: RoundGrids; onChange: (value: RoundGrids) => void }) {
+  const valid = validStartMinutes(value.grid);
+  const modes: [string, string][] = [
+    ["up", "up"],
+    ["nearest", "nearest"],
+  ];
+  return (
+    <>
+      <Choice
+        label="Duration"
+        value={String(value.grid)}
+        options={GRIDS.map((g) => [String(g), `${g} min`])}
+        onChange={(v) => onChange({ ...value, grid: Number(v), startGrid: fallbackStartMinutes(Number(v), value.startGrid) })}
+      />
+      <Choice label="Round" value={value.mode} options={modes} onChange={(v) => onChange({ ...value, mode: v as RoundMode })} />
+      <Choice
+        label="Start"
+        value={String(value.startGrid)}
+        options={[0, ...START_GRID_MINUTES].map((g) => [String(g), g === 0 ? "off" : `${g} min`, !valid.includes(g)])}
+        onChange={(v) => onChange({ ...value, startGrid: Number(v) })}
+      />
+      {value.startGrid > 0 && <Choice label="Start mode" value={value.startMode} options={modes} onChange={(v) => onChange({ ...value, startMode: v as RoundMode })} />}
+    </>
+  );
+}
 
 interface Custom {
   from: CivilDate;
@@ -86,8 +138,11 @@ export function ReportsPage() {
   const [custom, setCustom] = useState<Custom>({ from: today, fromTime: "", to: today, toTime: "" });
   const [applied, setApplied] = useState<Custom>(custom);
   const [exportMode, setExportMode] = useState<ExportMode>("rounded");
-  const [grid, setGrid] = useState<number>(snapMinutes || 15);
-  const [mode, setMode] = useState<RoundMode>("up");
+  const [grids, setGrids] = useState<RoundGrids>(() => {
+    const grid = GRIDS.includes(snapMinutes as (typeof GRIDS)[number]) ? snapMinutes : 15;
+    return { grid, mode: "up", startGrid: defaultStartMinutes(grid), startMode: "up" };
+  });
+  const { grid, mode, startGrid, startMode } = grids;
   const [group, setGroup] = useState<RoundGroup>("entry");
 
   const range: Range | undefined = useMemo(() => {
@@ -126,7 +181,8 @@ export function ReportsPage() {
     };
   }, [view, range, tz, now]);
   const inputs = useMemo(() => (range ? roundInputs(view, range, now) : []), [view, range, now]);
-  const rounded = useMemo(() => roundAndFlatten(inputs, grid * 60, mode, group, tz), [inputs, grid, mode, group, tz]);
+  const options = useMemo(() => ({ gridSeconds: grid * 60, mode, startGridSeconds: startGrid * 60, startMode, group }), [grid, mode, startGrid, startMode, group]);
+  const rounded = useMemo(() => roundAndFlatten(inputs, options, tz), [inputs, options, tz]);
   const hasData = !!reports && reports.task.count > 0;
 
   const title = (() => {
@@ -140,17 +196,18 @@ export function ReportsPage() {
     return `${formatDayShort(localDate(tz, range.from))} ${formatClock(tz, range.from)} → ${formatDayShort(localDate(tz, range.to - 1))} ${formatClock(tz, range.to)}`;
   })();
 
+  const roundedName = `${grid}m-start-${startGrid ? `${startGrid}m` : "off"}-${group}`;
   const download = () => {
     if (!range) return;
     const stamp = `${formatDate(localDate(tz, range.from))}_${formatDate(localDate(tz, range.to - 1))}`;
     if (exportMode === "json") save(`tt-export-${stamp}.json`, JSON.stringify(exportJson(view, range, Date.now()), null, 2), "application/json");
     else if (exportMode === "csv") save(`tt-entries-${stamp}.csv`, entriesCsv(view, entriesIn(view, range, now), now), "text/csv");
-    else save(`tt-rounded-${grid}m-${group}-${stamp}.csv`, roundedCsv(view, rounded), "text/csv");
+    else save(`tt-rounded-${roundedName}-${stamp}.csv`, roundedCsv(view, rounded), "text/csv");
   };
   const downloadRoundedJson = () => {
     if (!range) return;
     const stamp = `${formatDate(localDate(tz, range.from))}_${formatDate(localDate(tz, range.to - 1))}`;
-    save(`tt-rounded-${grid}m-${group}-${stamp}.json`, JSON.stringify(roundedJson(view, range, { gridSeconds: grid * 60, mode, group }, rounded), null, 2), "application/json");
+    save(`tt-rounded-${roundedName}-${stamp}.json`, JSON.stringify(roundedJson(view, range, options, rounded), null, 2), "application/json");
   };
 
   return (
@@ -233,8 +290,7 @@ export function ReportsPage() {
             </Segmented>
             {exportMode === "rounded" && (
               <>
-                <Choice label="Grid" value={String(grid)} options={GRIDS.map((g) => [String(g), `${g} min`])} onChange={(v) => setGrid(Number(v))} />
-                <Choice label="Round" value={mode} options={[["up", "up"], ["nearest", "nearest"]]} onChange={(v) => setMode(v as RoundMode)} />
+                <RoundGridControls value={grids} onChange={setGrids} />
                 <Segmented label="Grouping" value={group} onValueChange={(g: RoundGroup) => setGroup(g)}>
                   <SegmentedItem value="entry" className="px-[10px] py-1">
                     Per entry
@@ -263,7 +319,7 @@ export function ReportsPage() {
               until there is data
             </div>
           ) : exportMode === "rounded" ? (
-            <RoundFlattenPreview view={view} tz={tz} inputs={inputs} rounded={rounded} group={group} gridMinutes={grid} mode={mode} />
+            <RoundFlattenPreview view={view} tz={tz} inputs={inputs} rounded={rounded} group={group} gridMinutes={grid} mode={mode} startGridMinutes={startGrid} />
           ) : (
             <pre className="tt-scroll m-[18px] min-h-0 flex-1 overflow-auto rounded-md border bg-base p-3 font-mono text-[11px] leading-[1.5] text-sub1" data-testid="export-preview">
               {exportMode === "json"
@@ -312,7 +368,7 @@ function Bars({ title, groups, color, label, small }: { title: string; groups: R
   );
 }
 
-function Choice({ label, value, options, onChange }: { label: string; value: string; options: [string, string][]; onChange: (v: string) => void }) {
+function Choice({ label, value, options, onChange }: { label: string; value: string; options: [string, string, boolean?][]; onChange: (v: string) => void }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="tt-chip-btn text-sub1" aria-label={label}>
@@ -321,8 +377,8 @@ function Choice({ label, value, options, onChange }: { label: string; value: str
       </DropdownMenuTrigger>
       <DropdownMenuContent>
         <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
-          {options.map(([v, text]) => (
-            <DropdownMenuRadioItem key={v} value={v}>
+          {options.map(([v, text, disabled]) => (
+            <DropdownMenuRadioItem key={v} value={v} disabled={disabled}>
               {text}
             </DropdownMenuRadioItem>
           ))}

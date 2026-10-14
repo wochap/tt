@@ -1101,6 +1101,12 @@ impl Engine {
             mode: Option<String>,
             #[serde(default)]
             group: Option<String>,
+            /// 0 or missing: starts are not snapped.
+            #[serde(default)]
+            start_grid_seconds: i64,
+            /// Missing: the duration mode.
+            #[serde(default)]
+            start_mode: Option<String>,
         }
         #[derive(Deserialize)]
         struct P {
@@ -1136,6 +1142,21 @@ impl Engine {
                 .as_deref()
                 .unwrap_or("entry")
                 .parse::<round::RoundGroup>()?;
+            let start_mode = match rounding.start_mode.as_deref() {
+                Some(value) => value.parse::<round::RoundMode>()?,
+                None => mode,
+            };
+            let options = round::RoundOptions {
+                duration_grid: chrono::Duration::seconds(rounding.grid_seconds),
+                mode,
+                start_grid: chrono::Duration::seconds(rounding.start_grid_seconds),
+                start_mode,
+                group,
+            };
+            round::validate_grids(&options).map_err(|error| match error {
+                tt_core::CoreError::Invalid(message) => RpcError::params(message),
+                other => other.into(),
+            })?;
             let items: Vec<round::Interval> = self
                 .entries_in(&range, now)
                 .iter()
@@ -1148,27 +1169,27 @@ impl Engine {
                     })
                 })
                 .collect();
-            let rounded = round::round_and_flatten(
-                &items,
-                chrono::Duration::seconds(rounding.grid_seconds),
-                mode,
-                group,
-                tz,
-            );
+            let rounded: Vec<round::Rounded> = round::round_and_flatten(&items, &options, tz)?
+                .into_iter()
+                .filter(|item| !item.dropped)
+                .collect();
             return Ok(match format.as_str() {
                 "csv" => {
                     json!({"format": "csv", "text": export::rounded_csv(&self.view, &rounded, tz)?})
                 }
                 "json" => json!({"format": "json", "data": {
                     "format": "tt-rounded",
-                    "version": 1,
+                    "version": 2,
                     "grid_seconds": rounding.grid_seconds,
                     "mode": mode,
+                    "start_grid_seconds": rounding.start_grid_seconds,
+                    "start_mode": start_mode,
                     "group": group,
                     "range": p.range,
                     "items": rounded.iter().map(|item| json!({
                         "task": self.view.task_view_by_id(item.task),
                         "task_id": item.task,
+                        "raw_start": item.raw_start,
                         "start": item.start,
                         "end": item.end,
                         "duration": item.duration,

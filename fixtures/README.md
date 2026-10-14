@@ -7,7 +7,7 @@ JSON cases run by both domain implementations so they cannot drift:
 
 | File | Covers |
 | --- | --- |
-| `round.json` | `round_and_flatten` / `roundAndFlatten`: grid, mode, grouping, time zone |
+| `round.json` | `round_and_flatten` / `roundAndFlatten`: duration grid (`grid_minutes`) and `mode`, start grid (`start_grid_minutes`, 0 = off) and `start_mode`, grouping, time zone; a case with `"error": true` is an invalid grid pair and expects `"error"` |
 | `union.json` | `union_seconds` / `unionSeconds` |
 | `report.json` | `report`: clipping, running entries, grouping by task/tag/project/day |
 | `quick.json` | quick-create parsing (`parse_quick`; the TS side also parses the joined line) |

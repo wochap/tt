@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use tt_core::{
     Entry, Project, Tag, Task, View, Workspace,
     report::{GroupBy, report, union_seconds},
-    round::{Interval, RoundGroup, RoundMode, round_and_flatten},
+    round::{Interval, RoundGroup, RoundMode, RoundOptions, round_and_flatten},
     text::parse_quick,
     time::{Range, parse_duration, parse_range, parse_time},
 };
@@ -94,14 +94,24 @@ fn round() {
             .expect("group")
             .parse()
             .expect("group");
-        let grid = Duration::minutes(case["grid_minutes"].as_i64().expect("grid_minutes"));
-        json!(round_and_flatten(
-            &items,
-            grid,
+        let start_mode: RoundMode = case["start_mode"]
+            .as_str()
+            .expect("start_mode")
+            .parse()
+            .expect("start_mode");
+        let options = RoundOptions {
+            duration_grid: Duration::minutes(case["grid_minutes"].as_i64().expect("grid_minutes")),
             mode,
+            start_grid: Duration::minutes(
+                case["start_grid_minutes"]
+                    .as_i64()
+                    .expect("start_grid_minutes"),
+            ),
+            start_mode,
             group,
-            tz(&case["tz"])
-        ))
+        };
+        round_and_flatten(&items, &options, tz(&case["tz"]))
+            .map_or_else(|_| json!("error"), |out| json!(out))
     });
 }
 

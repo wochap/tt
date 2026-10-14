@@ -25,11 +25,21 @@ export interface PreviewRow {
   start: Millis;
   end: Millis;
   seconds: number;
-  badge?: "moved" | "rounded";
+  badge?: "moved" | "snapped" | "rounded" | "dropped";
   count?: number;
+  dropped?: boolean;
 }
 
-/** Raw rows (clipped inputs) and flattened rows with moved/rounded badges. */
+/** Badge of a rounded row, derived from the domain output alone. */
+function badgeOf(item: Rounded): PreviewRow["badge"] {
+  if (item.dropped) return "dropped";
+  if (item.start > item.grid_start) return "moved";
+  if (item.grid_start !== item.raw_start) return "snapped";
+  if (item.duration !== item.original) return "rounded";
+  return undefined;
+}
+
+/** Raw rows (clipped inputs) and flattened rows with moved/snapped/rounded/dropped badges. */
 export function previewRows(inputs: readonly RoundInput[], rounded: readonly Rounded[]): { raw: PreviewRow[]; flat: PreviewRow[] } {
   const raw = inputs.map((item) => ({
     key: item.entries[0] ?? "",
@@ -38,14 +48,16 @@ export function previewRows(inputs: readonly RoundInput[], rounded: readonly Rou
     end: item.end,
     seconds: Math.max(0, Math.trunc((item.end - item.start) / 1000)),
   }));
-  const firstStart = new Map<string, Millis>();
-  for (const item of inputs) for (const id of item.entries) firstStart.set(id, item.start);
-  const flat = rounded.map((item) => {
-    const original = Math.min(...item.entries.map((id) => firstStart.get(id) ?? item.start));
-    const moved = item.start > original;
-    const badge: PreviewRow["badge"] = moved ? "moved" : item.duration !== item.original ? "rounded" : undefined;
-    return { key: item.entries[0] ?? "", task: item.task, start: item.start, end: item.end, seconds: item.duration, badge, count: item.entries.length };
-  });
+  const flat = rounded.map((item) => ({
+    key: item.entries[0] ?? "",
+    task: item.task,
+    start: item.start,
+    end: item.end,
+    seconds: item.duration,
+    badge: badgeOf(item),
+    count: item.entries.length,
+    dropped: item.dropped,
+  }));
   return { raw, flat };
 }
 
@@ -62,6 +74,7 @@ export function RoundFlattenPreview({
   group,
   gridMinutes,
   mode,
+  startGridMinutes,
 }: {
   view: View;
   tz: string;
@@ -70,6 +83,7 @@ export function RoundFlattenPreview({
   group: RoundGroup;
   gridMinutes: number;
   mode: "up" | "nearest";
+  startGridMinutes: number;
 }) {
   const { raw, flat } = useMemo(() => previewRows(inputs, rounded), [inputs, rounded]);
   const days = useMemo(() => [...new Set(raw.map((r) => formatDate(localDate(tz, r.start))))].sort(), [raw, tz]);
@@ -93,6 +107,7 @@ export function RoundFlattenPreview({
           color={color}
           gridMinutes={gridMinutes}
           mode={mode}
+          startGridMinutes={startGridMinutes}
         />
       )}
       <div className="grid min-h-0 flex-1 grid-cols-2 px-[18px] pt-[14px]">
@@ -126,7 +141,8 @@ export function RoundFlattenPreview({
                   data-testid="flat-row"
                   data-start={row.start}
                   data-end={row.end}
-                  className="grid h-[30px] grid-cols-[76px_1fr_90px_56px] items-center gap-[10px] border-b border-[color-mix(in_srgb,var(--c-s0)_60%,transparent)] px-[10px] text-[12px] tabular-nums"
+                  data-badge={row.badge}
+                  className={cn("grid h-[30px] grid-cols-[76px_1fr_90px_56px] items-center gap-[10px] border-b border-[color-mix(in_srgb,var(--c-s0)_60%,transparent)] px-[10px] text-[12px] tabular-nums", row.dropped && "opacity-50")}
                 >
                   <span className="text-sub1">{formatDayShort(parseDate(formatDate(localDate(tz, row.start)))!).replace(/^\w+ /, "")}</span>
                   <span className="flex min-w-0 items-center gap-[6px]">
@@ -156,9 +172,11 @@ function Row({ row, tz, title, color, badge }: { row: PreviewRow; tz: string; ti
       data-testid={badge ? "flat-row" : "raw-row"}
       data-start={row.start}
       data-end={row.end}
+      data-badge={row.badge}
       className={cn(
         "grid h-8 items-center gap-[10px] border-b border-[color-mix(in_srgb,var(--c-s0)_60%,transparent)] px-[10px] text-[12px] tabular-nums",
         badge ? "grid-cols-[96px_1fr_56px_56px]" : "grid-cols-[96px_1fr_56px]",
+        row.dropped && "opacity-50",
       )}
     >
       <span className="font-mono text-[11.5px] text-sub1">
@@ -191,6 +209,7 @@ function Strips({
   color,
   gridMinutes,
   mode,
+  startGridMinutes,
 }: {
   tz: string;
   day: string;
@@ -201,6 +220,7 @@ function Strips({
   color: (task: string) => string;
   gridMinutes: number;
   mode: "up" | "nearest";
+  startGridMinutes: number;
 }) {
   const all = [...raw, ...flat];
   const from = Math.min(...all.map((r) => r.start));
@@ -241,12 +261,12 @@ function Strips({
       </div>
       <div className="mt-1 flex justify-between">
         <span>
-          rounded {mode} to {gridMinutes} min, pushed apart
+          rounded {mode} to {gridMinutes} min{startGridMinutes ? `, starts snapped to ${startGridMinutes} min` : ""}, pushed apart
         </span>
         <span className="text-peach-fg">{flatEnd > rawEnd ? `day ends later: +${formatDuration((flatEnd - rawEnd) / 1000)}` : "same end"}</span>
       </div>
       <div className="relative h-[14px] rounded-xs bg-base">
-        {flat.map((r) => (
+        {flat.filter((r) => !r.dropped).map((r) => (
           <span
             key={`${r.key}-${r.start}`}
             className="absolute inset-y-0 rounded-xs"

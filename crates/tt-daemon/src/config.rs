@@ -43,6 +43,9 @@ pub struct Config {
     /// Default rounding grid for exports, e.g. `15m`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub snap: Option<String>,
+    /// Default start grid for rounded exports, e.g. `15m`, or `off`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snap_start: Option<String>,
     /// IANA zone; unset or `local` means the system zone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tz: Option<String>,
@@ -61,6 +64,7 @@ pub const KEYS: &[&str] = &[
     "user.name",
     "week_start",
     "snap",
+    "snap_start",
     "tz",
     "editor",
 ];
@@ -116,6 +120,7 @@ impl Config {
             "user.name" => self.user.name.clone(),
             "week_start" => self.week_start.clone(),
             "snap" => self.snap.clone(),
+            "snap_start" => self.snap_start.clone(),
             "tz" => self.tz.clone(),
             "editor" => self.editor.clone(),
             _ => bail!("unknown config key {key:?} (known: {})", KEYS.join(", ")),
@@ -138,6 +143,9 @@ impl Config {
                 "snap" => {
                     tt_core::time::parse_duration(value).map_err(|e| anyhow::anyhow!("{e}"))?;
                 }
+                "snap_start" if !value.eq_ignore_ascii_case("off") => {
+                    tt_core::time::parse_duration(value).map_err(|e| anyhow::anyhow!("{e}"))?;
+                }
                 "tz" if value != "local" => {
                     value
                         .parse::<Tz>()
@@ -158,6 +166,7 @@ impl Config {
             "user.name" => &mut self.user.name,
             "week_start" => &mut self.week_start,
             "snap" => &mut self.snap,
+            "snap_start" => &mut self.snap_start,
             "tz" => &mut self.tz,
             "editor" => &mut self.editor,
             _ => bail!("unknown config key {key:?} (known: {})", KEYS.join(", ")),
@@ -275,6 +284,7 @@ mod tests {
             .unwrap();
         config.set("server.token", Some("secret".into())).unwrap();
         config.set("tz", Some("Europe/Berlin".into())).unwrap();
+        config.set("snap_start", Some("off".into())).unwrap();
         config.save(&path).unwrap();
         #[cfg(unix)]
         {
@@ -293,6 +303,10 @@ mod tests {
                 extra_roots: Vec::new(),
             }))
         );
+        assert_eq!(loaded.get("snap_start").unwrap().as_deref(), Some("off"));
+        config.set("snap_start", Some("10m".into())).unwrap();
+        assert_eq!(config.get("snap_start").unwrap().as_deref(), Some("10m"));
+        assert!(config.set("snap_start", Some("soon".into())).is_err());
         assert!(config.set("tz", Some("Mars/Base".into())).is_err());
         assert!(config.set("nope", None).is_err());
         assert_eq!(Config::default().sync_endpoint(), Ok(None));

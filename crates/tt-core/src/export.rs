@@ -219,12 +219,13 @@ pub fn entries_csv(view: &View, entries: &[Entry], now: DateTime<Utc>) -> CoreRe
     String::from_utf8(writer.into_inner().map_err(csv_error)?).map_err(csv_error)
 }
 
-/// Rounded intervals as CSV; the id column lists source entry ids.
+/// Rounded intervals as CSV; the id column lists source entry ids. Dropped
+/// items are left out.
 pub fn rounded_csv(view: &View, rounded: &[Rounded], tz: Tz) -> CoreResult<String> {
     let _ = tz;
     let mut writer = csv::Writer::from_writer(Vec::new());
     writer.write_record(CSV_HEADER).map_err(csv_error)?;
-    for item in rounded {
+    for item in rounded.iter().filter(|item| !item.dropped) {
         let (seq, title, project, tags) = task_columns(view, item.task);
         writer
             .write_record([
@@ -350,5 +351,29 @@ mod tests {
         let mut exported = export(&sample(), None, now());
         exported.format = "other".into();
         assert!(parse_export(&serde_json::to_string(&exported).unwrap()).is_err());
+    }
+
+    #[test]
+    fn rounded_csv_skips_dropped_items() {
+        use crate::round::{Interval, RoundGroup, RoundMode, RoundOptions, round_and_flatten};
+        let view = sample();
+        let task = *view.workspace.tasks.keys().next().unwrap();
+        let items = [Interval {
+            task,
+            start: now(),
+            end: now() + chrono::Duration::minutes(4),
+            entries: vec![Uuid::now_v7()],
+        }];
+        let options = RoundOptions {
+            duration_grid: chrono::Duration::minutes(15),
+            mode: RoundMode::Nearest,
+            start_grid: chrono::Duration::zero(),
+            start_mode: RoundMode::Nearest,
+            group: RoundGroup::Entry,
+        };
+        let rounded = round_and_flatten(&items, &options, Tz::UTC).unwrap();
+        assert!(rounded[0].dropped);
+        let csv = rounded_csv(&view, &rounded, Tz::UTC).unwrap();
+        assert_eq!(csv.lines().count(), 1);
     }
 }

@@ -225,14 +225,17 @@ test("export preview equals the shared round + flatten output", async ({ page })
   await createEntry(page, [13, 10], [13, 45], "billing", true);
   await page.goto("/reports");
   await page.getByRole("radiogroup", { name: "Range" }).getByRole("radio", { name: "Day" }).click();
+  // Duration 15 min defaults the start grid to 15 min; the brief's example uses start off.
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toContainText("15 min");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(page.getByRole("menuitemradio", { name: "10 min" })).toHaveAttribute("data-disabled", "");
+  await page.getByRole("menuitemradio", { name: "off" }).click();
   const raw = await page.getByTestId("raw-row").evaluateAll((rows) => rows.map((r) => [Number(r.getAttribute("data-start")), Number(r.getAttribute("data-end"))]));
   const flat = await page.getByTestId("flat-row").evaluateAll((rows) => rows.map((r) => [Number(r.getAttribute("data-start")), Number(r.getAttribute("data-end"))]));
   expect(raw).toHaveLength(2);
   const expected = roundAndFlatten(
     raw.map(([start, end], i) => ({ task: "t", start: start!, end: end!, entries: [String(i)] })),
-    15 * 60,
-    "up",
-    "entry",
+    { gridSeconds: 15 * 60, mode: "up", startGridSeconds: 0, startMode: "up", group: "entry" },
     "Europe/Berlin",
   ).map((r) => [r.start, r.end]);
   expect(flat).toEqual(expected);

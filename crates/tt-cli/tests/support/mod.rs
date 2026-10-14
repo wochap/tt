@@ -137,6 +137,17 @@ impl Env {
         self.path("run/tt.sock")
     }
 
+    /// One raw JSON-RPC call on the daemon socket; returns the whole response.
+    pub fn rpc(&self, method: &str, params: Value) -> Value {
+        let mut stream = UnixStream::connect(self.socket()).unwrap();
+        let request =
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+        writeln!(stream, "{request}").unwrap();
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+
     pub fn set(&self, key: &str, value: &str) {
         self.ok(&["config", "set", key, value]);
     }

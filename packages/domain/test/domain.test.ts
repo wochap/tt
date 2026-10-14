@@ -32,6 +32,10 @@ import {
   resolveTask,
   entryYear,
   indexSetYear,
+  roundAndFlatten,
+  roundedCsv,
+  roundedJson,
+  validStartGrids,
 } from "../src/index.ts";
 
 const NOW = Date.UTC(2026, 9, 8, 13, 42);
@@ -250,5 +254,39 @@ describe("format", () => {
     expect(formatDuration(45 * 60)).toBe("45m");
     expect(formatDuration(3 * 3600 + 5 * 60)).toBe("3h 05m");
     expect(formatElapsed(3600 + 12 * 60 + 8)).toBe("1:12:08");
+  });
+});
+
+describe("rounded export", () => {
+  const view = sampleView();
+  const task = [...view.workspace.tasks.keys()][0]!;
+  const options = { gridSeconds: 900, mode: "nearest" as const, startGridSeconds: 900, startMode: "nearest" as const, group: "entry" as const };
+  const items = [
+    { task, start: Date.UTC(2026, 9, 7, 21, 7), end: Date.UTC(2026, 9, 7, 21, 11), entries: ["e1"] },
+    { task, start: Date.UTC(2026, 9, 7, 21, 22), end: Date.UTC(2026, 9, 7, 21, 37), entries: ["e2"] },
+  ];
+  const rounded = roundAndFlatten(items, options, "UTC");
+
+  it("keeps dropped rows in the domain output", () => {
+    expect(rounded.map((r) => r.dropped)).toEqual([true, false]);
+  });
+
+  it("leaves dropped rows out of the CSV", () => {
+    const csv = roundedCsv(view, rounded).trim().split("\n");
+    expect(csv).toHaveLength(2);
+    expect(csv[1]).toContain("2026-10-07T21:15:00");
+  });
+
+  it("emits tt-rounded version 2", () => {
+    const doc = roundedJson(view, undefined, options, rounded);
+    expect(doc).toMatchObject({ format: "tt-rounded", version: 2, start_grid_seconds: 900, start_mode: "nearest", total: 900 });
+    const docItems = doc.items as Record<string, unknown>[];
+    expect(docItems).toHaveLength(1);
+    expect(docItems[0]).toMatchObject({ raw_start: "2026-10-07T21:22:00Z", day: "2026-10-07" });
+  });
+
+  it("validates grid pairs", () => {
+    expect(validStartGrids(900)).toEqual([0, 300, 900]);
+    expect(() => roundAndFlatten(items, { ...options, startGridSeconds: 600 }, "UTC")).toThrow(/off, 5m, 15m/);
   });
 });

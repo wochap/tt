@@ -239,6 +239,57 @@ fn local_flows_from_the_brief() {
     assert!(csv.starts_with("id,task_seq,task_title"));
     assert_eq!(csv.lines().count(), 3);
 
+    // Start grid: default from the duration grid, off, invalid pairs.
+    let snap_day = "2026-01-06";
+    env.json(&["start", &billing, "--at", &format!("{snap_day}T21:22")]);
+    env.json(&["stop", &billing, "--at", &format!("{snap_day}T21:37")]);
+    let start_of = |args: &[&str]| -> Value {
+        let mut all = vec!["export", snap_day];
+        all.extend_from_slice(args);
+        serde_json::from_str(&env.ok(&all)).unwrap()
+    };
+    let snapped = start_of(&["--round", "30m"]);
+    assert_eq!(snapped["version"], 2);
+    assert_eq!(snapped["start_grid_seconds"], 15 * 60);
+    assert_eq!(snapped["start_mode"], "up");
+    assert_eq!(
+        snapped["items"][0]["start"].as_str().unwrap()[11..16],
+        *"21:30"
+    );
+    assert_eq!(
+        snapped["items"][0]["raw_start"].as_str().unwrap()[11..16],
+        *"21:22"
+    );
+    assert_eq!(snapped["items"][0]["day"], snap_day);
+    let raw = start_of(&["--round", "30m", "--start", "off"]);
+    assert_eq!(raw["start_grid_seconds"], 0);
+    assert_eq!(raw["items"][0]["start"].as_str().unwrap()[11..16], *"21:22");
+    let (code, _, stderr) = env.code(&["export", snap_day, "--round", "15m", "--start", "10m"]);
+    assert_eq!(code, 1);
+    assert!(stderr.contains("off, 5m, 15m"), "{stderr}");
+    let response = env.rpc(
+        "export",
+        serde_json::json!({"round": {"grid_seconds": 900, "start_grid_seconds": 600}}),
+    );
+    assert_eq!(response["error"]["code"], -32602, "{response}");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("off, 5m, 15m")
+    );
+    // A 4 minute item rounded nearest is dropped from JSON and CSV.
+    env.json(&["start", &billing, "--at", &format!("{snap_day}T23:00")]);
+    env.json(&["stop", &billing, "--at", &format!("{snap_day}T23:04")]);
+    let nearest = start_of(&["--round", "15m", "--mode", "nearest"]);
+    assert_eq!(nearest["items"].as_array().unwrap().len(), 1);
+    let csv = env.ok(&[
+        "export", snap_day, "--round", "15m", "--mode", "nearest", "--format", "csv",
+    ]);
+    assert_eq!(csv.lines().count(), 2);
+    env.set("snap_start", "off");
+    assert_eq!(start_of(&["--round", "15m"])["start_grid_seconds"], 0);
+
     // Done task keeps its number; the next task gets the next one.
     env.ok(&["task", "done", "1"]);
     let next = env.json(&["task", "add", "Next"]);

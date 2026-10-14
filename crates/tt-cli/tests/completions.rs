@@ -10,8 +10,16 @@ fn zsh_script_without_a_daemon() {
     let script = env.ok(&["completions", "zsh"]);
     assert!(script.contains("#compdef tt"), "{script}");
     assert!(script.contains("_tt()"), "{script}");
-    for value in ["task", "tag", "project", "day"] {
-        assert!(script.contains(value));
+    for value in [
+        "task",
+        "tag",
+        "project",
+        "day",
+        "--start",
+        "--start-mode",
+        "snap_start",
+    ] {
+        assert!(script.contains(value), "{value}");
     }
     assert!(
         !env.socket().exists(),
@@ -41,6 +49,7 @@ fn invalid_enumerated_values_are_usage_errors() {
         &["report", "--by", "bogus"][..],
         &["export", "--format", "xml"],
         &["export", "--mode", "down"],
+        &["export", "--start-mode", "down"],
         &["export", "--group", "week"],
         &["task", "ls", "--state", "bogus"],
         &["config", "get", "nope"],

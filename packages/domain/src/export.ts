@@ -3,7 +3,7 @@
 
 import { compare, type Entry, entryDuration, type Millis, type Project, type Tag, type Task, taskProject, taskTags, type Uuid, type View } from "./model.ts";
 import { clip } from "./intervals.ts";
-import { type RoundGroup, type RoundInput, type RoundMode, type Rounded, roundAndFlatten } from "./round.ts";
+import { type RoundInput, type RoundOptions, type Rounded, roundAndFlatten } from "./round.ts";
 import { MAX_TIME, MIN_TIME, type Range, rangeOverlaps } from "./time.ts";
 
 export const EXPORT_FORMAT = "tt-export";
@@ -126,10 +126,11 @@ export function entriesCsv(view: View, entries: readonly Entry[], now: Millis): 
   return out;
 }
 
-/** Rounded intervals as CSV; the id column lists source entry ids. */
+/** Rounded intervals as CSV; the id column lists source entry ids. Dropped items are left out. */
 export function roundedCsv(view: View, rounded: readonly Rounded[]): string {
   let out = csvLine(CSV_HEADER);
   for (const item of rounded) {
+    if (item.dropped) continue;
     const [seq, title, project, tags] = taskColumns(view, item.task);
     out += csvLine([
       item.entries.join(" "),
@@ -156,26 +157,23 @@ export function roundInputs(view: View, range: Range | undefined, now: Millis): 
   });
 }
 
-export interface RoundOptions {
-  gridSeconds: number;
-  mode: RoundMode;
-  group: RoundGroup;
-}
-
 export function roundedFor(view: View, range: Range | undefined, options: RoundOptions, tz: string, now: Millis): Rounded[] {
-  return roundAndFlatten(roundInputs(view, range, now), options.gridSeconds, options.mode, options.group, tz);
+  return roundAndFlatten(roundInputs(view, range, now), options, tz);
 }
 
-/** The daemon's `tt-rounded` JSON document. */
+/** The daemon's `tt-rounded` JSON document; dropped items are left out. */
 export function roundedJson(view: View, range: Range | undefined, options: RoundOptions, rounded: readonly Rounded[]): Record<string, unknown> {
+  const kept = rounded.filter((item) => !item.dropped);
   return {
     format: "tt-rounded",
-    version: 1,
+    version: 2,
     grid_seconds: options.gridSeconds,
     mode: options.mode,
+    start_grid_seconds: options.startGridSeconds,
+    start_mode: options.startMode,
     group: options.group,
     range: range ? { from: rfc3339(range.from), to: rfc3339(range.to) } : null,
-    items: rounded.map((item) => {
+    items: kept.map((item) => {
       const task = view.workspace.tasks.get(item.task);
       return {
         task: task
@@ -189,14 +187,15 @@ export function roundedJson(view: View, range: Range | undefined, options: Round
             }
           : null,
         task_id: item.task,
+        raw_start: rfc3339(item.raw_start),
         start: rfc3339(item.start),
         end: rfc3339(item.end),
         duration: item.duration,
         original: item.original,
         entries: item.entries,
-        day: item.day ?? null,
+        day: item.day,
       };
     }),
-    total: rounded.reduce((sum, item) => sum + item.duration, 0),
+    total: kept.reduce((sum, item) => sum + item.duration, 0),
   };
 }

@@ -178,12 +178,21 @@ enum Cmd {
         /// json|csv
         #[arg(long, default_value = "json", value_parser = PossibleValuesParser::new(FORMAT_VALUES))]
         format: String,
-        /// Rounding grid, e.g. 15m (default: config `snap` when --mode/--group given)
+        /// Duration grid each item's length is rounded to, e.g. 15m (default:
+        /// config `snap` when --mode/--group/--start given)
         #[arg(long)]
         round: Option<String>,
         /// up|nearest
         #[arg(long, value_parser = PossibleValuesParser::new(MODE_VALUES))]
         mode: Option<String>,
+        /// Start grid each item's start is snapped to, e.g. 15m, or off; must
+        /// divide the duration grid (default: config `snap_start`, else the
+        /// largest of 15m/10m/5m dividing --round, else off)
+        #[arg(long)]
+        start: Option<String>,
+        /// up|nearest (default: --mode)
+        #[arg(long, value_parser = PossibleValuesParser::new(MODE_VALUES))]
+        start_mode: Option<String>,
         /// entry|task-day
         #[arg(long, value_parser = round_group_values())]
         group: Option<String>,
@@ -390,7 +399,7 @@ enum ConfigCmd {
     /// Set a key; omit the value to unset
     ///
     /// Keys: server.url, server.token, server.ca_cert, user.index_doc, user.id,
-    /// user.name, week_start, snap, tz, editor. server.ca_cert takes a PEM file
+    /// user.name, week_start, snap, snap_start, tz, editor. server.ca_cert takes a PEM file
     /// with an extra CA to trust; it is stored as an absolute path and must
     /// hold at least one certificate.
     Set {
@@ -533,9 +542,23 @@ fn run(cli: Cli) -> CliResult<u8> {
             format,
             round,
             mode,
+            start,
+            start_mode,
             group,
             output,
-        } => export(&mut ctx, range, format, round, mode, group, output)?,
+        } => export(
+            &mut ctx,
+            range,
+            format,
+            RoundArgs {
+                round,
+                mode,
+                start,
+                start_mode,
+                group,
+            },
+            output,
+        )?,
         Cmd::Import { file } => {
             let text = std::fs::read_to_string(&file)
                 .map_err(|e| Failure::usage(format!("{}: {e}", file.display())))?;
@@ -1006,31 +1029,100 @@ fn edit_table(ctx: &mut Ctx, range: &str) -> CliResult {
     }
 }
 
+/// `tt export` rounding flags.
+struct RoundArgs {
+    round: Option<String>,
+    mode: Option<String>,
+    start: Option<String>,
+    start_mode: Option<String>,
+    group: Option<String>,
+}
+
+/// Parses a start grid: a duration or `off` (0).
+fn parse_start_grid(value: &str) -> CliResult<chrono::Duration> {
+    if value.trim().eq_ignore_ascii_case("off") {
+        Ok(chrono::Duration::zero())
+    } else {
+        Ok(time::parse_duration(value)?)
+    }
+}
+
+/// Start grid when `--start` is not given: config `snap_start`, else the
+/// largest of 15/10/5 min dividing `duration`, else off.
+fn default_start_grid(ctx: &Ctx, duration: chrono::Duration) -> CliResult<chrono::Duration> {
+    if let Some(value) = ctx.config.snap_start.as_deref() {
+        return parse_start_grid(value);
+    }
+    let valid = tt_core::round::valid_start_grids(duration);
+    Ok(chrono::Duration::seconds(
+        [900, 600, 300]
+            .into_iter()
+            .find(|g| valid.contains(g))
+            .unwrap_or(0),
+    ))
+}
+
 fn export(
     ctx: &mut Ctx,
     range: Option<String>,
     format: String,
-    round: Option<String>,
-    mode: Option<String>,
-    group: Option<String>,
+    args: RoundArgs,
     output_path: Option<PathBuf>,
 ) -> CliResult {
+    let RoundArgs {
+        round,
+        mode,
+        start,
+        start_mode,
+        group,
+    } = args;
     let range = range.map(|r| ctx.range(&r)).transpose()?;
+    let wants_round = mode.is_some() || group.is_some() || start.is_some() || start_mode.is_some();
     let grid = round
-        .or_else(|| {
-            (mode.is_some() || group.is_some())
-                .then(|| ctx.config.snap.clone())
-                .flatten()
-        })
+        .or_else(|| wants_round.then(|| ctx.config.snap.clone()).flatten())
         .map(|g| time::parse_duration(&g))
         .transpose()?;
-    if grid.is_none() && (mode.is_some() || group.is_some()) {
+    if grid.is_none() && wants_round {
         return Err(Failure::usage(
-            "--mode/--group need --round (or config snap)",
+            "--mode/--group/--start/--start-mode need --round (or config snap)",
         ));
     }
-    let round =
-        grid.map(|grid| json!({"grid_seconds": grid.num_seconds(), "mode": mode, "group": group}));
+    let round = match grid {
+        None => None,
+        Some(grid) => {
+            let start_grid = match start.as_deref() {
+                Some(value) => parse_start_grid(value)?,
+                None => default_start_grid(ctx, grid)?,
+            };
+            let parsed_mode = mode
+                .as_deref()
+                .unwrap_or("up")
+                .parse::<tt_core::round::RoundMode>()?;
+            let start_mode = start_mode
+                .as_deref()
+                .map(str::parse::<tt_core::round::RoundMode>)
+                .transpose()?
+                .unwrap_or(parsed_mode);
+            let options = tt_core::round::RoundOptions {
+                duration_grid: grid,
+                mode: parsed_mode,
+                start_grid,
+                start_mode,
+                group: tt_core::round::RoundGroup::Entry,
+            };
+            tt_core::round::validate_grids(&options).map_err(|error| match error {
+                tt_core::CoreError::Invalid(message) => Failure::usage(message),
+                other => other.into(),
+            })?;
+            Some(json!({
+                "grid_seconds": grid.num_seconds(),
+                "mode": mode,
+                "start_grid_seconds": start_grid.num_seconds(),
+                "start_mode": start_mode,
+                "group": group,
+            }))
+        }
+    };
     let result = ctx.call(
         "export",
         json!({"range": range, "format": format, "round": round, "tz": ctx.tz.name()}),
