@@ -172,3 +172,22 @@ Undo toasts SHALL appear at the bottom left for 8 seconds and SHALL show a 2 px 
 #### Scenario: Undo after the toast is gone
 - **WHEN** the toast for "Deleted 5 entries" has closed and the user presses `Ctrl+Z`
 - **THEN** the five entries are restored
+
+### Requirement: App icon
+The app's icon SHALL be the design's "Timeline blocks" mark: a rounded tile in the theme's base color carrying staggered, rounded entry blocks in mauve, peach, green and blue. The browser favicon, the web app manifest icons and the Apple touch icon SHALL all use this mark; the former "tt" lettermark SHALL NOT appear in any of them. At favicon sizes (16–32 px) the icon SHALL use the design's small variant: three thicker blocks (mauve, peach, green) and no tile outline. The favicon SHALL use Mocha colors when the operating system prefers a dark color scheme and Latte colors when it prefers a light one. The manifest SHALL list a scalable icon, 192 px and 512 px icons, and a 512 px maskable icon whose blocks stay inside the maskable safe zone.
+
+#### Scenario: Favicon in a dark browser
+- **WHEN** the app is open in a browser tab and the OS prefers a dark color scheme
+- **THEN** the tab shows the three-block mark on a `#1e1e2e` tile in mauve, peach and green
+
+#### Scenario: Favicon in a light browser
+- **WHEN** the app is open in a browser tab and the OS prefers a light color scheme
+- **THEN** the tab shows the three-block mark on a `#eff1f5` tile in `#8839ef`, `#fe640b` and `#40a02b`
+
+#### Scenario: Installed app icon
+- **WHEN** the user installs the PWA on a desktop or phone
+- **THEN** the launcher and home screen show the four-block Timeline blocks mark, not the "tt" letters
+
+#### Scenario: Maskable icon on Android
+- **WHEN** an Android launcher crops the maskable icon to a circle or squircle
+- **THEN** no block is cut off
