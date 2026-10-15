@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router";
 
+import { BrandMark } from "@/components/BrandMark";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
 import { useNow, useSession, useSyncStatus } from "@/data/react";
@@ -29,7 +30,7 @@ export function TopBar() {
   const { openPalette } = useUi();
   return (
     <header className="flex h-11 flex-none items-center gap-[18px] border-b bg-mantle px-[14px]">
-      <div className="text-[15px] font-semibold tracking-[-.02em] text-link">tt</div>
+      <BrandMark size={22} className="flex-none" />
       <nav className="flex gap-[2px] text-[13px]" aria-label="Main">
         {NAV.map((item) => (
           <NavLink

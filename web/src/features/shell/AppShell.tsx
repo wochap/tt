@@ -1,5 +1,6 @@
 import { Outlet, useNavigate } from "react-router";
 
+import { BrandMark } from "@/components/BrandMark";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useActions } from "@/data/actions";
@@ -74,7 +75,7 @@ function Shell() {
       <div className="flex h-full flex-col bg-base">
         <GlobalKeys />
         <div className="flex h-[38px] flex-none items-end justify-between px-5 pb-[6px] text-[12px] text-muted">
-          <span className="font-semibold text-link">tt</span>
+          <BrandMark size={18} />
           <SyncStatus status={status} compact />
         </div>
         {snapshot.state === "ready" && <RunningStrip phone />}

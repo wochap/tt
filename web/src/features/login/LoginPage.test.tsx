@@ -43,6 +43,8 @@ describe.each<Flavor>(["mocha", "latte"])("LoginPage (%s)", (flavor) => {
     render(<LoginPage onLogin={() => {}} />);
     expect(await screen.findByRole("heading", { name: "Sign in to laptop-a" })).toBeInTheDocument();
     expect(screen.getByTestId("login-server")).toHaveTextContent(location.origin);
+    expect(screen.getByRole("img", { name: "tt" })).toBeInTheDocument();
+    expect(screen.queryByText("tt", { exact: true })).toBeNull();
   });
 
   it("says one sign-in works on every paired server, under Sign in", async () => {

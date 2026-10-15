@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 
+import { BrandMark } from "@/components/BrandMark";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Checkbox } from "@/components/ui/switch";
@@ -73,7 +74,7 @@ export function LoginPage({ onLogin }: { onLogin: (auth: Auth, persist: boolean)
     <div className="flex min-h-full items-center justify-center bg-base text-fg">
       <form onSubmit={submit} className="flex w-full max-w-[560px] flex-col items-start gap-[22px] px-6 py-10 sm:px-[72px]" aria-label="Sign in">
         <div>
-          <div className="text-[26px] font-semibold tracking-[-.03em] text-link">tt</div>
+          <BrandMark size={40} />
           <h1 className="mt-[14px] text-[20px] font-medium tracking-[-.02em]">Sign in to {name ?? (url ? new URL(url).host : "tt")}</h1>
           <div className="mt-[3px] font-mono text-[12px] text-muted" data-testid="login-server">
             {url ?? server}
