@@ -191,3 +191,26 @@ The app's icon SHALL be the design's "Timeline blocks" mark: a rounded tile in t
 #### Scenario: Maskable icon on Android
 - **WHEN** an Android launcher crops the maskable icon to a circle or squircle
 - **THEN** no block is cut off
+
+### Requirement: In-app brand mark
+The desktop top bar, the phone header and the login page SHALL show the Timeline blocks mark (the app icon's tile and staggered entry blocks) as the app's brand, with no "tt" text beside it; the "tt" text SHALL NOT appear in those three places as a brand. The mark SHALL use the colors of the app's current theme: the theme's base color for the tile and its mauve, peach, green and blue for the blocks, so it switches between Mocha and Latte together with the rest of the app. At 24 px and below the mark SHALL use the small three-block variant without a tile outline. The mark SHALL be exposed to assistive technology as an image named "tt".
+
+#### Scenario: Desktop top bar
+- **WHEN** a signed-in user views the app on a desktop-width screen
+- **THEN** the top left of the top bar shows the Timeline blocks mark and no "tt" text, followed by the Timeline, Tasks, Reports and Settings tabs
+
+#### Scenario: Phone header
+- **WHEN** a signed-in user views the app on a phone-width screen
+- **THEN** the header shows the mark at its left and the sync status at its right, with no "tt" text
+
+#### Scenario: Login page
+- **WHEN** the login page is shown
+- **THEN** the mark appears above the "Sign in to …" heading in place of the "tt" text
+
+#### Scenario: Theme switch
+- **WHEN** the user switches the theme from Mocha to Latte
+- **THEN** the mark's tile and blocks change to the Latte base, mauve, peach and green without a reload
+
+#### Scenario: Screen reader
+- **WHEN** a screen reader reaches the mark in the top bar
+- **THEN** it announces an image named "tt"
