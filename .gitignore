@@ -14,6 +14,7 @@ web/dev-dist
 web/test-results
 web/playwright-report
 .playwright-mcp
+result
 
 design/**/*.webp
 design/**/*.png
