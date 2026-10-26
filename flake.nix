@@ -2,7 +2,7 @@
   description = "tt: task + time tracker (CLI, daemon, server, web)";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?rev=0ad6f47ea4fe188f4bc8f0380f93ae8523337c6c"; # nixos-26.05 (10 jul 2026)
+    nixpkgs.url = "github:nixos/nixpkgs/1f607aa79b6356ed45d3cd3c8079c196e79efa2c"; # nixos-26.05 (26 oct 2026)
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -20,8 +20,8 @@
         lib = pkgs.lib;
         version = "0.1.0";
 
-        pnpm = pkgs.pnpm_8;
-        nodejs = pkgs.nodejs_22;
+        pnpmPkg = pkgs.pnpm_11;
+        nodejsPkg = pkgs.nodejs_24;
 
         # Rust binaries: `tt` (CLI + daemon) and `tt-server`.
         tt = pkgs.rustPlatform.buildRustPackage {
@@ -54,7 +54,8 @@
           postInstall = ''
             install -Dm644 contrib/tt.service -t $out/share/systemd/user
             install -Dm644 contrib/tt-server.service -t $out/share/systemd/system
-          '' + lib.optionalString (pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform) ''
+          ''
+          + lib.optionalString (pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform) ''
             installShellCompletion --zsh --name _tt <($out/bin/tt completions zsh)
             installShellCompletion --zsh --name _tt-server <($out/bin/tt-server completions zsh)
           '';
@@ -93,16 +94,16 @@
           };
 
           nativeBuildInputs = [
-            nodejs
-            pnpm
-            (pkgs.pnpmConfigHook.override { inherit pnpm; })
+            nodejsPkg
+            pnpmPkg
+            (pkgs.pnpmConfigHook.override { pnpm = pnpmPkg; })
           ];
 
           pnpmDeps = pkgs.fetchPnpmDeps {
-            inherit pnpm;
+            pnpm = pnpmPkg;
             inherit (finalAttrs) pname version src;
             fetcherVersion = 3;
-            hash = "sha256-70A2xU+UaXOOUIJKKwcmf0UvwbLsi6XKf6ZQ32cW1KA=";
+            hash = "sha256-qjP6qnDm6HP8ofJNBxGQtDwzMSHkXvXzEzxneZ/Lg1Y=";
           };
 
           buildPhase = ''
@@ -137,17 +138,23 @@
 
         devShells.default = pkgs.mkShell {
           inputsFrom = [ tt ];
-          packages = with pkgs; [
-            cargo
-            rustc
-            clippy
-            rustfmt
-            rust-analyzer
-            just
-            sqlite
-            nodejs
-            pnpm
-          ];
+
+          packages =
+            with pkgs;
+            [
+              cargo
+              rustc
+              clippy
+              rustfmt
+              rust-analyzer
+              just
+              sqlite
+            ]
+            ++ [
+              nodejsPkg
+              pnpmPkg
+            ];
+
           RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         };
 
